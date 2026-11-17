@@ -3,22 +3,22 @@
 
 [[case]]
 request = "install vlc"
-command = "apt install"
+command = "package install"
 expect = "sudo apt install vlc"
 
 [[case]]
 request = "uninstall libreoffice"
-command = "apt remove"
+command = "package remove"
 expect = "sudo apt remove libreoffice"
 
 [[case]]
 request = "update all my packages"
-command = "apt update"
+command = "system update"
 expect = "sudo apt update && sudo apt upgrade"
 
 [[case]]
 request = "is there a package for gimp"
-command = "apt search"
+command = "package search"
 expect = "apt search gimp"
 
 [[case]]

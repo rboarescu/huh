@@ -488,22 +488,22 @@ expect = "ss -tulpn"
 
 [[case]]
 request = "install vlc"
-command = "pacman install"
-expect = "sudo pacman -S vlc"
+command = "package install"
+expect = "omarchy pkg add vlc"
 
 [[case]]
 request = "uninstall libreoffice"
-command = "pacman remove"
-expect = "sudo pacman -Rs libreoffice"
+command = "package remove"
+expect = "omarchy pkg drop libreoffice"
 
 [[case]]
 request = "update all my packages"
-command = "pacman update"
+command = "system update"
 expect = "sudo pacman -Syu"
 
 [[case]]
 request = "is there a package for gimp"
-command = "pacman search"
+command = "package search"
 expect = "pacman -Ss gimp"
 
 [[case]]
@@ -857,7 +857,7 @@ expect = "omarchy toggle touchpad off"
 
 [[case]]
 request = "install obsidian"
-command = "pacman install|omarchy pkg add|yay install"
+command = "package install|yay install"
 
 [[case]]
 request = "which of my tailscale devices are online"

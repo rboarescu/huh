@@ -163,6 +163,9 @@ pub fn run_errors(path: &Path) -> Result<()> {
     let text = std::fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
     let cases = toml::from_str::<ErrorFile>(&text).with_context(|| format!("invalid {}", path.display()))?.case;
 
+    // The recorded failures come from an Arch machine that lacked the program: score them
+    // the same way on every machine.
+    crate::platform::pin_for_eval(&["arch"]);
     let (mut cause, mut fix) = (Tally::default(), Tally::default());
     let mut total = Vec::new();
     for case in &cases {

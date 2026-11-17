@@ -1,5 +1,0 @@
-name = "apt update"
-description = "Update the system and all installed programs to their latest versions"
-template = "sudo apt update && sudo apt upgrade"
-platform = "debian"
-keywords = ["update packages", "upgrade system", "update software", "install updates"]

@@ -1,0 +1,9 @@
+name = "package owns file"
+description = "Find which installed package a file belongs to"
+template = "{pkg_owns}"
+keywords = ["which package owns", "package that owns file", "what package installed this file", "which package does this file come from", "owns file", "pacman -Qo", "dpkg -S", "rpm -qf"]
+
+[[slots]]
+id = "file"
+kind = "path"
+what = "the file to look up"

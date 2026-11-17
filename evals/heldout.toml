@@ -123,8 +123,8 @@ command = "none"
 
 [[case]]
 request = "install firefox"
-command = "pacman install"
-expect = "sudo pacman -S firefox"
+command = "package install"
+expect = "omarchy pkg add firefox"
 
 [[case]]
 request = "restart the nginx service"
@@ -298,17 +298,17 @@ expect = "ss -tulpn"
 
 [[case]]
 request = "remove the package steam"
-command = "pacman remove"
-expect = "sudo pacman -Rs steam"
+command = "package remove"
+expect = "omarchy pkg drop steam"
 
 [[case]]
 request = "upgrade the whole system"
-command = "pacman update"
+command = "system update"
 expect = "sudo pacman -Syu"
 
 [[case]]
 request = "look for a pdf reader i can install"
-command = "pacman search"
+command = "package search"
 
 [[case]]
 request = "switch to the main branch"
@@ -513,7 +513,7 @@ expect = "omarchy toggle idle stay-awake"
 
 [[case]]
 request = "bring everything on this machine up to date"
-command = "pacman update|omarchy update"
+command = "system update|omarchy update"
 
 [[case]]
 request = "show the tailscale network"

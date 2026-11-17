@@ -1,0 +1,9 @@
+name = "package install"
+description = "Install a program or package"
+template = "{pkg_install}"
+keywords = ["install program", "install app", "install software", "add package", "install package", "add app", "pacman -S", "apt-get install", "omarchy install"]
+
+[[slots]]
+id = "package"
+kind = "text"
+what = "the program to install"

@@ -27,67 +27,6 @@ pub fn exit_meaning(code: i32) -> Option<&'static str> {
     EXIT_CODES.iter().find(|(c, _)| *c == code).map(|(_, desc)| *desc)
 }
 
-/// How packages are installed on each family of systems the catalog knows.
-const INSTALL: &[(&str, &str)] = &[
-    ("arch", "sudo pacman -S <package>"),
-    ("debian", "sudo apt install <package>"),
-    ("fedora", "sudo dnf install <package>"),
-];
-
-/// Binary-to-package mappings where the package name differs or is commonly missing.
-const KNOWN_PACKAGES: &[(&str, &str)] = &[
-    ("rg", "ripgrep"),
-    ("jq", "jq"),
-    ("zbarimg", "zbar"),
-    ("virsh", "libvirt"),
-    ("smartctl", "smartmontools"),
-    ("nmap", "nmap"),
-    ("ss", "iproute2"),
-    ("ip", "iproute2"),
-    ("upower", "upower"),
-    ("fd", "fd"),
-    ("bat", "bat"),
-    ("eza", "eza"),
-    ("fzf", "fzf"),
-    ("htop", "htop"),
-    ("btop", "btop"),
-    ("tmux", "tmux"),
-    ("nvim", "neovim"),
-    ("vim", "vim"),
-    ("tree", "tree"),
-    ("unzip", "unzip"),
-    ("unrar", "unrar"),
-    ("zip", "zip"),
-    ("7z", "7zip"),
-    ("rsync", "rsync"),
-    ("wget", "wget"),
-    ("curl", "curl"),
-    ("ffmpeg", "ffmpeg"),
-    ("convert", "imagemagick"),
-    ("magick", "imagemagick"),
-    ("lsof", "lsof"),
-    ("strace", "strace"),
-    ("iperf3", "iperf3"),
-    ("ethtool", "ethtool"),
-    ("lsusb", "usbutils"),
-    ("lspci", "pciutils"),
-    ("dig", "bind"),
-    ("nc", "openbsd-netcat"),
-    ("socat", "socat"),
-    ("sqlite3", "sqlite"),
-    ("git", "git"),
-    ("docker", "docker"),
-    ("tailscale", "tailscale"),
-    ("ollama", "ollama"),
-    ("python", "python"),
-    ("python3", "python"),
-    ("pip", "python-pip"),
-    ("node", "nodejs"),
-    ("npm", "npm"),
-    ("cargo", "rust"),
-    ("rustc", "rust"),
-];
-
 /// Well-known commands used as a fallback typo dictionary alongside `$PATH`.
 const COMMON_COMMANDS: &[&str] = &[
     "ls",
@@ -176,33 +115,18 @@ const COMMON_COMMANDS: &[&str] = &[
 fn system_facts(os_release: &str, shell: &str) -> String {
     let name =
         os_release.lines().find_map(|line| line.strip_prefix("NAME=")).map_or("Linux", |name| name.trim_matches('"'));
-    let platforms = crate::catalog::platforms_from(os_release);
+    let platforms = crate::platform::expand(&crate::platform::ids_from(os_release));
     let mut facts = format!("{name}, shell {}.", shell.rsplit('/').next().unwrap_or_default());
-    if let Some((_, install)) = INSTALL.iter().find(|(family, _)| platforms.iter().any(|p| p == family)) {
-        facts.push_str(&format!(" Packages are installed with `{install}`."));
+    if let Some(install) = crate::platform::fact(&platforms, "pkg_install") {
+        facts.push_str(&format!(" Packages are installed with `{}`.", crate::platform::fill(&install, "<package>")));
     }
     facts
-}
-
-fn read_os_release() -> String {
-    std::fs::read_to_string("/etc/os-release").unwrap_or_default()
-}
-
-fn package_install_command(package: &str, os_release: &str) -> Option<String> {
-    let platforms = crate::catalog::platforms_from(os_release);
-    if let Some((_, tmpl)) = INSTALL.iter().find(|(family, _)| platforms.iter().any(|p| p == family)) {
-        return Some(tmpl.replace("<package>", package));
-    }
-    if platforms.iter().any(|p| p == "omarchy") {
-        return Some(format!("omarchy pkg add {package}"));
-    }
-    None
 }
 
 /// Kept for prompt/context formatting helpers and tests.
 #[cfg(test)]
 fn system_line() -> String {
-    system_facts(&read_os_release(), &std::env::var("SHELL").unwrap_or_default())
+    system_facts(&crate::platform::read_os_release(), &std::env::var("SHELL").unwrap_or_default())
 }
 
 #[cfg(test)]
@@ -436,74 +360,122 @@ fn diagnose_not_executable(last: &Last) -> Option<String> {
     ))
 }
 
-fn omarchy_install_prose(pkg: &str, os_release: &str) -> String {
-    if crate::catalog::platforms_from(os_release).iter().any(|p| p == "omarchy") {
-        format!(" You can also install it with `omarchy pkg add {pkg}`.")
-    } else {
-        String::new()
+/// The command line with `missing` replaced by `correction`: the whole word in command
+/// position (start, or after `sudo`, `&&`, `;`, `|`), else the first whole word.
+fn fix_command(command: &str, missing: &str, correction: &str) -> String {
+    let boundary = |c: Option<char>| c.is_none_or(|c| c.is_whitespace() || ";&|()".contains(c));
+    let whole_words: Vec<usize> = command
+        .match_indices(missing)
+        .map(|(at, _)| at)
+        .filter(|&at| {
+            boundary(command[..at].chars().next_back()) && boundary(command[at + missing.len()..].chars().next())
+        })
+        .collect();
+    let in_command_position = |at: &usize| {
+        let before = command[..*at].trim_end();
+        before.is_empty()
+            || before.ends_with(['&', ';', '|', '('])
+            || before.rsplit(char::is_whitespace).next().is_some_and(|word| matches!(word, "sudo" | "env" | "time"))
+    };
+    match whole_words.iter().find(|at| in_command_position(at)).or(whole_words.first()) {
+        Some(&at) => format!("{}{correction}{}", &command[..at], &command[at + missing.len()..]),
+        None => correction.to_string(),
     }
 }
 
 fn diagnose_command_not_found(last: &Last) -> Option<String> {
+    use crate::platform::{self, Found};
     let lower = last.output.to_lowercase();
-    if last.exit != Some(127) && !lower.contains("command not found") && !lower.contains("unknown command:") {
+    let from_output = missing_from_output(&last.output);
+    if last.exit != Some(127) && from_output.is_none() && !lower.contains("unknown command:") {
         return None;
     }
 
-    let (prefix, cmd, suffix) = extract_command_parts(&last.command);
-    let missing = if !cmd.is_empty() { cmd.to_string() } else { extract_missing_cmd_from_output(&last.output) };
+    let (_, cmd, _) = extract_command_parts(&last.command);
+    let missing = from_output.unwrap_or_else(|| cmd.to_string());
     if missing.is_empty() {
         return Some(format_answer("The command was not found (exit code 127).", "nothing"));
     }
+    let intro = format!("The command `{missing}` is not installed (`command not found`, exit code 127)");
 
-    // Known binary -> package mapping takes precedence over short fuzzy typo guesses (e.g. `rg`, `jq`).
-    if let Some((_, pkg)) = KNOWN_PACKAGES.iter().find(|(bin, _)| *bin == missing) {
-        let os_release = read_os_release();
-        let omarchy_hint = omarchy_install_prose(pkg, &os_release);
-        let pkg_note = if *pkg == missing {
-            format!("The command `{missing}` is not installed (`command not found`, exit code 127).{omarchy_hint}")
-        } else {
-            format!(
-                "The command `{missing}` is not installed (`command not found`, exit code 127); it is provided by the `{pkg}` package.{omarchy_hint}"
-            )
-        };
-        if let Some(install_cmd) = package_install_command(pkg, &os_release) {
-            return Some(format_answer(&pkg_note, &install_cmd));
-        }
-        return Some(format_answer(&pkg_note, "nothing"));
-    }
-
-    // Live check: scan $PATH executables + common commands for a close typo (Damerau-Levenshtein <= 2).
-    if missing.chars().count() >= 3 {
-        let mut candidates = scan_path_executables();
-        for &common in COMMON_COMMANDS {
-            if !candidates.iter().any(|c| c == common) {
-                candidates.push(common.to_string());
-            }
-        }
-        let max_dist = if missing.chars().count() == 3 { 1 } else { 2 };
-        if let Some(correction) = closest_typo(&missing, &candidates, max_dist) {
-            let fixed = format!("{prefix}{correction}{suffix}");
+    // The program is here after all: do not tell the user to install it.
+    match platform::locate(&missing) {
+        Found::OnPath(file) => {
             return Some(format_answer(
                 &format!(
-                    "The command `{missing}` was not found (exit code 127), which looks like a typo for `{correction}`."
+                    "The shell reported `{missing}` as not found, but it is installed at `{}` on this machine. \
+                     The shell that ran it probably had a different PATH, or a script it ran looks for another program.",
+                    file.display()
                 ),
-                fixed.trim(),
+                "nothing",
             ));
         }
+        Found::SbinOnly(file) => {
+            let dir = file.parent().map_or(String::new(), |d| d.display().to_string());
+            let run = fix_command(&last.command, &missing, &file.display().to_string());
+            let run = if last.command.trim().is_empty() { format!("sudo {missing}") } else { run };
+            return Some(format_answer(
+                &format!(
+                    "`{missing}` is installed in `{dir}`, which is not on your PATH (`command not found`, exit code 127)."
+                ),
+                &run,
+            ));
+        }
+        Found::Missing => {}
     }
 
-    let os_release = read_os_release();
-    if let Some(install_cmd) = package_install_command(&missing, &os_release) {
-        let omarchy_hint = omarchy_install_prose(&missing, &os_release);
+    let platforms = platform::detect();
+    let advice = platform::install_advice(&missing, None, &platforms);
+    let typo = |max_dist: usize, with_common: bool| {
+        if missing.chars().count() < 2 || (max_dist > 1 && missing.chars().count() < 3) {
+            return None;
+        }
+        let mut candidates = scan_path_executables();
+        if with_common {
+            for &common in COMMON_COMMANDS {
+                if !candidates.iter().any(|c| c == common) {
+                    candidates.push(common.to_string());
+                }
+            }
+        }
+        closest_typo(&missing, &candidates, max_dist)
+    };
+    let typo_answer = |correction: String| {
+        format_answer(
+            &format!(
+                "The command `{missing}` was not found (exit code 127), which looks like a typo for `{correction}`."
+            ),
+            fix_command(&last.command, &missing, &correction).trim(),
+        )
+    };
+
+    // A name that is not a known program and is one edit from an installed command is a typo
+    // (`sl` for `ls`), even if some package happens to ship a program of that name.
+    let known = platform::is_known_program(&missing);
+    if !known && let Some(correction) = typo(1, false) {
+        return Some(typo_answer(correction));
+    }
+    if let Some(advice) = advice.as_ref().filter(|a| a.installs) {
+        let package = advice.package.as_deref().unwrap_or(&missing);
+        let note = if package == missing {
+            format!("{intro}.")
+        } else {
+            format!("{intro}; it is provided by the `{package}` package.")
+        };
+        return Some(format_answer(&note, &advice.command));
+    }
+    if !known && let Some(correction) = typo(2, true) {
+        return Some(typo_answer(correction));
+    }
+    if let Some(advice) = advice {
         return Some(format_answer(
             &format!(
-                "The command `{missing}` is not installed or not in your PATH (`command not found`, exit code 127).{omarchy_hint}"
+                "The command `{missing}` is not installed or not in your PATH (`command not found`, exit code 127). \
+                 This system's package manager can tell you which package provides it."
             ),
-            &install_cmd,
+            &advice.command,
         ));
     }
-
     Some(format_answer(&format!("The command `{missing}` was not found (exit code 127)."), "nothing"))
 }
 
@@ -908,32 +880,34 @@ fn is_line_prefix(part: &str) -> bool {
     part.strip_prefix("line ").is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
 }
 
-fn extract_missing_cmd_from_output(output: &str) -> String {
+/// The program a shell could not find, from its error text. Handles bash
+/// (`bash: line 1: x: command not found`), dash and busybox (`sh: 1: x: not found`,
+/// `sh: x: not found`), a bare `x: command not found`, zsh and fish.
+fn missing_from_output(output: &str) -> Option<String> {
     for line in output.lines() {
         let t = line.trim();
-        if let Some(rest) = t.strip_prefix("bash: ").or_else(|| t.strip_prefix("sh: ")) {
-            // e.g. "bash: htpo: command not found", "bash: line 1: htpo: command not found", "sh: 1: htpo: not found"
-            let parts: Vec<&str> = rest.split(':').map(str::trim).collect();
-            for p in &parts {
-                if !p.is_empty()
-                    && !p.chars().all(|c| c.is_ascii_digit())
-                    && !is_line_prefix(p)
-                    && !p.contains("not found")
-                {
-                    return (*p).to_string();
-                }
-            }
+        let lower = t.to_lowercase();
+        if let Some(rest) = lower.strip_prefix("zsh: command not found:") {
+            let at = t.len() - rest.len();
+            return t[at..].split_whitespace().next().map(str::to_string);
         }
-        if let Some(rest) = t.strip_prefix("zsh: command not found:") {
-            return rest.trim().to_string();
+        if let Some(rest) = lower.strip_prefix("fish: unknown command:") {
+            let at = t.len() - rest.len();
+            return t[at..].split_whitespace().next().map(str::to_string);
         }
-        if let Some(rest) =
-            t.strip_prefix("fish: Unknown command:").or_else(|| t.strip_prefix("fish: unknown command:"))
+        let end = [": command not found", ": not found"]
+            .iter()
+            .find(|suffix| lower.trim_end_matches('.').ends_with(*suffix))
+            .map(|suffix| t.trim_end_matches('.').len() - suffix.len());
+        let Some(end) = end else { continue };
+        // The program is the last `:`-separated part: "bash: line 1: htop" -> "htop".
+        let program = t[..end].rsplit(':').next().unwrap_or_default().trim();
+        if !program.is_empty() && !program.contains(char::is_whitespace) && !program.chars().all(|c| c.is_ascii_digit())
         {
-            return rest.trim().to_string();
+            return Some(program.to_string());
         }
     }
-    String::new()
+    None
 }
 
 fn extract_exec_target(last: &Last) -> String {
@@ -1279,23 +1253,11 @@ fn user_in_group(group: &str) -> bool {
 
 fn scan_path_executables() -> Vec<String> {
     let mut seen = BTreeSet::new();
-    let Some(path_os) = std::env::var_os("PATH") else {
-        return Vec::new();
-    };
-    for dir in std::env::split_paths(&path_os) {
+    for dir in crate::platform::path_dirs() {
         let Ok(entries) = std::fs::read_dir(dir) else { continue };
         for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_file() {
+            if !crate::platform::is_executable_file(&entry.path()) {
                 continue;
-            }
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let Ok(meta) = entry.metadata() else { continue };
-                if meta.permissions().mode() & 0o111 == 0 {
-                    continue;
-                }
             }
             if let Some(name) = entry.file_name().to_str() {
                 seen.insert(name.to_string());
@@ -1349,7 +1311,7 @@ fn damerau_levenshtein(a: &str, b: &str) -> usize {
 fn closest_typo(target: &str, candidates: &[String], max_dist: usize) -> Option<String> {
     let target_len = target.chars().count();
     let target_first = target.chars().next().map(|c| c.to_ascii_lowercase());
-    let mut best: Option<(usize, bool, usize, String)> = None;
+    let mut best: Option<(usize, bool, bool, bool, usize, String)> = None;
 
     for cand in candidates {
         let cand_len = cand.chars().count();
@@ -1362,12 +1324,21 @@ fn closest_typo(target: &str, candidates: &[String], max_dist: usize) -> Option<
         }
         let same_first = cand.chars().next().map(|c| c.to_ascii_lowercase()) == target_first;
         let len_diff = cand_len.abs_diff(target_len);
-        let key = (dist, !same_first, len_diff, cand.clone());
+        let popular = COMMON_COMMANDS.contains(&cand.as_str());
+        let swapped = dist == 1 && cand_len == target_len && {
+            let sorted = |word: &str| {
+                let mut chars: Vec<char> = word.to_lowercase().chars().collect();
+                chars.sort_unstable();
+                chars
+            };
+            sorted(target) == sorted(cand)
+        };
+        let key = (dist, !swapped, !popular, !same_first, len_diff, cand.clone());
         if best.as_ref().is_none_or(|b| key < *b) {
             best = Some(key);
         }
     }
-    best.map(|(_, _, _, cand)| cand)
+    best.map(|(.., cand)| cand)
 }
 
 #[cfg(test)]
@@ -1385,8 +1356,16 @@ mod tests {
     #[test]
     fn names_the_package_manager() {
         let facts = system_facts("NAME=\"Omarchy\"\nID=omarchy\nID_LIKE=arch\n", "/usr/bin/bash");
-        assert_eq!(facts, "Omarchy, shell bash. Packages are installed with `sudo pacman -S <package>`.");
-        assert_eq!(system_facts("NAME=Void\nID=void\n", "/bin/zsh"), "Void, shell zsh.");
+        assert_eq!(facts, "Omarchy, shell bash. Packages are installed with `omarchy pkg add <package>`.");
+        assert_eq!(
+            system_facts("NAME=Debian\nID=debian\n", "/bin/sh"),
+            "Debian, shell sh. Packages are installed with `sudo apt install <package>`."
+        );
+        assert_eq!(
+            system_facts("NAME=Void\nID=void\n", "/bin/zsh"),
+            "Void, shell zsh. Packages are installed with `sudo xbps-install -S <package>`."
+        );
+        assert_eq!(system_facts("NAME=Mystery\nID=mystery\n", "/bin/zsh"), "Mystery, shell zsh.");
     }
 
     #[test]
@@ -1459,20 +1438,11 @@ mod tests {
         let ans = diagnose(&bad_flag);
         assert!(ans.contains("unrecognized option '--bogus'"));
         assert_eq!(suggested(&ans), Some("ls --help"));
-
-        assert_eq!(
-            package_install_command("ripgrep", "ID=omarchy\nID_LIKE=arch\n").as_deref(),
-            Some("sudo pacman -S ripgrep")
-        );
-        assert_eq!(
-            package_install_command("jq", "ID=ubuntu\nID_LIKE=debian\n").as_deref(),
-            Some("sudo apt install jq")
-        );
-        assert_eq!(package_install_command("jq", "ID=fedora\n").as_deref(), Some("sudo dnf install jq"));
     }
 
     #[test]
     fn diagnoses_missing_packages_and_common_failures() {
+        crate::platform::pin_for_eval(&["arch"]);
         let rg = Last { command: "rg foo src".into(), exit: Some(127), output: "bash: rg: command not found".into() };
         let ans = diagnose(&rg);
         assert!(ans.contains("ripgrep"));
@@ -1517,6 +1487,7 @@ mod tests {
 
     #[test]
     fn handles_shell_line_prefix_fish_polkit_pacman_ssh_and_tar() {
+        crate::platform::pin_for_eval(&["arch"]);
         // bash: line 1: htpo: command not found (piped, exit None)
         let bash_line_typo =
             Last { command: String::new(), exit: None, output: "bash: line 1: htpo: command not found".into() };
@@ -1596,5 +1567,91 @@ mod tests {
         let ans = diagnose(&missing_unit);
         assert!(ans.contains("postgresql.service"), "got: {ans}");
         assert_eq!(suggested(&ans), Some("systemctl list-unit-files '*postgresql*'"));
+    }
+
+    fn failed(command: &str, output: &str) -> Last {
+        Last { command: command.into(), exit: if command.is_empty() { None } else { Some(127) }, output: output.into() }
+    }
+
+    #[test]
+    fn finds_the_missing_program_in_every_shell_format() {
+        let missing = |output: &str| missing_from_output(output);
+        assert_eq!(missing("bash: htop: command not found").as_deref(), Some("htop"));
+        assert_eq!(missing("bash: line 1: htop: command not found").as_deref(), Some("htop"));
+        assert_eq!(missing("-bash: htop: command not found").as_deref(), Some("htop"));
+        assert_eq!(missing("./run.sh: line 3: htop: command not found").as_deref(), Some("htop"));
+        assert_eq!(missing("sh: 1: ip: not found").as_deref(), Some("ip"));
+        assert_eq!(missing("/bin/sh: 1: ip: not found").as_deref(), Some("ip"));
+        assert_eq!(missing("sh: htop: not found").as_deref(), Some("htop"));
+        assert_eq!(missing("/bin/sh: htop: not found").as_deref(), Some("htop"));
+        assert_eq!(missing("ash: htop: not found").as_deref(), Some("htop"));
+        assert_eq!(missing("htop: command not found").as_deref(), Some("htop"));
+        assert_eq!(missing("zsh: command not found: htop").as_deref(), Some("htop"));
+        assert_eq!(missing("fish: Unknown command: htop").as_deref(), Some("htop"));
+        assert_eq!(missing("some noise\nbash: htop: command not found\nmore").as_deref(), Some("htop"));
+        // Things that merely contain "not found".
+        assert_eq!(missing("Failed to restart x.service: Unit x.service not found."), None);
+        assert_eq!(missing("error: target not found: firefox"), None);
+        assert_eq!(missing("bash: 127: command not found"), None);
+    }
+
+    #[test]
+    fn install_hints_use_this_systems_package_name() {
+        crate::platform::pin_for_eval(&["debian"]);
+        let hint = |command: &str, output: &str| suggested(&diagnose(&failed(command, output))).map(str::to_string);
+        assert_eq!(hint("", "bash: dig: command not found").as_deref(), Some("sudo apt install bind9-dnsutils"));
+        assert_eq!(hint("", "sh: 1: ip: not found").as_deref(), Some("sudo apt install iproute2"));
+        assert_eq!(hint("", "sh: htop: not found").as_deref(), Some("sudo apt install htop"));
+        assert_eq!(hint("", "htop: command not found").as_deref(), Some("sudo apt install htop"));
+        assert_eq!(
+            hint("nmcli device", "bash: nmcli: command not found").as_deref(),
+            Some("sudo apt install network-manager")
+        );
+        crate::platform::pin_for_eval(&["fedora"]);
+        assert_eq!(hint("", "bash: dig: command not found").as_deref(), Some("sudo dnf install bind-utils"));
+        crate::platform::pin_for_eval(&["omarchy", "arch"]);
+        assert_eq!(hint("", "bash: dig: command not found").as_deref(), Some("omarchy pkg add bind"));
+        // Not a program anyone has listed: say how to find the package, never guess one.
+        crate::platform::pin_for_eval(&["alpine"]);
+        assert_eq!(hint("", "sh: frobnicate: not found").as_deref(), Some("apk search -e cmd:frobnicate"));
+        // A system with no known package manager gives no install command.
+        crate::platform::pin_for_eval(&["mystery"]);
+        assert_eq!(hint("", "bash: dig: command not found"), None);
+    }
+
+    #[test]
+    fn a_typo_of_an_installed_command_beats_installing_a_package() {
+        crate::platform::pin_for_eval(&["debian"]);
+        let hint = |command: &str, output: &str| suggested(&diagnose(&failed(command, output))).map(str::to_string);
+        assert_eq!(hint("sl -la", "bash: sl: command not found").as_deref(), Some("ls -la"));
+        assert_eq!(hint("gti status", "bash: gti: command not found").as_deref(), Some("git status"));
+        assert_eq!(
+            hint("sudo gti push origin main", "sudo: gti: command not found").as_deref(),
+            Some("sudo git push origin main")
+        );
+        assert_eq!(
+            hint("cd /tmp && gti log | head", "bash: gti: command not found").as_deref(),
+            Some("cd /tmp && git log | head")
+        );
+        // A real tool that is one edit from another command is still installed, not "fixed".
+        assert_eq!(hint("rg foo", "bash: rg: command not found").as_deref(), Some("sudo apt install ripgrep"));
+    }
+
+    #[test]
+    fn an_installed_program_is_never_suggested_for_installation() {
+        let ans = diagnose(&failed("sh -c 'sh: x'", "bash: sh: command not found"));
+        assert!(ans.contains("installed at"), "{ans}");
+        assert_eq!(suggested(&ans), None);
+        let ans = diagnose(&failed("", "sh: 1: ls: not found"));
+        assert_eq!(suggested(&ans), None, "{ans}");
+    }
+
+    #[test]
+    fn fixes_keep_the_arguments() {
+        assert_eq!(fix_command("gti status", "gti", "git"), "git status");
+        assert_eq!(fix_command("sudo gti -v", "gti", "git"), "sudo git -v");
+        assert_eq!(fix_command("echo gti && gti x", "gti", "git"), "echo gti && git x");
+        assert_eq!(fix_command("", "gti", "git"), "git");
+        assert_eq!(fix_command("mygti x", "gti", "git"), "git");
     }
 }

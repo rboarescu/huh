@@ -5,6 +5,7 @@ mod doctor;
 mod eval;
 mod explain;
 mod matcher;
+mod platform;
 mod session;
 
 use anyhow::{Result, bail};
@@ -162,14 +163,8 @@ fn print(outcome: &Outcome, catalog: &[Command], brief: bool) {
             println!("   WARNING: this deletes or overwrites data.");
         }
         // Hiding a missing program would push a worse command to the top, so say it instead.
-        let program = s.line.split_whitespace().find(|word| *word != "sudo").unwrap_or_default();
-        if !catalog::installed(program) {
-            let install_cmd =
-                catalog.iter().find(|c| c.name == s.command).and_then(|cmd| catalog::install_command(cmd, &platforms));
-            match install_cmd {
-                Some(cmd) => println!("   NOTE: `{program}` is not installed. Install it with: {cmd}"),
-                None => println!("   NOTE: `{program}` is not installed on this machine."),
-            }
+        if let Some(note) = catalog::missing_note(&s.line, catalog.iter().find(|c| c.name == s.command), &platforms) {
+            println!("   NOTE: {note}");
         }
         for note in &s.notes {
             println!("   {note}");
@@ -267,6 +262,7 @@ fn main() -> Result<()> {
             unreachable!("handled above")
         }
         Some(Action::Check) => {
+            let everything = catalog::matchable(everything);
             let total = everything.len();
             let here = catalog::usable(everything.clone(), &catalog::this_platform(), true);
             let offered = catalog::usable(everything.clone(), &catalog::this_platform(), false).len();
@@ -284,7 +280,7 @@ fn main() -> Result<()> {
             if cmd_str.trim().is_empty() {
                 bail!("provide a command to explain, e.g. `huh explain \"du -sh * | sort -h\"`");
             }
-            let parts = explain::explain_command(&everything, &cmd_str);
+            let parts = explain::explain_command(&catalog::resolve(everything, &catalog::this_platform()), &cmd_str);
             if parts.is_empty() {
                 bail!("nothing to explain in that command");
             }
@@ -306,7 +302,7 @@ fn main() -> Result<()> {
                 );
             }
             let catalog = if cli.all_commands {
-                everything
+                catalog::resolve(catalog::matchable(everything), &catalog::this_platform())
             } else {
                 catalog::usable(everything, &catalog::this_platform(), false)
             };

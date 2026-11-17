@@ -6,7 +6,7 @@
 //! disambiguators, domain-coherence fit checks, and syntactic slot-role binding.
 
 use crate::candidates::{Candidates, number_word};
-use crate::catalog::{Command, Flag, Slot, SlotKind, installed};
+use crate::catalog::{Command, Flag, Slot, SlotKind};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -970,7 +970,7 @@ fn index_command(cmd: &Command) -> IndexedCommand {
 
     IndexedCommand {
         command: cmd.clone(),
-        installed: installed(cmd.program()),
+        installed: cmd.available(),
         name_lower,
         name_words,
         fields,
@@ -1117,13 +1117,13 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "omarchy system lock" if q.has_word("lock") && q.has_any(&["screen", "computer", "laptop", "pc"]) => bonus += 9.5,
         "omarchy system logout" if q.has_any(&["log out", "logout", "log me out"]) => bonus += 9.5,
         "omarchy pkg aur add" if q.has_word("omarchy") && q.has_word("aur") && q.has_any(&["install", "add", "get"]) => bonus += 12.0,
-        "omarchy pkg add" if q.has_word("omarchy") && q.has_any(&["install", "add", "get"]) && !q.has_word("aur") => bonus += 10.5,
-        "omarchy pkg drop" if q.has_word("omarchy") && q.has_any(&["uninstall", "remove", "drop"]) => bonus += 10.5,
+        "package install" if q.has_word("omarchy") && q.has_any(&["install", "add", "get"]) && !q.has_word("aur") => bonus += 10.5,
+        "package remove" if q.has_word("omarchy") && q.has_any(&["uninstall", "remove", "drop"]) => bonus += 10.5,
         "pacman install file" if q.raw.contains(".pkg.tar.zst") => bonus += 9.5,
-        "pacman install" | "apt install" | "dnf install" if q.has_word("install") && !q.has_any(&["aur", "omarchy", "where is", ".pkg.tar.zst", "look for", "is there"]) => bonus += 6.0,
-        "pacman remove" | "apt remove" | "dnf remove" if q.has_any(&["uninstall", "remove the package", "remove package"]) && !q.has_word("omarchy") => bonus += 7.5,
-        "pacman update" | "apt update" | "dnf update" if q.has_any(&["update all", "upgrade", "all my packages", "update system", "up to date"]) && !q.has_word("omarchy") => bonus += 8.0,
-        "pacman search" | "apt search" | "dnf search" if (q.has_any(&["is there a package", "package for", "available to install"]) || (q.has_any(&["look for", "search for"]) && q.has_any(&["package", "install", "reader", "program", "app"]))) && !q.has_word("aur") => bonus += 10.5,
+        "package install" if q.has_word("install") && !q.has_any(&["aur", "omarchy", "where is", ".pkg.tar.zst", "look for", "is there"]) => bonus += 6.0,
+        "package remove" if q.has_any(&["uninstall", "remove the package", "remove package"]) && !q.has_word("omarchy") => bonus += 7.5,
+        "system update" if q.has_any(&["update all", "upgrade", "all my packages", "update system", "up to date"]) && !q.has_word("omarchy") => bonus += 8.0,
+        "package search" if (q.has_any(&["is there a package", "package for", "available to install"]) || (q.has_any(&["look for", "search for"]) && q.has_any(&["package", "install", "reader", "program", "app"]))) && !q.has_word("aur") => bonus += 10.5,
         "yay install" if q.has_word("aur") && q.has_any(&["install", "get", "add"]) && !q.has_word("omarchy") => bonus += 9.5,
         "yay search" if q.has_word("aur") && q.has_any(&["search", "find", "look"]) => bonus += 9.5,
         "add shell alias" if q.has_word("alias") || (q.has_word("shortcut") && q.raw.contains('"')) => bonus += 11.5,
@@ -1355,7 +1355,6 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
             "omarchy update firmware" => has(&["firmware", "bios", "uefi"]),
             "omarchy update" | "omarchy version" => has(&["omarchy", "up to date"]),
             "omarchy restart" => has(&["restart", "acting up", "stopped working", "fix", "misbehaving"]),
-            "omarchy pkg add" | "omarchy pkg drop" => has(&["install", "uninstall", "remove", "package", "program", "omarchy"]),
             "omarchy pkg aur add" => has(&["aur", "arch user repository"]) && has(&["install", "add", "get", "package", "omarchy"]),
             _ => true,
         };
@@ -2871,6 +2870,7 @@ mod tests {
                 description: "Run tool alpha".into(),
                 template: "alpha".into(),
                 destructive: false,
+                explain_only: false,
                 platform: None,
                 package: None,
                 keywords: vec!["custom-flux-widget".into()],
@@ -2882,6 +2882,7 @@ mod tests {
                 description: "Run tool beta".into(),
                 template: "beta".into(),
                 destructive: false,
+                explain_only: false,
                 platform: None,
                 package: None,
                 keywords: vec![],

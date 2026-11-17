@@ -1,5 +1,6 @@
 //! The command catalog: one TOML file per command.
 
+use crate::platform::{self, Found};
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::collections::BTreeSet;
@@ -15,10 +16,14 @@ pub struct Command {
     pub template: String,
     #[serde(default)]
     pub destructive: bool,
-    /// Set for commands that only exist on one family of systems: "arch",
-    /// "debian", "fedora", "omarchy". Matched against /etc/os-release.
+    /// Never suggested; only lets `huh explain` recognise another family's package commands.
+    /// Made by `with_explain_variants`, not written in catalog files.
+    #[serde(default)]
+    pub explain_only: bool,
+    /// Set for commands that only exist on one family of systems: "arch", "debian",
+    /// "fedora", "omarchy", ... Matched against the platform words (see platform.rs).
     pub platform: Option<String>,
-    /// Package name when it differs from `program()`.
+    /// Package name when it differs from `program()`: a key of `[packages]` in data/platforms.toml.
     #[serde(default)]
     pub package: Option<String>,
     /// Natural-language synonyms and search phrases for matching.
@@ -87,8 +92,10 @@ impl Command {
     }
 }
 
-/// Placeholders that code fills in from the machine, not from the request.
-pub const FACTS: &[&str] = &["shell_rc"];
+/// Placeholders that code fills in from the machine, not from the request. The `pkg_*`
+/// ones become the package manager's command when the catalog is made usable for a platform.
+pub const FACTS: &[&str] =
+    &["shell_rc", "pkg_install", "pkg_remove", "pkg_search", "pkg_update", "pkg_owns", "pkg_provides"];
 
 pub fn fact(id: &str) -> Option<String> {
     match id {
@@ -107,59 +114,190 @@ fn shell_rc(shell: &str) -> &'static str {
     }
 }
 
-/// Shell built-ins have no file on PATH but are always there.
-const BUILTINS: &[&str] = &["cd", "history", "pwd", "echo", "alias", "export", "source", "type", "jobs", "fg", "bg"];
-
-const INSTALLERS: &[(&str, &str)] = &[
-    ("omarchy", "omarchy pkg add"),
-    ("arch", "sudo pacman -S"),
-    ("debian", "sudo apt install"),
-    ("fedora", "sudo dnf install"),
+/// Words that run without a file on PATH: the bash built-ins (the catalog uses `kill`,
+/// `cd`, `history`, ...) and shell keywords.
+const BUILTINS: &[&str] = &[
+    ".",
+    ":",
+    "alias",
+    "bg",
+    "bind",
+    "builtin",
+    "caller",
+    "cd",
+    "command",
+    "compgen",
+    "complete",
+    "declare",
+    "dirs",
+    "disown",
+    "echo",
+    "enable",
+    "eval",
+    "exec",
+    "exit",
+    "export",
+    "false",
+    "fc",
+    "fg",
+    "getopts",
+    "hash",
+    "help",
+    "history",
+    "jobs",
+    "kill",
+    "let",
+    "local",
+    "logout",
+    "mapfile",
+    "popd",
+    "printf",
+    "pushd",
+    "pwd",
+    "read",
+    "readarray",
+    "readonly",
+    "return",
+    "set",
+    "shift",
+    "shopt",
+    "source",
+    "suspend",
+    "test",
+    "times",
+    "trap",
+    "true",
+    "type",
+    "typeset",
+    "ulimit",
+    "umask",
+    "unalias",
+    "unset",
+    "wait",
 ];
 
-pub fn installed(program: &str) -> bool {
-    if BUILTINS.contains(&program) {
-        return true;
-    }
-    std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+pub fn is_builtin(program: &str) -> bool {
+    BUILTINS.contains(&program)
 }
 
-/// Suggests an install command for the program behind `command`, or `None` for
-/// shell built-ins and unrecognized platforms.
-pub fn install_command(command: &Command, platforms: &[String]) -> Option<String> {
-    let program = command.program();
-    if program.is_empty() || BUILTINS.contains(&program) {
+impl Command {
+    /// Whether the template runs through `sudo`.
+    pub fn uses_sudo(&self) -> bool {
+        self.template.split_whitespace().next() == Some("sudo")
+    }
+
+    /// Whether the program can run: on PATH, or in /usr/sbin and the like when `sudo` runs it
+    /// (sudo's own PATH has those; a normal user's PATH on Debian does not).
+    pub fn available(&self) -> bool {
+        let program = self.program();
+        is_builtin(program)
+            || match platform::locate(program) {
+                Found::OnPath(_) => true,
+                Found::SbinOnly(_) => self.uses_sudo(),
+                Found::Missing => false,
+            }
+    }
+}
+
+/// The text after `NOTE:` for a suggestion whose program is not available, or `None` when
+/// it is. `line` is the suggested command line; `command` the catalog entry it came from.
+pub fn missing_note(line: &str, command: Option<&Command>, platforms: &[String]) -> Option<String> {
+    let mut words = line.split_whitespace();
+    let first = words.next().unwrap_or_default();
+    let sudo = first == "sudo";
+    let program = if sudo { words.next().unwrap_or_default() } else { first };
+    if program.is_empty() || is_builtin(program) {
         return None;
     }
-    let package = command.package.as_deref().unwrap_or(program);
-    INSTALLERS
-        .iter()
-        .find(|(platform, _)| platforms.iter().any(|p| p == platform))
-        .map(|(_, prefix)| format!("{prefix} {package}"))
+    match platform::locate(program) {
+        Found::OnPath(_) => None,
+        Found::SbinOnly(_) if sudo => None,
+        Found::SbinOnly(file) => Some(format!(
+            "`{program}` is in {}, which is not on your PATH. Run it as {} or with sudo.",
+            file.parent().map_or(String::new(), |dir| dir.display().to_string()),
+            file.display()
+        )),
+        Found::Missing => {
+            // A command written for another kind of system (--all-commands) gets no install advice.
+            let foreign = command.and_then(|c| c.platform.as_ref()).is_some_and(|p| !platforms.contains(p));
+            let package = command.and_then(|c| c.package.as_deref());
+            match platform::install_advice(program, package, platforms).filter(|_| !foreign) {
+                Some(advice) if advice.installs => {
+                    Some(format!("`{program}` is not installed. Install it with: {}", advice.command))
+                }
+                Some(advice) => Some(format!(
+                    "`{program}` is not installed. Find the package that provides it with: {}",
+                    advice.command
+                )),
+                None => Some(format!("`{program}` is not installed on this machine.")),
+            }
+        }
+    }
 }
 
-/// The `ID` and `ID_LIKE` words of an os-release file, e.g. ["omarchy", "arch"].
-pub fn platforms_from(os_release: &str) -> Vec<String> {
-    os_release
-        .lines()
-        .filter_map(|line| line.strip_prefix("ID=").or_else(|| line.strip_prefix("ID_LIKE=")))
-        .flat_map(|value| value.trim_matches(['"', '\'']).split_whitespace())
-        .map(str::to_string)
-        .collect()
-}
-
+/// The platform words for this machine.
 pub fn this_platform() -> Vec<String> {
-    platforms_from(&std::fs::read_to_string("/etc/os-release").unwrap_or_default())
+    platform::detect()
 }
 
-/// Keeps the commands that make sense here: right platform and, when
-/// `only_installed` is set, a program that is actually on PATH.
-pub fn usable(commands: Vec<Command>, platforms: &[String], only_installed: bool) -> Vec<Command> {
+/// Fills the `{pkg_*}` placeholders of a command from the platform's package manager.
+/// `None` when the platform has no such task (e.g. no "which package owns" on NixOS).
+fn resolve_one(mut command: Command, platforms: &[String]) -> Option<Command> {
+    for id in placeholders(&command.template.clone()) {
+        if !platform::PKG_FACTS.contains(&id) {
+            continue;
+        }
+        let text = platform::fact(platforms, id)?;
+        let filled = match command.slots.first() {
+            Some(slot) => platform::fill(&text, &format!("{{{}}}", slot.id)),
+            None if text.contains("{}") => return None,
+            None => text,
+        };
+        command.template = command.template.replace(&format!("{{{id}}}"), &filled);
+    }
+    Some(command)
+}
+
+/// Makes package tasks concrete for `platforms`, dropping the ones this platform cannot do.
+/// Everything else is left alone.
+pub fn resolve(commands: Vec<Command>, platforms: &[String]) -> Vec<Command> {
+    let platforms = platform::expand(platforms);
+    commands.into_iter().filter_map(|c| resolve_one(c, &platforms)).collect()
+}
+
+/// Adds, for every package task and every family, the concrete command (`apt install`,
+/// `pacman -Rs`, ...) so `huh explain` can describe them on any machine. They are never suggested.
+fn with_explain_variants(mut commands: Vec<Command>) -> Vec<Command> {
+    let generic: Vec<Command> = commands
+        .iter()
+        .filter(|c| placeholders(&c.template).iter().any(|id| platform::PKG_FACTS.contains(id)))
+        .cloned()
+        .collect();
+    for family in platform::family_names() {
+        for command in &generic {
+            if let Some(mut variant) = resolve_one(command.clone(), std::slice::from_ref(&family)) {
+                variant.name = format!("{family} {}", command.name);
+                variant.platform = Some(family.clone());
+                variant.explain_only = true;
+                commands.push(variant);
+            }
+        }
+    }
     commands
-        .into_iter()
-        .filter(|c| c.platform.as_ref().is_none_or(|p| platforms.contains(p)))
-        .filter(|c| !only_installed || installed(c.program()))
-        .collect()
+}
+
+/// Drops the commands that exist only for `huh explain`.
+pub fn matchable(commands: Vec<Command>) -> Vec<Command> {
+    commands.into_iter().filter(|c| !c.explain_only).collect()
+}
+
+/// Keeps the commands that make sense here: right platform, package tasks filled in for
+/// this system's package manager and, when `only_installed` is set, a program that can run.
+pub fn usable(commands: Vec<Command>, platforms: &[String], only_installed: bool) -> Vec<Command> {
+    let platforms = platform::expand(platforms);
+    let here: Vec<Command> =
+        matchable(commands).into_iter().filter(|c| c.platform.as_ref().is_none_or(|p| platforms.contains(p))).collect();
+    resolve(here, &platforms).into_iter().filter(|c| !only_installed || c.available()).collect()
 }
 
 include!(concat!(env!("OUT_DIR"), "/embedded_catalog.rs"));
@@ -218,7 +356,7 @@ pub fn load(dir: &Path) -> Result<Vec<Command>> {
     if commands.is_empty() {
         bail!("no catalog files found in {}", dir.display());
     }
-    Ok(commands)
+    Ok(with_explain_variants(commands))
 }
 
 /// Loads and validates the catalog compiled into the binary.
@@ -231,7 +369,7 @@ pub fn load_embedded() -> Result<Vec<Command>> {
     if commands.is_empty() {
         bail!("no embedded catalog files found");
     }
-    Ok(commands)
+    Ok(with_explain_variants(commands))
 }
 
 /// Loads from `--catalog`, `$HUH_CATALOG`, or user config directories, falling back to `load_embedded()`.
@@ -261,7 +399,16 @@ pub fn validate(command: &Command) -> Result<()> {
             bail!("id `{id}` is used twice");
         }
     }
-    let used: BTreeSet<&str> = placeholders(&command.template).into_iter().filter(|id| !FACTS.contains(id)).collect();
+    // A `{pkg_*}` placeholder carries its argument (the one slot) once it is filled in.
+    let package_task = placeholders(&command.template).iter().any(|id| platform::PKG_FACTS.contains(id));
+    if package_task && command.slots.len() > 1 {
+        bail!("a package task takes at most one slot");
+    }
+    let used: BTreeSet<&str> = if package_task {
+        command.slots.iter().map(|s| s.id.as_str()).collect()
+    } else {
+        placeholders(&command.template).into_iter().filter(|id| !FACTS.contains(id)).collect()
+    };
     if let Some(id) = used.difference(&ids).next() {
         bail!("template uses `{{{id}}}` but no slot or flag has that id");
     }
@@ -299,6 +446,7 @@ mod tests {
             description: String::new(),
             template: template.into(),
             destructive: false,
+            explain_only: false,
             platform: platform.map(str::to_string),
             package: None,
             keywords: vec![],
@@ -319,12 +467,6 @@ mod tests {
     fn program_looks_past_sudo() {
         assert_eq!(command("sudo pacman -S {package}", None).program(), "pacman");
         assert_eq!(command("ls {target}", None).program(), "ls");
-    }
-
-    #[test]
-    fn reads_platforms_from_os_release() {
-        assert_eq!(platforms_from("NAME=\"Omarchy\"\nID=omarchy\nID_LIKE=arch\n"), ["omarchy", "arch"]);
-        assert_eq!(platforms_from("ID=ubuntu\nID_LIKE=\"debian\"\n"), ["ubuntu", "debian"]);
     }
 
     #[test]
@@ -416,31 +558,82 @@ mod tests {
     }
 
     #[test]
-    fn builds_install_command_for_platform_and_package() {
-        let mut smart = command("sudo smartctl -a {disk}", None);
-        smart.package = Some("smartmontools".into());
+    fn notes_say_how_to_install_a_missing_program() {
+        let note = |line: &str, cmd: &Command, ids: &[&str]| {
+            let ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
+            missing_note(line, Some(cmd), &ids)
+        };
+        let line = "no-such-tool-xyz --flag";
+        let plain = command(line, None);
         assert_eq!(
-            install_command(&smart, &["arch".into(), "omarchy".into()]),
-            Some("omarchy pkg add smartmontools".into())
+            note(line, &plain, &["debian"]).as_deref(),
+            Some(
+                "`no-such-tool-xyz` is not installed. Find the package that provides it with: apt-file search bin/no-such-tool-xyz"
+            )
         );
         assert_eq!(
-            install_command(&smart, &["omarchy".into(), "arch".into()]),
-            Some("omarchy pkg add smartmontools".into())
+            note(line, &plain, &["somethingnew-no-pm"]).as_deref(),
+            Some("`no-such-tool-xyz` is not installed on this machine.")
         );
-        assert_eq!(install_command(&smart, &["arch".into()]), Some("sudo pacman -S smartmontools".into()));
+        // Built-ins are always there.
+        assert_eq!(note("cd /tmp", &command("cd /tmp", None), &["debian"]), None);
+        assert_eq!(note("kill 1", &command("kill {pid}", None), &["debian"]), None);
+        // Package managers and distro tools are never installed with another distro's manager.
+        let apt = command("sudo apt-nonexistent install {package}", Some("debian"));
         assert_eq!(
-            install_command(&smart, &["ubuntu".into(), "debian".into()]),
-            Some("sudo apt install smartmontools".into())
+            note("sudo apt-nonexistent install x", &apt, &["arch"]).as_deref(),
+            Some("`apt-nonexistent` is not installed on this machine.")
         );
-        assert_eq!(install_command(&smart, &["fedora".into()]), Some("sudo dnf install smartmontools".into()));
-        assert_eq!(install_command(&smart, &["unknown".into()]), None);
+        let pacman = command("pacman -Ss {term}", Some("arch"));
+        assert_eq!(
+            note("pacman -Ss x", &pacman, &["debian"]).filter(|n| n.contains("Install it")),
+            None,
+            "pacman is not installable on Debian"
+        );
+    }
 
-        let plain = command("rg {pattern}", None);
-        assert_eq!(install_command(&plain, &["arch".into()]), Some("sudo pacman -S rg".into()));
+    #[test]
+    fn package_tasks_are_filled_in_per_package_manager() {
+        let all = load_embedded().unwrap();
+        let task = |name: &str, ids: &[&str]| {
+            let ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
+            usable(all.clone(), &ids, false).into_iter().find(|c| c.name == name).map(|c| c.template)
+        };
+        assert_eq!(task("package install", &["omarchy", "arch"]).as_deref(), Some("omarchy pkg add {package}"));
+        assert_eq!(task("package install", &["arch"]).as_deref(), Some("sudo pacman -S {package}"));
+        assert_eq!(task("package install", &["elementary", "ubuntu"]).as_deref(), Some("sudo apt install {package}"));
+        assert_eq!(task("package install", &["alpine"]).as_deref(), Some("sudo apk add {package}"));
+        assert_eq!(task("package install", &["nixos"]).as_deref(), Some("nix profile install nixpkgs#{package}"));
+        assert_eq!(task("package remove", &["suse"]).as_deref(), Some("sudo zypper remove {package}"));
+        assert_eq!(
+            task("system update", &["gentoo"]).as_deref(),
+            Some("sudo emerge --sync && sudo emerge --ask --update --deep --newuse @world")
+        );
+        assert_eq!(task("package owns file", &["fedora"]).as_deref(), Some("rpm -qf {file}"));
+        assert_eq!(task("package owns file", &["nixos"]), None);
+        assert_eq!(task("package install", &["somethingnew-no-pm"]), None);
+        // Distro-specific entries stay with their distro.
+        assert!(task("yay install", &["debian"]).is_none());
+        assert!(task("omarchy update", &["arch"]).is_none());
+        assert!(task("omarchy update", &["omarchy", "arch"]).is_some());
+    }
 
-        let builtin = command("cd {target}", None);
-        assert_eq!(install_command(&builtin, &["omarchy".into(), "arch".into()]), None);
-        let echo_cmd = command("echo 'x' >> {shell_rc}", None);
-        assert_eq!(install_command(&echo_cmd, &["debian".into()]), None);
+    #[test]
+    fn every_catalog_package_has_a_name_on_the_big_families() {
+        for command in load_embedded().unwrap() {
+            let Some(package) = command.package.as_deref() else { continue };
+            for family in ["arch", "debian", "fedora", "suse"] {
+                let advice = platform::install_advice(command.program(), Some(package), &[family.to_string()]);
+                assert!(advice.is_some_and(|a| a.installs), "{} has no {family} package", command.name);
+            }
+        }
+    }
+
+    #[test]
+    fn catalog_facts_match_the_platform_module() {
+        for id in platform::PKG_FACTS {
+            assert!(FACTS.contains(id), "{id}");
+        }
+        assert!(["kill", "cd", "history", "read"].iter().all(|word| is_builtin(word)));
     }
 }
