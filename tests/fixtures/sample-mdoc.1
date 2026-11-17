@@ -1,0 +1,19 @@
+.Dd $Mdocdate: January 1 2026 $
+.Dt SSH 1
+.Os
+.Sh NAME
+.Nm ssh
+.Nd remote login client
+.Sh SYNOPSIS
+.Nm ssh
+.Op Fl 46AaCfGgKkMNnqsTtVvXxYy
+.Sh DESCRIPTION
+.Bl -tag -width Ds
+.It Fl i Ar identity_file
+Selects a file from which the identity (private key) for
+public key authentication is read.
+.It Fl p Ar port
+Port to connect to on the remote host.
+This can be specified on a
+per-host basis in the configuration file.
+.El

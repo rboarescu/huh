@@ -1,0 +1,343 @@
+# Eval cases for `huh explain`, run by the `explain_evals` test (cargo test).
+# line      = the command line given to `huh explain`
+# expect    = substrings that must appear in the rendered explanation
+# absent    = substrings that must NOT appear in the rendered explanation
+# warn      = substrings that must appear in the WARNINGS (the part named or the text)
+# no_warn   = substrings that must NOT appear in the WARNINGS
+# needs_man = skip the case when this man page is not installed on the machine
+
+[[case]]
+line = "find . -name '*.log' -mtime +7 -delete"
+expect = ["more than 7 days ago", "DELETE every match", "pattern *.log"]
+absent = ["days back"]
+warn = ["-delete"]
+
+[[case]]
+line = "find . -name '*.log' -mtime +7 -print0 | xargs -0 rm -f"
+expect = ["NUL byte", "for the items read from standard input", "Never ask"]
+warn = ["xargs", "rm"]
+
+[[case]]
+line = "curl -fsSL https://example.com/install.sh | sudo bash -s -- --yes"
+expect = ["Follow redirects", "Read the commands to run from standard input", "An argument passed to the script"]
+warn = ["downloads a script from the internet", "as root", "sudo"]
+
+[[case]]
+line = "git fetch origin && git reset --hard origin/main && git clean -fdx"
+expect = ["This line does 3 things", "Download from a remote", "ALSO overwrite the working files", "ignored files", "origin/main is branch main on the remote"]
+warn = ["--hard", "clean", "gone for good"]
+
+[[case]]
+line = "ps aux | grep -v grep | awk '{print $2}' | xargs kill -9"
+expect = ["Processes of all users", "print column 2", "send signal 9 (KILL)"]
+warn = ["-9", "xargs", "cannot clean up"]
+
+[[case]]
+line = "kill -9 $(lsof -t -i:3000)"
+expect = ["lsof", "the process ID(s) printed by the command shown below", "runs first, and what it prints is pasted"]
+absent = ["-:"]
+warn = ["-9", "worked out when the line runs"]
+
+[[case]]
+line = "sed -i 's/foo/bar/g' $(grep -rl foo src/)"
+expect = ["replace `foo` with `bar`", "Edit the files themselves", "Search every file under the folders given"]
+warn = ["-i", "command substitution"]
+
+[[case]]
+line = "docker run -d -p 8080:80 --name web -v \"$PWD\":/usr/share/nginx/html:ro nginx:alpine"
+expect = ["host port 8080 is forwarded to port 80", "(read-only)", "Call the container web", "the image to start the container from (nginx:alpine)", "$PWD is the current folder"]
+absent = ["the image to start the container from (web"]
+warn = ["publishes the port on every network interface"]
+
+[[case]]
+line = "tar -xzvf backup.tar.gz -C /opt && chown -R www-data:www-data /opt/app"
+expect = ["The archive file is backup.tar.gz", "Change to /opt first", "owner becomes www-data, group becomes www-data"]
+absent = ["put into the archive", "file to put into a new archive"]
+warn = ["replace files of the same name", "-R"]
+
+[[case]]
+line = "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(nproc) && sudo make install"
+expect = ["Move into another folder", "CMAKE_BUILD_TYPE=Release", "nproc", "the `install` recipe", "with administrator (root) rights"]
+warn = ["install", "sudo", "starts a build"]
+
+[[case]]
+line = "for f in *.png; do convert \"$f\" -resize 50% \"small_$f\"; done"
+expect = ["each name in this folder matching the wildcard *.png", "Resize the image to 50%", "each time round, it runs"]
+no_warn = ["empty or unset"]
+
+[[case]]
+line = "cat <<'EOF' > ~/.config/app.conf"
+expect = ["delimiter is quoted", "replacing what was there", "~ is your home folder"]
+warn = ["> ~/.config/app.conf", "settings file"]
+
+[[case]]
+line = "bash -c 'echo hi && rm -rf /tmp/x'"
+expect = ["bash runs this command line", "Delete files and folders for good", "/tmp/x"]
+warn = ["rm"]
+
+[[case]]
+line = "env FOO=1 BAR=2 ./run.sh 2>&1 | tee log.txt"
+expect = ["sets the variable FOO", "sets the variable BAR", "same place as normal output", "cannot say what it does", "Copy input to the screen and to files"]
+warn = ["tee", "log.txt"]
+
+[[case]]
+line = "ssh -i ~/.ssh/key -p 2222 deploy@web1 'sudo systemctl restart nginx'"
+expect = ["Use the private key file ~/.ssh/key to log in", "Connect to port 2222", "on the remote computer web1", "Stop the unit and start it again"]
+absent = ["the computer to connect to (-p"]
+warn = ["on web1"]
+
+[[case]]
+line = "dd if=/dev/zero of=/dev/sdb bs=4M status=progress"
+expect = ["endless stream of zero bytes", "writes straight onto the hardware", "how many bytes are copied at a time"]
+warn = ["of=/dev/sdb", "wipes the wrong disk"]
+
+[[case]]
+line = "chmod 777 -R /var/www"
+expect = ["everyone (owner, group and others) can read, write and run"]
+absent = ["The file or folder to change: 777"]
+warn = ["777", "every user on the machine"]
+
+[[case]]
+line = "chmod 755 notes.txt"
+expect = ["the owner can read, write and run; the group can read and run; everyone else can read and run"]
+no_warn = ["every user"]
+
+[[case]]
+line = "pip install --break-system-packages requests"
+expect = ["operating system's protection", "The package to install"]
+warn = ["--break-system-packages", "virtualenv"]
+
+[[case]]
+line = "npm i -g pnpm && pnpm install"
+expect = ["Install system-wide", "Download the packages a project needs"]
+warn = ["-g", "install scripts"]
+
+[[case]]
+line = "rm -rf \"$DIR\"/*"
+expect = ["$DIR is not set on this line", "wildcard"]
+warn = ["empty or unset", "`/*`"]
+
+[[case]]
+line = "DIR=/tmp/build; rm -rf \"$DIR\"/*"
+no_warn = ["empty or unset"]
+warn = ["rm"]
+
+[[case]]
+line = "git reset --hard HEAD~1"
+expect = ["the commit just before the current one", "discarding uncommitted changes"]
+warn = ["--hard", "rewrites where the branch points"]
+
+[[case]]
+line = "git reset --hard"
+warn = ["--hard"]
+
+[[case]]
+line = "docker exec -it web bash"
+expect = ["The container to run it in", "inside the container, it runs"]
+absent = ["whatever text is piped into it"]
+no_warn = ["bash"]
+
+[[case]]
+line = "tar xzf photos.tgz"
+expect = ["Unpack files from the archive", "The archive is gzip-compressed", "The archive file is photos.tgz"]
+
+[[case]]
+line = "find / -name '*.conf' -type f -size +10M"
+expect = ["Match only regular files", "bigger than 10 MiB"]
+
+[[case]]
+line = "git push --force origin main"
+expect = ["OVERWRITE the remote branch"]
+warn = ["--force", "force-with-lease"]
+
+[[case]]
+line = "git push --force-with-lease"
+warn = ["--force-with-lease", "refuses if someone pushed"]
+
+[[case]]
+line = "git checkout ."
+warn = ["throws away uncommitted changes"]
+
+[[case]]
+line = "git branch -D old-feature"
+expect = ["DELETE a branch even if it is not merged"]
+warn = ["-D"]
+
+[[case]]
+line = "docker system prune -af --volumes"
+expect = ["DELETE unused docker data"]
+warn = ["prune", "unused volumes"]
+
+[[case]]
+line = "docker compose down -v"
+warn = ["-v", "data stored in them is lost"]
+
+[[case]]
+line = "wget -qO- https://example.com/setup.sh | sh"
+warn = ["downloads a script from the internet"]
+
+[[case]]
+line = "bash <(curl -s https://example.com/install.sh)"
+expect = ["runs, and the command reads its output as if it were a file"]
+warn = ["downloads a script from the internet"]
+
+[[case]]
+line = ":(){ :|:& };:"
+warn = ["fork bomb"]
+
+[[case]]
+line = "rm -rf /"
+warn = ["wreck the machine"]
+
+[[case]]
+line = "make -n install"
+expect = ["Only print what would run"]
+no_warn = ["recipe", "starts a build"]
+
+[[case]]
+line = "cargo build --release"
+expect = ["Optimised build"]
+warn = ["Rust compile"]
+
+[[case]]
+line = "docker build -t app ."
+expect = ["Name the image app", "the current folder"]
+warn = ["building an image"]
+
+[[case]]
+line = "systemctl restart nginx"
+expect = ["Stop the unit and start it again", "The unit (service) to act on"]
+warn = ["restarts the service nginx"]
+
+[[case]]
+line = "journalctl -u nginx --since yesterday -f"
+expect = ["Only messages from nginx", "Only messages since yesterday"]
+warn = ["-f", "Ctrl+C"]
+
+[[case]]
+line = "git log --since=\"2 weeks ago\" --oneline"
+expect = ["Only commits after 2 weeks ago", "One short line per commit"]
+
+[[case]]
+line = "dig +short example.com A"
+expect = ["Print only the answer", "kind of record to ask for (A)"]
+
+[[case]]
+line = "awk -F: '{print $1}' /etc/passwd"
+expect = ["Fields are separated by :", "print column 1"]
+
+[[case]]
+line = "grep -rn \"TODO\" src/ --include='*.rs'"
+expect = ["Search every file under the folders given", "Show line numbers", "Only search files matching *.rs"]
+
+[[case]]
+line = "echo x | sudo tee /etc/hosts"
+warn = ["replaces the current contents of /etc/hosts", "sudo"]
+
+[[case]]
+line = "echo x | sudo tee -a /etc/hosts"
+no_warn = ["replaces the current contents"]
+
+[[case]]
+line = "xargs -I{} cp {} /backup < list.txt"
+expect = ["Replace {} in the command", "reads input from the file `list.txt`"]
+
+[[case]]
+line = "curl -k https://self-signed.example.com"
+warn = ["-k", "server is who it claims"]
+
+[[case]]
+line = "sed -n '5p' file.txt"
+expect = ["print line 5", "Print only what the script prints explicitly"]
+
+[[case]]
+line = "nohup ./server.sh > out.log 2>&1 &"
+expect = ["immune to the terminal closing", "same place as normal output"]
+warn = ["> out.log"]
+
+[[case]]
+line = "git log --merges"
+needs_man = "git-log"
+expect = ["(from the man page)"]
+
+[[case]]
+line = "tar -cf out.tar --numeric-owner src"
+needs_man = "tar"
+expect = ["(from the man page)", "a file or folder to put into the archive"]
+
+[[case]]
+line = "rsync --info=progress2 -a src/ dest/"
+needs_man = "rsync"
+expect = ["(from the man page)"]
+
+[[case]]
+line = '''docker run \
+  -d \
+  --name db \
+  postgres:16'''
+expect = ["Run in the background", "Call the container db", "postgres:16"]
+
+[[case]]
+line = '''set -e
+cd /tmp
+ls -la'''
+expect = ["This line does 3 things", "Move into another folder", "Show details"]
+
+[[case]]
+line = "if grep -q foo file.txt; then echo yes; fi"
+expect = ["the test (if)", "Print nothing, only set the exit status", "when it succeeds (then)"]
+
+[[case]]
+line = "timeout 30 curl -s http://localhost:8080/health"
+expect = ["The time limit", "with a time limit"]
+
+[[case]]
+line = "watch -n 5 'df -h'"
+expect = ["Wait 5 seconds between runs", "every couple of seconds, watch runs", "Show sizes like 1K"]
+warn = ["watch"]
+
+[[case]]
+line = "sudo -u postgres psql -c \"DROP TABLE x\""
+expect = ["as the user postgres"]
+
+[[case]]
+line = "ls -la /etc | sort -k5 -n"
+expect = ["Sort by field 5", "Show details"]
+
+[[case]]
+line = "cp -n a.txt b.txt"
+no_warn = ["replaced without asking"]
+
+[[case]]
+line = "cp a.txt b.txt"
+warn = ["replaced without asking"]
+
+[[case]]
+line = "find . -type f -name '*.py' | xargs grep -l TODO"
+expect = ["Print only the names of files that match"]
+no_warn = ["feeds whatever"]
+
+[[case]]
+line = "rm -rf node_modules && npm ci"
+warn = ["rm", "install scripts"]
+
+[[case]]
+line = "find . -name '*.tmp' -exec rm {} \\;"
+expect = ["once for each match", "{} stands for the matched path"]
+warn = ["rm"]
+
+[[case]]
+line = "chmod -x script.sh"
+expect = ["removes run permission from everyone"]
+
+[[case]]
+line = "head -20 notes.txt"
+expect = ["show the first 20 lines"]
+
+[[case]]
+line = "echo \"unterminated"
+expect = ["Print the given text"]
+
+[[case]]
+line = "export PATH=\"$HOME/bin:$PATH\""
+expect = ["sets the variable PATH", "$HOME is your home folder"]

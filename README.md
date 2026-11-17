@@ -16,11 +16,11 @@ Nothing is ever run; `huh` only prints suggestions and explanations.
 
 ## How it works
 
-The pipeline keeps the clean two-stage structure (`Questions` -> `Answers` -> `assemble::build`) driven by a local deterministic matcher (`LocalMatcher`) instead of a hosted or local LLM:
+A local deterministic matcher (`LocalMatcher`) ranks the catalog (`rank`) and scores each shortlisted command's fit, flags and values (`details`); `assemble::build` turns that into the command line:
 
 1. **Command matching**: Multi-field BM25F over command names, plain-language descriptions, curated `keywords`, flags, slots, and template literals, paired with stem/synonym normalization, domain-coherence fit checks, and an `installed()` tie-breaker.
 2. **Slot & flag assembly**: Extracts candidate tokens, quoted phrases, multi-word capitalized names, number words (`third` -> `3`), bare extensions (`.rs` -> `*.rs`), size expressions (`50MB` -> `50M`), and non-hidden entries in the current folder, then fills the template and attaches a part-by-part explanation for the top suggestion.
-3. **Reverse command explainer (`huh explain`)**: Quote-aware shell tokenizer splits pipelines (`|`, `&&`, `||`, `;`), redirections (`>`, `>>`, `<`, `2>&1`), `sudo`, combined short flags (`-sh`, `-la`), formatted slots, choice options, and positional arguments against the catalog, flagging anything unknown as `not in the catalog` and warning on destructive commands.
+3. **Reverse command explainer (`huh explain`)**: A bash-subset parser (`src/shell.rs`) builds a tree of the command line, then every part is explained per program, with warnings. Details in "Explain a shell command" below.
 4. **Deterministic Error Doctor (`huh why`)**: Combines exit code meanings, live machine checks (`$PATH` typo scan with Damerau-Levenshtein distance, `metadata()` executable check, `/etc/group`, `/var/lib/pacman/db.lck`, `/var/run/docker.sock`, `$PWD` typo scan, platform and package manager detection from `src/platform.rs`), and structured error rules.
 
 ## Usage
@@ -52,16 +52,39 @@ huh --all-commands "..."                  # also offer commands of other systems
 
 ### Explain a shell command
 
+For when an agent (or a web page) hands you a long command and you want to know what it does before trusting it. `huh explain` only reads text; it never runs, spawns or evaluates anything from the command line (a test fails if the explain modules mention `std::process`).
+
 ```bash
-$ huh explain "du -sh Downloads/* | sort -h"
-  du            Show how much disk space a folder or file takes up
-  -s            summarize: display only a total for each argument
-  -h            human-readable: print sizes in easy-to-read units (e.g. 1K, 234M, 2G)
-  Downloads/*   the folder or file to measure (wildcard matching all items inside Downloads)
-  |             pipes standard output from the previous command into the next command
-  sort          Put the lines of a file in alphabetical or numerical order
-  -h            human-numeric-sort: compare human-readable numbers such as 2K or 1G
+$ huh explain "find . -name '*.log' -mtime +7 -delete"
+This line does 1 thing:
+  1. find: Search for files and folders under the places you name
+
+Part by part:
+1. find . -name '*.log' -mtime +7 -delete
+   find           Search for files and folders under the places you name
+   .              The folder to search in (. means the current folder)
+   -name '*.log'  The file name matches the pattern *.log (case-sensitive; the
+                  name only, not the folder path)
+   -mtime +7      Match files whose content was last changed more than 7 days ago
+   -delete        DELETE every match, permanently
+
+WARNINGS
+  ! `-delete` (in `find . -name '*.log' -mtime +7 -delete`): deletes every match
+    permanently, with no confirmation (no trash). Run the same command without
+    -delete first to see what would go.
 ```
+
+```bash
+huh explain "curl -fsSL https://example.com/install.sh | sudo bash -s -- --yes"
+huh explain - < deploy.sh          # a whole script, `\` continuations included
+pbpaste | huh explain              # no argument and piped input: reads standard input
+```
+
+- **Parser**: pipes (`|`, `|&`), lists (`&&`, `||`, `;`, `&`), `$(...)`, backticks, `${VAR}`, `$((...))`, `<(...)`, subshells, `{ ...; }`, `for`/`while`/`until`/`if`/`case`, functions, `[[ ... ]]`, assignments (`A=1 cmd`), all redirections (`>`, `>>`, `2>&1`, `&>`, `<`, `<<`, `<<<`, `>|`), heredocs (bodies are captured, not run) and `\` line continuations. It never panics: unbalanced quotes and brackets are parsed best-effort and reported under NOTES.
+- **Recursion**: the inner command of `$(...)`, `bash -c '...'`, `sh -c`, `sudo`, `env`, `xargs`, `nohup`, `time`, `watch`, `timeout`, `find -exec`, `docker run/exec` (marked "inside the container") and `ssh host '...'` (marked "on the remote computer") is explained too, indented below.
+- **Flags are explained per program**, from three sources in order: the curated table (`src/knowledge.txt`, about 150 programs and subcommands: git, docker, find with `+N`/`-N` decoded, tar, ssh, sed, awk, chmod with octal and symbolic modes decoded, kill signals, systemctl, ...), then the catalog, then the program's **man page read from disk** (`/usr/share/man/man{1,8}`, plain or `.gz`; `.TP`, `.IP`, `.PP` and mdoc `.It` layouts), which is marked "(from the man page)". Combined short flags (`-xzvf`) are split per program; single-dash long options (`find -name`) are not.
+- **Warnings**: deletes (`rm`, `find -delete`, `git clean`, `docker prune`, `dd of=`, `mkfs`, ...), overwrites (`>`, `sed -i`, `tee`, `cp`/`mv`), history rewrites (`git reset --hard`, `push --force`, `rebase`), privilege (`sudo`, `chmod 777`, `chown -R` on system folders), remote code (`curl | sh`, `bash <(curl ...)`), package installs (`pip --break-system-packages`, `npm -g`, `make install`), `kill -9` of computed PIDs, an unset variable in `rm "$DIR"/*`, and things that start a long build or run until Ctrl+C.
+- huh does not open scripts or Makefiles named in the command, so for `./run.sh` or `make install` it says so instead of guessing.
 
 ### Explain a failed command (`huh why` or bare `huh`)
 
@@ -190,7 +213,15 @@ nmcli = { mylinux = "nm-cli" }         # package name where it differs (omit a f
 | `data/platforms.toml` | Package manager commands and per-family package names (embedded; `~/.config/huh/platforms.toml` extends it) |
 | `src/catalog.rs` | Catalog loading, validation, platform filtering, filling `{pkg_*}` placeholders, `NOTE:` text |
 | `src/doctor.rs` | Deterministic Error Doctor (`huh why`) |
-| `src/explain.rs` | Command line explainer (`huh explain`) |
+| `src/explain.rs` | `huh explain` entry point (`explain_command`) |
+| `src/shell.rs` | Bash-subset lexer/parser for `huh explain` (never panics, never runs anything) |
+| `src/breakdown.rs` | The explainer engine: walks the parse tree, explains flags and arguments, recurses into nested commands |
+| `src/knowledge.rs`, `src/knowledge.txt` | Curated per-program table of options, subcommands and argument roles |
+| `src/manpage.rs` | Reads option descriptions from man pages on disk (`flate2` for `.gz`) |
+| `src/decode.rs` | chmod modes, `find` tests, signals, docker ports/volumes, sed/awk programs, git refs |
+| `src/risk.rs` | Warnings: deletes, overwrites, history rewrites, privilege, remote code, installs, long builds |
+| `src/render.rs` | 80-column output of the explanation |
+| `evals/explain.toml` | 70+ real-world command lines with expected text and warnings (run by `cargo test`) |
 | `src/session.rs` | Terminal recording (`script` + `record-sink`), shell hooks, readline binding |
 | `src/eval.rs` | Evaluation runners (`eval` and `eval-errors`) |
 

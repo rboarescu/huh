@@ -1,0 +1,33 @@
+.\" a comment
+.TH SAMPLE 1 "2026" "sample 1.0" "User Commands"
+.SH NAME
+sample \- sample program for testing
+.SH SYNOPSIS
+.B sample
+[options]
+.SH OPTIONS
+.TP
+\fB\-x\fR, \fB\-\-extract\fR, \fB\-\-get\fR
+Extract files from an archive.  Arguments are optional.  When given,
+they specify names of the archive members to be extracted.
+.TP
+\fB\-f\fR, \fB\-\-file\fR=\fIARCHIVE\fR
+Use archive file or device ARCHIVE.
+.TP
+.B \-v
+Be verbose: list each file processed.
+.IP "\-mtime \fIn\fR"
+File's data was last modified less than, more than or exactly
+.IR n *24
+hours ago.
+.IP "\fB\-\-quiet\fP, \fB\-q\fP"
+Suppress output.
+.SH LOG OPTIONS
+.PP
+\fB\-\-since=\fR\fI<date>\fR
+.RS 4
+Show commits more recent than a specific date.
+Another sentence here.
+.RE
+.PP
+Plain paragraph that is not an option and should be ignored.

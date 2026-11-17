@@ -1,0 +1,1458 @@
+# Curated knowledge for `huh explain`. Parsed by src/knowledge.rs.
+#
+#   @prog [subcommand...] | what it does        starts a section
+#   !single      options like -name are one option (no -abc splitting): find, java
+#   !oldstyle    a first word without a dash may be bundled options: tar xzf, ps aux
+#   !first       words after the first option are not positional (find)
+#   !wrapper     the program only wraps another command
+#   pos: a ; b ; c...                           meanings of positional words, in order
+#                                               ("..." on the last repeats it)
+#                                               ">LABEL" = the rest is a command (words);
+#                                               ">>LABEL" = the rest is a command line (string)
+#   -a, --all LABEL | meaning                   an option; LABEL (upper-case) means it takes a
+#                                               value, [LABEL] an attached optional value.
+#                                               The meaning may use LABEL for the value.
+#   key= | meaning                              a key=value operand (dd, make)
+# Subcommand sections inherit the options of their parent section.
+
+@ls | List the files and folders in a folder
+-l | show details: permissions, owner, size and date
+-a, --all | include hidden files (names starting with a dot)
+-A | include hidden files, except . and ..
+-h, --human-readable | show sizes like 1K, 234M, 2G
+-R, --recursive | also list everything inside sub-folders
+-t | sort by modification time, newest first
+-S | sort by size, largest first
+-r, --reverse | reverse the sort order
+-1 | one name per line
+-d, --directory | list the folder itself, not what is inside it
+pos: the file or folder to list...
+
+@cd | Move into another folder (only for this shell session)
+pos: the folder to move into...
+
+@pwd | Print the folder you are in
+
+@echo | Print the given text
+-n | do not add a newline at the end
+-e | interpret backslash sequences like \n
+pos: text to print...
+
+@cat | Print files one after another (or join them)
+-n, --number | number every line
+-A, --show-all | show hidden characters like tabs and line ends
+pos: the file to print...
+
+@head | Show the first lines of a file
+-n, --lines N | show the first N lines
+-c, --bytes N | show the first N bytes
+pos: the file to read...
+
+@tail | Show the last lines of a file
+-n, --lines N | show the last N lines
+-f, --follow | keep running and print new lines as they are added (stop with Ctrl+C)
+-F | like -f, and keep trying if the file is replaced
+-c, --bytes N | show the last N bytes
+pos: the file to read...
+
+@less | Page through a file
+pos: the file to read...
+
+@wc | Count lines, words and bytes
+-l, --lines | count lines
+-w, --words | count words
+-c, --bytes | count bytes
+-m, --chars | count characters
+pos: the file to count...
+
+@sort | Sort lines of text
+-n, --numeric-sort | sort by number, not alphabetically
+-h, --human-numeric-sort | sort sizes like 2K or 1G in order
+-r, --reverse | largest or last first
+-u, --unique | keep only one of each equal line
+-k, --key KEYDEF | sort by field KEYDEF instead of the whole line
+-t, --field-separator SEP | fields are separated by SEP
+pos: the file to sort (or standard input)...
+
+@uniq | Collapse repeated adjacent lines
+-c, --count | prefix each line with how many times it appeared
+-d, --repeated | show only lines that were repeated
+-u, --unique | show only lines that appear once
+pos: the file to read...
+
+@cut | Cut columns out of each line
+-d, --delimiter DELIM | fields are separated by DELIM
+-f, --fields LIST | keep fields LIST
+-c, --characters LIST | keep characters LIST
+pos: the file to read...
+
+@tr | Translate or delete characters
+-d, --delete | delete the given characters
+-s, --squeeze-repeats | squeeze repeats into one
+pos: the characters to match ; the characters to replace them with
+
+@tee | Copy input to the screen and to files
+-a, --append | add to the files instead of replacing them
+pos: the file to write to...
+
+@mkdir | Create folders
+-p, --parents | create parent folders too, and do not complain if it exists
+-m, --mode MODE | give the new folder permissions MODE
+pos: the folder to create...
+
+@touch | Create an empty file, or update its modification time
+pos: the file to create or touch...
+
+@rm | Delete files and folders for good (no trash)
+-r, -R, --recursive | also delete folders and everything inside them
+-f, --force | never ask, and ignore files that do not exist
+-i | ask before each deletion
+-I | ask once before deleting many files
+-d, --dir | delete empty folders
+-v, --verbose | print each file as it is deleted
+--no-preserve-root | allow deleting / itself (normally refused)
+pos: the file or folder to delete...
+
+@cp | Copy files and folders
+-r, -R, --recursive | copy folders and everything inside them
+-a, --archive | copy everything, keeping permissions, dates and links (implies -r)
+-f, --force | overwrite without asking
+-i, --interactive | ask before overwriting
+-n, --no-clobber | never overwrite an existing file
+-p | keep permissions and dates
+-v, --verbose | print each file copied
+-u, --update | copy only when the source is newer
+-T, --no-target-directory | treat the destination as a plain name, not a folder
+pos: a file or folder to copy...
+
+@mv | Move or rename files and folders
+-f, --force | overwrite without asking
+-i, --interactive | ask before overwriting
+-n, --no-clobber | never overwrite an existing file
+-v, --verbose | print each file moved
+-u, --update | move only when the source is newer
+pos: a file or folder to move...
+
+@ln | Make links between files
+-s, --symbolic | make a symbolic link (a shortcut) instead of a hard link
+-f, --force | replace an existing link or file
+pos: the thing to point to ; the name of the new link
+
+@chmod | Change who may read, write or run a file
+-R, --recursive | also change everything inside folders
+-v, --verbose | say what was changed
+pos: @mode ; the file or folder to change...
+
+@chown | Change the owner (and group) of a file
+-R, --recursive | also change everything inside folders
+-h, --no-dereference | change the link itself, not what it points to
+-v, --verbose | say what was changed
+pos: @owner ; the file or folder to change...
+
+@chgrp | Change the group of a file
+-R, --recursive | also change everything inside folders
+pos: the new group ; the file or folder to change...
+
+@du | Show how much disk space files and folders use
+-h, --human-readable | show sizes like 1K, 234M, 2G
+-s, --summarize | only one total per argument
+-a, --all | also list files, not only folders
+-c, --total | add a grand total
+-d, --max-depth N | only go N levels deep
+pos: the file or folder to measure...
+
+@df | Show free and used space on mounted disks
+-h, --human-readable | show sizes like 1K, 234M, 2G
+-T, --print-type | show the file system type
+pos: the file or disk to check...
+
+@free | Show memory usage
+-h, --human | show sizes like 1K, 234M, 2G
+-m | show sizes in mebibytes
+
+@dd | Copy raw data block by block (used for disk images and wiping)
+!kv
+if= | the input to read from (instead of standard input)
+of= | the output to write to, replacing what is there (instead of standard output)
+bs= | the block size: how many bytes are copied at a time
+count= | copy only this many blocks
+skip= | skip this many blocks of the input first
+seek= | skip this many blocks of the output first
+status= | what progress to show (progress = a running total)
+conv= | conversions to apply, like conv=fsync (flush to disk when done)
+oflag= | output flags, like oflag=direct
+iflag= | input flags
+
+@mkfs | Create a new, empty file system on a disk or partition (erases it)
+pos: the device to format...
+
+@shred | Overwrite a file repeatedly so it cannot be recovered
+-u, --remove | delete the file afterwards
+-n, --iterations N | overwrite N times
+-z, --zero | finish with zeros to hide the shredding
+pos: the file or device to destroy...
+
+@truncate | Shrink or extend a file to a given size
+-s, --size SIZE | set the size to SIZE
+pos: the file to resize...
+
+@find | Search for files and folders under the places you name
+!single
+!first
+pos: the folder to search in...
+-name PATTERN | the file name matches the pattern PATTERN (case-sensitive; the name only, not the folder path)
+-iname PATTERN | the file name matches the pattern PATTERN, ignoring upper/lower case
+-path PATTERN | the whole path matches the pattern PATTERN
+-ipath PATTERN | the whole path matches the pattern PATTERN, ignoring case
+-regex PATTERN | the whole path matches the regular expression PATTERN
+-type TYPE | the thing is of type TYPE
+-mtime N | the file's content was last changed
+-atime N | the file was last read
+-ctime N | the file's permissions or owner were last changed
+-mmin N | the file's content was last changed
+-amin N | the file was last read
+-cmin N | the file's status was last changed
+-newer FILE | the file was modified more recently than FILE
+-size N | the file size is
+-perm MODE | the permissions are MODE
+-user NAME | the file is owned by NAME
+-group NAME | the file belongs to group NAME
+-empty | the file or folder is empty
+-maxdepth N | go at most N folder levels deep
+-mindepth N | ignore the first N folder levels
+-depth | handle a folder's contents before the folder itself
+-mount, -xdev | stay on one file system
+-prune | do not go into the folder just matched
+-not, ! | invert the next test
+-and, -a | both tests must match (this is the default between tests)
+-or, -o | either test may match
+-print | print each match, one per line (the default)
+-print0 | print each match followed by a NUL byte instead of a newline (safe for names with spaces; pair with xargs -0)
+-ls | list each match in long format
+-delete | DELETE every match, permanently
+-exec | run a command for each match ({} is the matched path)
+-execdir | run a command for each match, from the folder it is in
+-ok | run a command for each match, asking first
+-quit | stop after the first match
+-follow, -L | follow symbolic links
+
+@xargs | Build and run commands from the lines or words it reads on standard input
+-0, --null | the input items are separated by NUL bytes, not whitespace (pairs with find -print0)
+-n, --max-args N | pass at most N items to each command run
+-I REPL | replace REPL in the command with each input item (one run per item)
+-P, --max-procs N | run up to N commands at the same time
+-L, --max-lines N | use N input lines per command
+-d, --delimiter DELIM | items are separated by DELIM
+-r, --no-run-if-empty | do nothing when there is no input
+-t, --verbose | print each command before running it
+-p, --interactive | ask before each command
+-s, --max-chars N | limit the command line length to N characters
+pos: >
+
+@grep | Print the lines that match a pattern
+-i, --ignore-case | ignore upper/lower case
+-v, --invert-match | print the lines that do NOT match
+-r, -R, --recursive | search every file under the folders given
+-l, --files-with-matches | print only the names of files that match
+-L, --files-without-match | print only the names of files with no match
+-n, --line-number | show line numbers
+-c, --count | print only how many lines match
+-w, --word-regexp | match whole words only
+-x, --line-regexp | the whole line must match
+-E, --extended-regexp | the pattern is an extended regular expression
+-F, --fixed-strings | the pattern is plain text, not a regex
+-P, --perl-regexp | the pattern is a Perl-style regex
+-o, --only-matching | print only the matching part of each line
+-q, --quiet | print nothing, only set the exit status
+-s, --no-messages | hide errors about missing files
+-H, --with-filename | show the file name on each line
+-h, --no-filename | do not show file names
+-A, --after-context N | also show N lines after each match
+-B, --before-context N | also show N lines before each match
+-C, --context N | also show N lines around each match
+-e, --regexp PATTERN | use PATTERN as the pattern (can be given several times)
+-m, --max-count N | stop after N matches
+--include GLOB | only search files matching GLOB
+--exclude GLOB | skip files matching GLOB
+--exclude-dir GLOB | skip folders matching GLOB
+--color [WHEN] | colour the matches
+pos: the pattern to look for ; the file or folder to search (or standard input)...
+
+@sed | Edit text as it streams through (search and replace, delete lines, ...)
+-i, --in-place [SUFFIX] | edit the files themselves instead of printing the result
+-n, --quiet, --silent | print only what the script prints explicitly
+-e, --expression SCRIPT | add SCRIPT to the editing commands
+-f, --file FILE | read the editing commands from FILE
+-E, -r, --regexp-extended | use extended regular expressions
+-s, --separate | treat each file separately
+-z, --null-data | lines are separated by NUL bytes
+pos: @sedscript ; the file to edit (or standard input)...
+
+@awk | Process text by lines and columns with a small program
+-F SEP | fields are separated by SEP (default: whitespace)
+-f FILE | read the awk program from FILE
+-v VAR | set the variable VAR before running
+pos: @awkprogram ; the file to read (or standard input)...
+
+@jq | Filter and reshape JSON
+-r, --raw-output | print strings without quotes
+-c, --compact-output | one line per result
+-s, --slurp | read all the input into one array
+-e, --exit-status | exit with an error when the result is false or null
+pos: the jq filter ; the file to read (or standard input)...
+
+@tar | Pack files into an archive, or unpack one
+!oldstyle
+-x, --extract, --get | unpack files from the archive
+-c, --create | create a new archive
+-t, --list | list what is in the archive without unpacking
+-r, --append | add files to the end of an existing archive
+-u, --update | add files that are newer than those in the archive
+-z, --gzip | the archive is gzip-compressed
+-j, --bzip2 | the archive is bzip2-compressed
+-J, --xz | the archive is xz-compressed
+--zstd | the archive is zstd-compressed
+-a, --auto-compress | pick the compression from the archive's file name
+-v, --verbose | list each file as it is processed
+-f, --file ARCHIVE | the archive file is ARCHIVE
+-C, --directory DIR | change to DIR first (unpacks into it)
+-p, --preserve-permissions | keep the original permissions
+-k, --keep-old-files | do not overwrite files that already exist
+--exclude PATTERN | skip files matching PATTERN
+--strip-components N | drop the first N folder levels from each path when unpacking
+-O, --to-stdout | print the contents to standard output instead of making files
+-T, --files-from FILE | read the list of files to process from FILE
+--overwrite | overwrite existing files when unpacking
+--one-file-system | do not cross into other file systems
+pos: @tarmember...
+
+@zip | Pack files into a .zip archive
+-r | include folders and their contents
+-q | quiet
+-e | encrypt with a password
+pos: the zip file to create ; the file or folder to add...
+
+@unzip | Unpack a .zip archive
+-d DIR | unpack into DIR
+-o | overwrite existing files without asking
+-l | list the contents without unpacking
+-q | quiet
+pos: the zip file ; the file to extract...
+
+@gzip | Compress files (replaces the file with a .gz copy)
+-d, --decompress | decompress instead
+-k, --keep | keep the original file
+-c, --stdout | write to the screen instead of changing files
+-9 | best (slowest) compression
+pos: the file to compress...
+
+@curl | Transfer data to or from a URL
+-s, --silent | quiet: hide progress and errors
+-S, --show-error | with -s, still show errors
+-f, --fail | exit with an error on HTTP errors instead of printing the error page
+-L, --location | follow redirects
+-o, --output FILE | save the result to FILE instead of printing it
+-O, --remote-name | save the result under the file name taken from the URL
+-X, --request METHOD | use the HTTP method METHOD
+-H, --header HEADER | send the extra header HEADER
+-d, --data DATA | send DATA in the request body (makes it a POST)
+--data-raw DATA | send DATA in the request body exactly as given
+--json DATA | send DATA as JSON with the matching headers
+-F, --form NAME=VALUE | send a multipart form field
+-u, --user USER | log in with USER[:password]
+-k, --insecure | do NOT verify the server's TLS certificate
+-I, --head | fetch only the headers
+-i, --include | also print the response headers
+-v, --verbose | print the full conversation with the server
+-x, --proxy URL | go through the proxy URL
+-m, --max-time SECONDS | give up after SECONDS seconds
+--connect-timeout SECONDS | give up connecting after SECONDS seconds
+--retry N | retry N times on temporary failures
+-A, --user-agent NAME | identify as NAME
+-c, --cookie-jar FILE | save cookies to FILE
+-b, --cookie DATA | send cookies
+-T, --upload-file FILE | upload FILE
+-C, --continue-at OFFSET | resume at OFFSET
+-4, --ipv4 | use IPv4 only
+-6, --ipv6 | use IPv6 only
+-g, --globoff | do not treat [] {} in the URL specially
+-#, --progress-bar | show a simple progress bar
+pos: the URL to fetch...
+
+@wget | Download files from the web
+-q, --quiet | quiet
+-O, --output-document FILE | save to FILE (- means print it)
+-c, --continue | resume a partial download
+-r, --recursive | follow links and download a whole site
+-P, --directory-prefix DIR | save into DIR
+-N, --timestamping | only download if newer
+--no-check-certificate | do NOT verify the server's TLS certificate
+-b, --background | go to the background
+-i, --input-file FILE | read the URLs from FILE
+pos: the URL to download...
+
+@ssh | Log in to another computer over the network (or run one command there)
+-i IDENTITY | use the private key file IDENTITY to log in
+-p PORT | connect to port PORT (instead of 22)
+-l USER | log in as USER
+-L SPEC | forward a local port: LOCALPORT:HOST:HOSTPORT
+-R SPEC | forward a port from the remote side back here
+-D PORT | open a SOCKS proxy on local port PORT
+-N | do not run a command, only forward ports
+-f | go to the background after logging in
+-t | force a terminal (needed for interactive commands)
+-T | do not allocate a terminal
+-A | forward the local ssh agent
+-J HOST | go through the jump host HOST
+-o OPTION | set the ssh option OPTION (as in ssh_config)
+-q | quiet
+-v | verbose (debug output)
+-X | forward graphical (X11) windows
+-C | compress the traffic
+-F FILE | use FILE as the ssh config file
+pos: the computer to connect to (USER@HOST) ; >>remote
+
+@scp | Copy files over ssh
+-r | copy folders and their contents
+-P PORT | connect to port PORT
+-i IDENTITY | use the private key file IDENTITY
+-p | keep modification times and permissions
+-q | quiet
+-C | compress the traffic
+-o OPTION | set the ssh option OPTION
+-J HOST | go through the jump host HOST
+pos: the file to copy (a remote one is written HOST:PATH) ; the file or place to copy it to (HOST:PATH is a remote place)...
+
+@rsync | Synchronise folders, locally or over ssh
+-a, --archive | copy recursively and keep permissions, dates, links and owners
+-v, --verbose | list files as they are copied
+-z, --compress | compress data while sending
+-r, --recursive | go into folders
+-n, --dry-run | only show what would happen, change nothing
+--delete | DELETE files at the destination that are not in the source
+-P | show progress and keep partly transferred files
+--progress | show progress
+-e, --rsh COMMAND | use COMMAND (usually ssh) to connect
+--exclude PATTERN | skip files matching PATTERN
+-u, --update | skip files that are newer at the destination
+-h, --human-readable | show sizes like 1K, 234M, 2G
+pos: the source (a trailing / means "the contents of") ; the destination...
+
+@kill | Send a signal to processes (by default: ask them to stop)
+-s, --signal SIGNAL | send SIGNAL
+-l, --list | list the signal names
+pos: @pid...
+
+@killall | Send a signal to every process with a given name
+-s, --signal SIGNAL | send SIGNAL
+-r, --regexp | the name is a regular expression
+-i, --interactive | ask before each kill
+pos: the process name...
+
+@pkill | Send a signal to processes matching a name or pattern
+-f, --full | match against the whole command line, not just the name
+-u, --euid USER | only processes of USER
+-x, --exact | the name must match exactly
+pos: the pattern to match process names...
+
+@pgrep | List the process IDs of processes matching a name or pattern
+-f, --full | match against the whole command line
+-l, --list-name | also print the names
+-a, --list-full | also print the full command lines
+-u, --euid USER | only processes of USER
+pos: the pattern to match process names...
+
+@lsof | List open files (including network ports) and who uses them
+-i SPEC | network connections matching SPEC (like :3000 for port 3000)
+-t | print only the process IDs (handy to feed into kill)
+-p PID | only the process PID
+-u USER | only files opened by USER
+-n | do not translate IP addresses to names
+-P | do not translate port numbers to names
+-c NAME | only processes whose command starts with NAME
+pos: the file to check...
+
+@ps | Show running processes
+!oldstyle
+a | processes of all users, not only your own
+u | show the user and CPU and memory use
+x | include processes not attached to a terminal
+-e, -A | all processes
+-f | full format (parent process, start time, command line)
+-u USER | processes of USER
+-p PID | only the process PID
+-o FORMAT | choose the columns
+-C NAME | processes whose command is NAME
+-ef | every process, in full format
+--sort KEY | sort by KEY
+pos: >
+
+@top | Show the busiest processes live (quit with q)
+-b | batch mode: print instead of live-updating
+-n N | stop after N updates
+-p PID | only the process PID
+-u USER | only processes of USER
+
+@systemctl | Control system services (systemd)
+--user | work on your own user services, not the system's
+--now | also start or stop the unit right away (with enable/disable)
+-q, --quiet | no output
+--no-pager | do not page the output
+--failed | only failed units
+-t, --type TYPE | only units of type TYPE
+pos: what to do (start, stop, restart, status, enable, disable, ...) ; the unit (service) to act on...
+=start | start the unit now
+=stop | stop the unit now
+=restart | stop the unit and start it again
+=reload | ask the unit to re-read its configuration without stopping
+=status | show whether the unit is running, with its latest log lines
+=enable | start the unit automatically at boot
+=disable | stop starting the unit automatically at boot
+=mask | block the unit from being started at all
+=daemon-reload | re-read all unit files (needed after editing one)
+=is-active | print whether the unit is running
+=list-units | list the units that are loaded
+=reboot | restart the computer
+=poweroff | shut the computer down
+
+@journalctl | Read the system log
+-u, --unit UNIT | only messages from UNIT
+-f, --follow | keep running and print new messages (stop with Ctrl+C)
+-n, --lines N | show the last N lines
+-e, --pager-end | jump to the end
+-b, --boot [ID] | only messages since the (current) boot
+-r, --reverse | newest first
+-p, --priority LEVEL | only messages at LEVEL or worse
+-k, --dmesg | only kernel messages
+--no-pager | do not page the output
+-S, --since TIME | only messages since TIME
+-U, --until TIME | only messages until TIME
+-o, --output FORMAT | output format
+-x, --catalog | add explanations of messages
+--user | the user's own services
+--vacuum-time TIME | delete log entries older than TIME
+--vacuum-size SIZE | delete the oldest log entries until the log fits in SIZE
+
+@sudo | Run a command with administrator (root) rights
+!wrapper
+-u, --user USER | run as USER instead of root
+-E, --preserve-env | keep your environment variables
+-H, --set-home | set HOME to the target user's home
+-i, --login | run the target user's login shell
+-s, --shell | run a shell
+-n, --non-interactive | never ask for a password (fail instead)
+-k | forget the cached password first
+-S, --stdin | read the password from standard input
+-g, --group GROUP | run with the group GROUP
+-b, --background | run in the background
+pos: >
+
+@doas | Run a command with administrator (root) rights
+!wrapper
+-u USER | run as USER instead of root
+-n | never ask for a password
+pos: >
+
+@env | Run a command with a modified environment
+!wrapper
+-i, --ignore-environment | start with an empty environment
+-u, --unset NAME | remove NAME from the environment
+-C, --chdir DIR | run in the folder DIR
+-S, --split-string STRING | split STRING into separate arguments
+pos: >
+
+@nohup | Run a command that keeps running after you log out
+!wrapper
+pos: >
+
+@time | Run a command and report how long it took
+!wrapper
+-p | print in a portable format
+-v | verbose
+pos: >
+
+@nice | Run a command with lower priority
+!wrapper
+-n, --adjustment N | add N to the priority value (higher = lower priority)
+pos: >
+
+@ionice | Run a command with a given disk priority
+!wrapper
+-c CLASS | scheduling class
+-n N | priority level
+pos: >
+
+@timeout | Run a command and stop it after a time limit
+!wrapper
+-s, --signal SIGNAL | send SIGNAL when the time is up
+-k, --kill-after DURATION | send a KILL signal if it is still running DURATION after
+--preserve-status | exit with the command's own status
+pos: the time limit (like 30s, 5m, 2h) ; >
+
+@watch | Run a command over and over and show its output
+!wrapper
+-n, --interval SECONDS | wait SECONDS seconds between runs (default 2)
+-d, --differences | highlight what changed
+-t, --no-title | hide the header
+-e, --errexit | stop if the command fails
+pos: >>
+
+@setsid | Run a command in a new session
+!wrapper
+pos: >
+
+@stdbuf | Run a command with changed output buffering
+!wrapper
+-o MODE | buffering of standard output
+-e MODE | buffering of standard error
+-i MODE | buffering of standard input
+pos: >
+
+@command | Run a command, skipping shell functions and aliases
+!wrapper
+-v | print where the command comes from instead of running it
+pos: >
+
+@exec | Replace this shell with a command
+!wrapper
+pos: >
+
+@builtin | Run a shell builtin
+!wrapper
+pos: >
+
+@eval | Run the given text as shell code
+pos: >>
+
+@bash | Run a bash shell or script
+-c STRING | run the commands in STRING
+-s | read the commands to run from standard input
+-e | exit as soon as a command fails
+-x | print each command as it is run
+-l, --login | act as a login shell
+-i | interactive shell
+-u | treat unset variables as errors
+-n | only check the syntax, run nothing
+pos: the script file to run (omit to read from standard input) ; an argument for the script...
+
+@sh | Run a POSIX shell or script
+-c STRING | run the commands in STRING
+-s | read the commands to run from standard input
+-e | exit as soon as a command fails
+-x | print each command as it is run
+-u | treat unset variables as errors
+pos: the script file to run (omit to read from standard input) ; an argument for the script...
+
+@zsh | Run a zsh shell or script
+-c STRING | run the commands in STRING
+-s | read the commands to run from standard input
+-e | exit as soon as a command fails
+-x | print each command as it is run
+pos: the script file to run (omit to read from standard input) ; an argument for the script...
+
+@dash | Run a dash shell or script
+-c STRING | run the commands in STRING
+-s | read the commands to run from standard input
+pos: the script file to run (omit to read from standard input) ; an argument for the script...
+
+@python | Run a Python program
+-c CODE | run the Python code CODE
+-m MODULE | run the module MODULE as a script
+-u | do not buffer output
+-V, --version | print the Python version
+pos: the script to run ; an argument for the script...
+
+@python3 | Run a Python 3 program
+-c CODE | run the Python code CODE
+-m MODULE | run the module MODULE as a script
+-u | do not buffer output
+-V, --version | print the Python version
+pos: the script to run ; an argument for the script...
+
+@node | Run a JavaScript program with Node.js
+-e, --eval CODE | run the JavaScript code CODE
+-p, --print CODE | run CODE and print the result
+pos: the script to run ; an argument for the script...
+
+@make | Build things according to a Makefile
+-j, --jobs [N] | run jobs in parallel (-j4 means 4 at a time)
+-C, --directory DIR | go into DIR first
+-f, --file FILE | use FILE instead of Makefile
+-n, --just-print, --dry-run | only print what would run
+-k, --keep-going | carry on after errors
+-B, --always-make | rebuild everything
+-s, --silent | do not print the commands
+pos: the target to build (a name from the Makefile, e.g. install) or a VAR=value setting...
+
+@cmake | Configure or drive a build with CMake
+-D VAR | set the build setting VAR (as NAME=VALUE)
+-B DIR | put the build files in DIR
+-S DIR | the source folder is DIR
+-G GENERATOR | use the build system GENERATOR (e.g. Ninja)
+--build DIR | build the project in DIR
+--install DIR | install the project from DIR
+-j, --parallel [N] | build with N parallel jobs
+--config CONFIG | which configuration to build (Debug, Release, ...)
+--target TARGET | build only TARGET
+pos: the folder with the CMakeLists.txt (.. means the parent folder)
+
+@cargo | Build and manage Rust projects
+pos: what to do (build, run, test, ...)...
+
+@cargo build | Compile the project
+-r, --release | optimised build (slower to compile, faster to run)
+-p, --package SPEC | only this package
+--all-targets | build everything including tests and examples
+-j, --jobs N | N parallel jobs
+-q, --quiet | quiet
+
+@cargo run | Compile and run the project
+-r, --release | optimised build
+-p, --package SPEC | only this package
+--bin NAME | run the binary NAME
+-q, --quiet | quiet
+pos: >
+
+@cargo test | Compile and run the tests
+-r, --release | optimised build
+-p, --package SPEC | only this package
+--no-run | build the tests but do not run them
+-q, --quiet | quiet
+
+@cargo install | Download, compile and install a Rust program
+--path DIR | install from the local folder DIR
+--locked | use the exact dependency versions from the lock file
+-f, --force | replace an existing install
+pos: the crate to install...
+
+@cargo clean | Delete the build output
+pos: ...
+
+@cargo clippy | Run the Rust linter
+@cargo fmt | Format the Rust code
+@cargo check | Check the code compiles, without producing a program
+@cargo add | Add a dependency to Cargo.toml
+pos: the crate to add...
+
+@pip | Install and manage Python packages
+--break-system-packages | override the operating system's protection and install into the system Python
+--user | install for your user only
+-r, --requirement FILE | install everything listed in FILE
+-U, --upgrade | upgrade to the newest version
+-e, --editable PATH | install in editable (development) mode
+--no-cache-dir | do not use the download cache
+-q, --quiet | quiet
+-i, --index-url URL | use the package index URL
+pos: what to do (install, uninstall, list, ...) ; the package...
+
+@pip install | Install Python packages (runs their install code)
+pos: the package to install (or a file or folder with one)...
+
+@pip uninstall | Remove Python packages
+-y, --yes | do not ask for confirmation
+pos: the package to remove...
+
+@pip3 | Install and manage Python packages
+--break-system-packages | override the operating system's protection and install into the system Python
+--user | install for your user only
+-r, --requirement FILE | install everything listed in FILE
+-U, --upgrade | upgrade to the newest version
+pos: what to do (install, uninstall, list, ...) ; the package...
+
+@npm | Install and run JavaScript packages
+-g, --global | install system-wide (not just in this project)
+-D, --save-dev | record as a development dependency
+-S, --save | record as a dependency
+--legacy-peer-deps | ignore peer dependency conflicts
+-y, --yes | do not ask for confirmation
+--silent | quiet
+pos: what to do (install, run, test, ...) ; the package or script...
+
+@npm install | Download the packages a project needs, or add a package
+pos: the package to install (leave out to install everything package.json lists)...
+
+@npm uninstall | Remove a package
+pos: the package to remove...
+
+@npm ci | Install exactly what package-lock.json says (clean install)
+@npm run | Run a script defined in package.json
+pos: the script name ; >
+
+@npm test | Run the project's tests (the script named test in package.json)
+@npm start | Start the project (the script named start in package.json)
+@npm update | Update packages to newer versions
+@npm publish | Upload this package to the npm registry
+@npm init | Create a package.json
+@npm exec | Run a program from an npm package
+pos: >
+
+@pnpm | Install and run JavaScript packages (fast npm alternative)
+-g, --global | install system-wide
+-D, --save-dev | record as a development dependency
+--frozen-lockfile | do not change the lock file
+pos: what to do (install, add, run, ...) ; the package or script...
+
+@pnpm install | Download the packages a project needs
+@pnpm add | Add a package to the project
+pos: the package to add...
+
+@pnpm remove | Remove a package
+pos: the package to remove...
+
+@pnpm run | Run a script defined in package.json
+pos: the script name
+
+@pnpm dlx | Download and run a package's program once
+pos: the package
+
+@yarn | Install and run JavaScript packages
+-g, --global | install system-wide
+pos: what to do (install, add, run, ...) ; the package or script...
+
+@yarn install | Download the packages a project needs
+@yarn add | Add a package to the project
+pos: the package to add...
+
+@yarn run | Run a script defined in package.json
+pos: the script name
+
+@pacman | The Arch Linux package manager
+-S, --sync | install packages from the repositories
+-R, --remove | remove packages
+-Q, --query | look at installed packages
+-y, --refresh | refresh the package lists
+-u, --sysupgrade | upgrade all installed packages
+-s, --search | search by name or description
+-i, --info | show details
+-n, --nosave | with -R: also delete config files
+-c, --clean | with -S: clean the package cache
+--noconfirm | do not ask for confirmation
+--needed | skip packages that are already installed
+pos: the package...
+
+@apt | The Debian/Ubuntu package manager
+-y, --yes | answer yes to every question
+-q, --quiet | quiet
+--no-install-recommends | skip optional recommended packages
+pos: what to do (install, remove, update, upgrade, ...) ; the package...
+=install | install the packages named
+=remove | uninstall the packages named (keeps their settings)
+=purge | uninstall the packages and their settings
+=update | refresh the list of available packages (installs nothing)
+=upgrade | install newer versions of everything installed
+=full-upgrade | upgrade everything, adding or removing packages as needed
+=autoremove | remove packages nothing needs any more
+=search | search the package lists
+
+@apt-get | The Debian/Ubuntu package manager
+-y, --yes | answer yes to every question
+-q, --quiet | quiet
+--no-install-recommends | skip optional recommended packages
+pos: what to do (install, remove, update, upgrade, ...) ; the package...
+
+@dnf | The Fedora/RHEL package manager
+-y, --assumeyes | answer yes to every question
+pos: what to do (install, remove, upgrade, ...) ; the package...
+
+@mount | Attach a disk or file system to a folder
+-t TYPE | the file system type is TYPE
+-o OPTIONS | mount options, like ro,noexec
+-r, --read-only | mount read-only
+pos: the device ; the folder to mount it on
+
+@umount | Detach a mounted file system
+-l, --lazy | detach now, clean up when no longer busy
+-f, --force | force it
+pos: the mount point or device...
+
+@dig | Look up DNS records for a name
++short | print only the answer
++trace | trace the lookup from the root servers
++noall | hide every section (combine with +answer)
++answer | show the answer section
+-x ADDR | reverse lookup: find the name for the address ADDR
+-t TYPE | the record type is TYPE
+-p PORT | use port PORT
+-4 | use IPv4 only
+-6 | use IPv6 only
+pos: the name to look up (and @server, record type) ...
+
+@ping | Check whether another computer answers
+-c N | send N packets then stop (without it, runs until Ctrl+C)
+-i SECONDS | wait SECONDS seconds between packets
+-W SECONDS | wait up to SECONDS seconds for each reply
+-4 | use IPv4
+-6 | use IPv6
+pos: the computer to ping
+
+@nproc | Print how many processor cores are available
+
+@export | Set a variable that child programs can see
+pos: NAME=value to set...
+
+@source | Run the commands in a file inside this shell
+pos: the file to run ; an argument for it...
+
+@sleep | Wait for a while
+pos: how long (seconds, or with s/m/h/d)
+
+@: | Do nothing, successfully (a placeholder)
+@true | Do nothing, successfully
+@false | Do nothing, unsuccessfully
+@test | Check a condition (success or failure is the answer)
+-f | the path is a regular file
+-d | the path is a folder
+-e | the path exists
+-s | the file exists and is not empty
+-r | the file is readable
+-w | the file is writable
+-x | the file is runnable
+-L, -h | the path is a symbolic link
+-z | the text is empty
+-n | the text is not empty
+-eq | the numbers are equal
+-ne | the numbers are different
+-lt | the first number is smaller
+-le | the first number is smaller or equal
+-gt | the first number is bigger
+-ge | the first number is bigger or equal
+-a | both conditions are true
+-o | either condition is true
+pos: the thing to test...
+@git | Track and share changes to source code
+-C PATH | run as if started in the folder PATH
+-c NAME=VALUE | set the configuration NAME to VALUE just for this run
+--no-pager | do not page the output
+-p, --paginate | page the output
+--version | print the git version
+--help | show help
+pos: what to do (status, commit, push, ...)
+
+@git status | Show what has changed in the working folder
+-s, --short | compact output
+-b, --branch | show the branch too
+--porcelain | stable, script-friendly output
+-u, --untracked-files [MODE] | how untracked files are shown
+
+@git add | Stage changes for the next commit
+-A, --all | stage everything: new, changed and deleted files
+-p, --patch | choose the changes to stage interactively
+-u, --update | stage changes to files git already tracks
+-f, --force | add files even if they are ignored
+-n, --dry-run | only show what would be added
+-N, --intent-to-add | only record that the path will be added
+pos: the file or folder to stage...
+
+@git commit | Record the staged changes as a new commit
+-m, --message MSG | use MSG as the commit message
+-a, --all | also stage every change to tracked files first
+--amend | REPLACE the previous commit instead of adding a new one
+--no-edit | keep the previous commit message
+-n, --no-verify | skip the pre-commit and commit-msg hooks
+-S, --gpg-sign [KEYID] | sign the commit
+--allow-empty | allow a commit with no changes
+-v, --verbose | show the diff in the message editor
+pos: ...
+
+@git push | Upload your commits to a remote repository
+-f, --force | OVERWRITE the remote branch with yours, even if that discards others' commits
+--force-with-lease | overwrite the remote branch only if nobody else has pushed since you last looked
+-u, --set-upstream | remember this remote branch as the default for this branch
+--tags | also push all tags
+--delete | DELETE the named branch or tag on the remote
+-n, --dry-run | only show what would be pushed
+--no-verify | skip the pre-push hook
+pos: the remote (usually origin) ; the branch or refspec to push...
+
+@git pull | Download from a remote and merge into the current branch
+--rebase [MODE] | replay your commits on top instead of merging
+--ff-only | only fast-forward, fail otherwise
+--no-rebase | merge instead of rebasing
+-p, --prune | drop remote branches that no longer exist
+-q, --quiet | quiet
+pos: the remote (usually origin) ; the branch to pull...
+
+@git fetch | Download from a remote without changing your files
+--all | fetch from every remote
+-p, --prune | drop remote branches that no longer exist
+--tags | also fetch tags
+-q, --quiet | quiet
+pos: the remote (usually origin) ; the branch to fetch...
+
+@git clone | Copy a repository from elsewhere
+--depth N | only download the last N commits
+-b, --branch NAME | check out the branch NAME
+--recursive, --recurse-submodules | also clone submodules
+--single-branch | only fetch one branch
+--bare | make a bare repository (no working folder)
+pos: the repository to copy (a URL or folder) ; the folder to put it in
+
+@git checkout | Switch branches, or restore files
+-b NAME | create the branch NAME and switch to it
+-B NAME | create (or reset) the branch NAME and switch to it
+-f, --force | throw away local changes while switching
+--detach | check out a commit directly (detached HEAD)
+-- | what follows is a file path, not a branch
+pos: the branch, commit or file...
+
+@git switch | Switch branches
+-c, --create NAME | create the branch NAME and switch to it
+-C, --force-create NAME | create (or reset) the branch NAME and switch to it
+-d, --detach | check out a commit directly
+-f, --force | throw away local changes while switching
+pos: the branch to switch to
+
+@git restore | Restore files to an earlier state
+-S, --staged | restore the staged copy (unstage) instead of the working file
+-W, --worktree | restore the working file
+-s, --source SOURCE | restore from SOURCE (a commit or branch)
+-p, --patch | choose the changes interactively
+pos: the file or folder to restore...
+
+@git branch | List, create or delete branches
+-d, --delete | delete a branch (only if it is fully merged)
+-D | DELETE a branch even if it is not merged
+-m, --move | rename a branch
+-a, --all | list local and remote branches
+-r, --remotes | list remote branches
+-v, --verbose | show the last commit of each
+pos: the branch...
+
+@git merge | Combine another branch into the current one
+--no-ff | always create a merge commit
+--ff-only | only fast-forward, fail otherwise
+--squash | combine the changes into one staged change without a merge commit
+--abort | cancel a merge in progress
+-m MSG | use MSG as the merge commit message
+pos: the branch to merge...
+
+@git rebase | Replay your commits on top of another base (rewrites history)
+-i, --interactive | edit, reorder or drop commits in an editor
+--onto NEWBASE | replay onto NEWBASE
+--abort | cancel the rebase in progress
+--continue | continue after resolving conflicts
+--autostash | stash and restore local changes around the rebase
+pos: the branch or commit to rebase onto...
+
+@git reset | Move the current branch to another commit
+--hard | ALSO overwrite the working files, discarding uncommitted changes
+--soft | keep all changes staged
+--mixed | keep changes in the working files but unstaged (default)
+-p, --patch | choose the changes interactively
+pos: the commit to move the branch to, or the file to unstage...
+
+@git revert | Create a new commit that undoes an earlier one
+--no-commit, -n | undo the changes but do not commit yet
+--no-edit | keep the default message
+-m, --mainline N | which parent to keep when reverting a merge
+pos: the commit to undo...
+
+@git stash | Set uncommitted changes aside
+-u, --include-untracked | also stash new files
+-a, --all | also stash ignored files
+-m, --message MSG | label the stash MSG
+pos: what to do (push, pop, apply, list, drop, clear) ; the stash...
+=push | stash the changes (the default)
+=pop | bring back the newest stash and remove it from the list
+=apply | bring back a stash but keep it in the list
+=list | list the stashes
+=drop | delete a stash
+=clear | DELETE every stash
+
+@git log | Show the commit history
+--oneline | one short line per commit
+--graph | draw the branch structure
+-n, --max-count N | show at most N commits
+-p, --patch | show the changes in each commit
+--stat | show which files each commit changed
+--all | all branches, not just the current one
+--author PATTERN | only commits by authors matching PATTERN
+--grep PATTERN | only commits whose message matches PATTERN
+--since DATE | only commits after DATE
+--until DATE | only commits before DATE
+--after DATE | only commits after DATE
+--before DATE | only commits before DATE
+--decorate | show branch and tag names
+--pretty FORMAT | choose the output format
+--format FORMAT | choose the output format
+pos: the commit or branch to start from...
+
+@git diff | Show what changed
+--staged, --cached | compare staged changes (what the next commit will contain)
+--stat | only a summary of files and line counts
+--name-only | only the names of changed files
+--name-status | names plus whether added, modified or deleted
+-w | ignore whitespace
+pos: the commit, branch or file to compare...
+
+@git show | Show a commit and its changes
+--stat | only a summary of files and line counts
+--name-only | only the names of changed files
+pos: the commit to show...
+
+@git clean | DELETE files that git does not track
+-f, --force | actually delete (git refuses without it)
+-d | also delete untracked folders
+-x | also delete ignored files (build output, .env files, ...)
+-X | delete only the ignored files
+-n, --dry-run | only show what would be deleted
+-i, --interactive | choose interactively
+-q, --quiet | quiet
+pos: the path to clean...
+
+@git init | Create a new, empty repository
+-b, --initial-branch NAME | name the first branch NAME
+--bare | make a bare repository (no working folder)
+pos: the folder to create it in...
+
+@git remote | Manage the places you push to and pull from
+-v, --verbose | show the URLs
+pos: what to do (add, remove, rename, set-url, show, -v) ; the remote name ; the URL...
+=add | add a remote
+=remove | forget a remote
+=rename | rename a remote
+=set-url | change a remote's address
+=show | show details of a remote
+=prune | drop remote branches that no longer exist
+
+@git tag | List, create or delete tags
+-a, --annotate | create an annotated tag
+-d, --delete | delete a tag
+-m, --message MSG | the tag message
+-f, --force | replace an existing tag
+-l, --list | list tags
+pos: the tag name ; the commit...
+
+@git cherry-pick | Apply the changes of other commits onto this branch
+-x | add a line saying where the commit came from
+-n, --no-commit | apply the changes but do not commit
+--abort | cancel a cherry-pick in progress
+--continue | continue after resolving conflicts
+pos: the commit to copy...
+
+@git rm | Remove files from the folder and from git
+-r | also folders
+-f, --force | remove even with local changes
+--cached | remove only from git, keep the file on disk
+-n, --dry-run | only show what would be removed
+pos: the file to remove...
+
+@git mv | Move or rename a tracked file
+pos: the file to move ; the destination
+
+@git config | Read or change git settings
+--global | the settings of your user (~/.gitconfig)
+--local | the settings of this repository
+--system | the settings of the whole machine
+--list, -l | list all settings
+--unset | remove a setting
+pos: the setting name ; the value
+
+@git blame | Show who last changed each line of a file
+-L RANGE | only the lines in RANGE
+pos: the file
+
+@git reflog | Show where the branch tips have been (helps to recover lost commits)
+pos: what to do (show, expire, delete)...
+
+@git submodule | Manage repositories nested inside this one
+--init | initialise the submodules
+--recursive | include nested submodules
+pos: what to do (add, update, init, status) ; the path...
+
+@git worktree | Manage extra working folders for this repository
+pos: what to do (add, list, remove, prune) ; the path...
+
+@git bisect | Binary-search the history to find the commit that broke something
+pos: what to do (start, good, bad, reset) ; the commit...
+
+@git grep | Search the files in the repository
+-n | show line numbers
+-i | ignore upper/lower case
+-l | only file names
+pos: the pattern ; the path...
+
+@git filter-branch | Rewrite the whole history of a branch
+@git gc | Clean up the repository
+--prune DATE | delete unreachable objects older than DATE
+--aggressive | spend more time optimising
+
+@docker | Run and manage containers
+-H, --host HOST | talk to the docker daemon at HOST
+--context NAME | use the docker context NAME
+pos: what to do (run, ps, build, ...)
+
+@docker run | Create a new container from an image and start it
+-d, --detach | run in the background
+-i, --interactive | keep standard input open
+-t, --tty | give the container a terminal
+-it | interactive, with a terminal
+-p, --publish SPEC | publish a container port on the host
+-P, --publish-all | publish every exposed port to a random host port
+--name NAME | call the container NAME
+-v, --volume SPEC | share a folder or volume with the container
+--mount SPEC | mount a folder or volume (long form)
+-e, --env VAR | set the environment variable VAR in the container
+--env-file FILE | read environment variables from FILE
+--rm | delete the container when it exits
+--network NET | connect to the network NET
+--restart POLICY | restart policy (no, on-failure, always, unless-stopped)
+-w, --workdir DIR | start in the folder DIR inside the container
+-u, --user USER | run as USER inside the container
+--privileged | give the container almost full access to the host
+--entrypoint CMD | replace the image's default start command
+--platform PLATFORM | the CPU platform to use
+--memory SIZE | limit memory to SIZE
+--cpus N | limit CPU to N cores
+--pull POLICY | when to pull the image
+pos: the image to run (name:tag) ; >container
+
+@docker exec | Run a command inside a running container
+-i, --interactive | keep standard input open
+-t, --tty | give the command a terminal
+-it | interactive, with a terminal
+-d, --detach | run in the background
+-e, --env VAR | set the environment variable VAR
+-w, --workdir DIR | start in the folder DIR
+-u, --user USER | run as USER
+pos: the container to run it in ; >container
+
+@docker build | Build an image from a Dockerfile
+-t, --tag NAME | name the image NAME
+-f, --file FILE | use the Dockerfile FILE
+--no-cache | do not reuse cached steps
+--pull | always fetch newer base images
+--build-arg VAR | set the build variable VAR
+--platform PLATFORM | the CPU platform to build for
+pos: the build folder (. = the current folder)
+
+@docker ps | List containers
+-a, --all | include stopped containers
+-q, --quiet | only the IDs
+-f, --filter FILTER | filter by FILTER
+--format FORMAT | choose the output format
+
+@docker rm | Delete containers
+-f, --force | also delete running containers
+-v, --volumes | also delete their anonymous volumes
+pos: the container to delete...
+
+@docker rmi | Delete images
+-f, --force | force it
+pos: the image to delete...
+
+@docker stop | Stop containers (politely, then forcefully)
+-t, --time SECONDS | wait SECONDS seconds before killing
+pos: the container to stop...
+
+@docker start | Start stopped containers
+pos: the container to start...
+
+@docker restart | Stop and start containers again
+pos: the container to restart...
+
+@docker logs | Show a container's output
+-f, --follow | keep running and print new lines (stop with Ctrl+C)
+--tail N | only the last N lines
+--since TIME | only output since TIME
+-t, --timestamps | show timestamps
+pos: the container
+
+@docker pull | Download an image
+pos: the image to download...
+
+@docker images | List downloaded images
+-a, --all | include intermediate images
+-q, --quiet | only the IDs
+
+@docker system | Manage docker itself
+pos: what to do (prune, df, info) ...
+
+@docker system prune | DELETE unused docker data (stopped containers, unused networks, dangling images)
+-a, --all | also delete every unused image
+-f, --force | do not ask for confirmation
+--volumes | also delete unused volumes
+
+@docker volume | Manage volumes
+pos: what to do (ls, rm, prune, create) ; the volume...
+
+@docker network | Manage networks
+pos: what to do (ls, rm, create, prune) ; the network...
+
+@docker image | Manage images
+pos: what to do (ls, rm, prune, pull) ; the image...
+
+@docker container | Manage containers
+pos: what to do (ls, rm, prune, stop) ; the container...
+
+@docker compose | Run multi-container applications described in a compose file
+-f, --file FILE | use the compose file FILE
+-p, --project-name NAME | the project name is NAME
+--profile NAME | enable the profile NAME
+pos: what to do (up, down, ps, logs, build, ...)
+
+@docker compose up | Create and start the services
+-d, --detach | run in the background
+--build | build the images first
+--force-recreate | recreate the containers even if nothing changed
+--remove-orphans | delete containers for services no longer in the file
+--no-deps | do not start linked services
+pos: the service to start...
+
+@docker compose down | Stop and delete the services' containers and networks
+-v, --volumes | ALSO delete the volumes (their data is lost)
+--rmi MODE | also delete images
+--remove-orphans | delete containers for services no longer in the file
+
+@docker compose logs | Show the services' output
+-f, --follow | keep running and print new lines
+--tail N | only the last N lines
+pos: the service...
+
+@docker compose build | Build the services' images
+--no-cache | do not reuse cached steps
+pos: the service...
+
+@docker compose pull | Download the services' images
+@docker compose ps | List the services' containers
+@docker compose restart | Restart the services
+@docker compose exec | Run a command inside a running service container
+-T | do not allocate a terminal
+pos: the service ; >container
+
+@docker-compose | Run multi-container applications described in a compose file
+-f, --file FILE | use the compose file FILE
+pos: what to do (up, down, ps, logs, build, ...)
+
+@kubectl | Control a Kubernetes cluster
+-n, --namespace NS | use the namespace NS
+-f, --filename FILE | the manifest file FILE
+--context NAME | use the cluster context NAME
+-o, --output FORMAT | output format
+pos: what to do (get, apply, delete, ...) ; the resource...
+
+@xdg-open | Open a file or URL with the default app
+pos: the file or URL
+
+@convert | Convert or edit an image (ImageMagick)
+-resize GEOMETRY | resize the image to GEOMETRY (50% = half size, 800x600 = that size)
+-quality N | output quality (for JPEG, 0-100)
+-rotate DEGREES | rotate by DEGREES
+-crop GEOMETRY | crop to GEOMETRY
+-strip | remove metadata
+pos: the input image ; the output image
+
+@ffmpeg | Convert audio and video
+-i FILE | the input file is FILE
+-y | overwrite the output without asking
+-n | never overwrite the output
+-c CODEC | use the codec CODEC
+-vf FILTER | apply the video filter FILTER
+-ss TIME | start at TIME
+-t DURATION | stop after DURATION
+-b BITRATE | the bitrate
+-an | drop the audio
+-vn | drop the video
+pos: the output file
+
+@crontab | Edit or list scheduled jobs
+-l | list the scheduled jobs
+-e | edit the scheduled jobs
+-r | DELETE all your scheduled jobs
+pos: ...
+
+@reboot | Restart the computer
+@poweroff | Shut the computer down
+@shutdown | Shut the computer down (or schedule it)
+-h | halt (power off) after shutting down
+-r | reboot after shutting down
+-P | power off
+pos: when (now, +5, hh:mm)...
+
+@useradd | Create a user account
+-m, --create-home | create the home folder
+-G, --groups GROUPS | add to the groups GROUPS
+-s, --shell SHELL | login shell
+pos: the user name
+
+@usermod | Change a user account
+-a, --append | add to groups instead of replacing them (with -G)
+-G, --groups GROUPS | the groups GROUPS
+-s, --shell SHELL | login shell
+pos: the user name
+
+@passwd | Change a password
+pos: the user name
+
+@ufw | Manage the firewall
+pos: what to do (enable, disable, allow, deny, status, ...) ; the rule...
+
+@modprobe | Load or remove kernel modules
+-r, --remove | remove the module
+pos: the module...
+
+@sysctl | Read or change kernel settings
+-w, --write | write a setting
+-p | load settings from a file
+pos: the setting
+
+@fdisk | Edit a disk's partition table
+-l, --list | only list the partition tables
+pos: the disk
+
+@parted | Edit a disk's partitions
+pos: the disk...
+
+@wipefs | Erase file system signatures from a disk
+-a, --all | erase all signatures
+pos: the disk
+
+@lsblk | List disks and partitions
+-f, --fs | show file system info
+
+@which | Show where a program is
+@whoami | Print your user name
+@date | Print or set the date and time
+@uname | Print system information
+-a, --all | everything
+-r, --kernel-release | the kernel release
+@hostname | Print or set the computer's name
+@tree | Show folders as a tree
+-L N | only N levels deep
+-a | include hidden files
+@file | Tell what kind of file something is
+@stat | Show detailed information about a file
+@basename | Strip the folder from a path
+@dirname | Strip the file name from a path
+@realpath | Print the absolute path
+@diff | Compare files line by line
+-u, --unified | unified format (like git)
+-r, --recursive | compare folders
+-q, --brief | only say whether they differ
+@xxd | Show a file as hex
+@hexdump | Show a file as hex
+@strings | Print the readable text in a binary
+@yes | Print a line forever (usually piped into a prompt)
+pos: the text to repeat
+@read | Read a line of input into a variable
+-r | do not treat backslashes specially
+-p PROMPT | show PROMPT first
+@set | Change shell options
+-e | exit on the first error
+-u | treat unset variables as errors
+-x | print each command as it is run
+-o OPTION | set a named option (like pipefail)
+@unset | Remove a variable
+@alias | Define a shortcut for a command
+@history | Show the command history
+-c | CLEAR the history
+@exit | Leave the shell
+@wait | Wait for background jobs
+@trap | Run a command when a signal arrives
+@umask | Show or set default permissions for new files
+@id | Show your user and group IDs
+@groups | Show your groups
+@su | Switch to another user
+-c COMMAND | run COMMAND as that user
+-l, -, --login | start a login shell
+pos: the user name

@@ -1,12 +1,19 @@
 mod assemble;
+mod breakdown;
 mod candidates;
 mod catalog;
+mod decode;
 mod doctor;
 mod eval;
 mod explain;
+mod knowledge;
+mod manpage;
 mod matcher;
 mod platform;
+mod render;
+mod risk;
 mod session;
+mod shell;
 
 use anyhow::{Result, bail};
 use assemble::Suggestion;
@@ -65,8 +72,7 @@ enum Action {
     Why,
     /// Explain what a shell command and each of its flags and arguments do
     Explain {
-        /// Command line to break down
-        #[arg(required = true)]
+        /// Command line to break down; `-` (or nothing, with piped input) reads it from standard input
         command: Vec<String>,
     },
     /// Print the shell lines that record a terminal and bind prompt completion for `huh`
@@ -172,13 +178,6 @@ fn print(outcome: &Outcome, catalog: &[Command], brief: bool) {
     }
 }
 
-fn print_command_explanation(parts: &[(String, String)]) {
-    let width = parts.iter().map(|(piece, _)| piece.chars().count()).max().unwrap_or(0).clamp(12, 36);
-    for (piece, meaning) in parts {
-        println!("  {piece:<width$}  {meaning}");
-    }
-}
-
 /// Asks on the terminal and reads a line; Enter alone means no.
 fn ask_on_terminal(question: &str) -> Option<bool> {
     use std::io::Write;
@@ -276,15 +275,21 @@ fn main() -> Result<()> {
             );
         }
         Some(Action::Explain { command }) => {
-            let cmd_str = join_argv(&command);
+            use std::io::Read;
+            // `huh explain -` (or no argument with piped input) reads the text from standard input.
+            let from_stdin = command == ["-"] || (command.is_empty() && !std::io::stdin().is_terminal());
+            let cmd_str = if from_stdin {
+                let mut piped = String::new();
+                std::io::stdin().take(1 << 20).read_to_string(&mut piped)?;
+                piped
+            } else {
+                join_argv(&command)
+            };
             if cmd_str.trim().is_empty() {
                 bail!("provide a command to explain, e.g. `huh explain \"du -sh * | sort -h\"`");
             }
-            let parts = explain::explain_command(&catalog::resolve(everything, &catalog::this_platform()), &cmd_str);
-            if parts.is_empty() {
-                bail!("nothing to explain in that command");
-            }
-            print_command_explanation(&parts);
+            let explanation = explain::explain_command(&everything, &cmd_str);
+            print!("{}", render::render(&explanation));
         }
         Some(Action::Eval { cases, platform }) => {
             let catalog = catalog::usable(everything, &platform, false);
