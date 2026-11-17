@@ -120,7 +120,8 @@ eval "$(huh shell-init --hooks)"    # last line
 | `src/candidates.rs` | Request token/phrase/size/extension extraction and `$PWD` entries |
 | `src/assemble.rs` | Decision thresholds, shortlisting, slot filling, shell quoting, and suggestion `parts` |
 | `src/catalog.rs` | Catalog loading, validation, platform filtering, install hints |
-| `src/explain.rs` | Deterministic Error Doctor (`why`) and reverse command explainer (`explain_command`) |
+| `src/doctor.rs` | Deterministic Error Doctor (`huh why`) |
+| `src/explain.rs` | Command line explainer (`huh explain`) |
 | `src/session.rs` | Terminal recording (`script` + `record-sink`), shell hooks, readline binding |
 | `src/eval.rs` | Evaluation runners (`eval` and `eval-errors`) |
 

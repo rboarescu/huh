@@ -1,6 +1,7 @@
 mod assemble;
 mod candidates;
 mod catalog;
+mod doctor;
 mod eval;
 mod explain;
 mod matcher;
@@ -217,7 +218,7 @@ fn why_last(last: session::Last) -> Result<()> {
         bail!("there is no output to explain");
     }
     eprintln!();
-    explain::explain(&last, &mut |piece| {
+    doctor::explain(&last, &mut |piece| {
         print!("{piece}");
         std::io::stdout().flush().ok();
     })?;

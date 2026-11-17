@@ -159,7 +159,7 @@ fn contains_any(text: &str, alternatives: &str) -> bool {
 /// `huh eval-errors`: a first-pass score only. The answers are printed in
 /// full because whether an explanation is right has to be read, not matched.
 pub fn run_errors(path: &Path) -> Result<()> {
-    use crate::explain;
+    use crate::doctor;
     let text = std::fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
     let cases = toml::from_str::<ErrorFile>(&text).with_context(|| format!("invalid {}", path.display()))?.case;
 
@@ -168,9 +168,9 @@ pub fn run_errors(path: &Path) -> Result<()> {
     for case in &cases {
         let last =
             crate::session::Last { command: case.command.clone(), exit: Some(case.exit), output: case.output.clone() };
-        let answer = explain::explain(&last, &mut |_| {})?;
+        let answer = doctor::explain(&last, &mut |_| {})?;
         let cause_ok = case.mention.iter().all(|words| contains_any(&answer.text, words));
-        let suggested = explain::suggested(&answer.text);
+        let suggested = doctor::suggested(&answer.text);
         let fix_ok = match (case.fix.as_str(), suggested) {
             (wanted, Some(command)) => contains_any(command, wanted),
             (wanted, None) => wanted.split('|').any(|alternative| alternative == "nothing"),
