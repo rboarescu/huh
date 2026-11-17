@@ -1,17 +1,14 @@
-//! Zero-network, zero-LLM deterministic matcher implementing `crate::backend::Backend`.
+//! The deterministic matcher: ranks catalog commands for a request, then decides
+//! each shortlisted command's fit, flags and slot values.
 //!
 //! Uses multi-field BM25F (with a precomputed inverted postings index) over
 //! normalized stems and canonical Linux/desktop concepts, structural intent
 //! disambiguators, domain-coherence fit checks, and syntactic slot-role binding.
 
-use crate::backend::{Answer, Answers, Backend, Question, Questions};
-use crate::candidates::number_word;
+use crate::candidates::{Candidates, number_word};
 use crate::catalog::{Command, Flag, Slot, SlotKind, installed};
-use crate::questions::COMMAND;
-use anyhow::Result;
-use serde_json::Value;
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 const FIELD_COUNT: usize = 6;
 const FIELD_WEIGHTS: [f64; FIELD_COUNT] = [
@@ -34,11 +31,6 @@ const STOPWORDS: &[&str] = &[
     "who", "when", "why", "if", "then", "than", "into", "about", "get", "give", "let", "tell",
 ];
 
-/// Returns the catalog keywords for a command.
-fn command_keywords(command: &Command) -> &[String] {
-    &command.keywords
-}
-
 #[derive(Clone, Debug)]
 struct IndexedCommand {
     command: Command,
@@ -59,31 +51,37 @@ pub struct LocalMatcher {
     postings: Vec<Vec<(usize, f64)>>,
 }
 
+/// What the matcher decided about one command; `assemble::build` turns it into a line.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Details {
+    /// How well the command fits the request, 0..1.
+    pub fit: f64,
+    /// How likely each of the command's flags is wanted, 0..1, in catalog order.
+    pub flags: Vec<f64>,
+    /// What fills each of the command's slots, in catalog order.
+    pub slots: Vec<SlotPick>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SlotPick {
+    /// A `choice` slot: the index of the picked option.
+    Option(usize),
+    /// A path or text slot filled from the request; `named` (0..1) is how sure
+    /// the matcher is that the request names this value for this slot.
+    Value { named: f64, value: String },
+    /// A path or text slot the request does not fill.
+    Unnamed,
+}
+
 impl LocalMatcher {
     pub fn new(catalog: &[Command]) -> Self {
-        Self::build(catalog, &[])
-    }
-
-    /// Builds an index with optional per-command keyword slices (for tests).
-    #[cfg(test)]
-    pub fn with_keywords(catalog: &[Command], extra_keywords: &[Vec<String>]) -> Self {
-        Self::build(catalog, extra_keywords)
-    }
-
-    fn build(catalog: &[Command], extra_keywords: &[Vec<String>]) -> Self {
         let mut entries = Vec::with_capacity(catalog.len());
         let mut by_name = BTreeMap::new();
         let mut df: HashMap<String, usize> = HashMap::new();
         let mut total_lens = [0.0f64; FIELD_COUNT];
 
         for (idx, cmd) in catalog.iter().enumerate() {
-            let kw: &[String] = if !command_keywords(cmd).is_empty() {
-                command_keywords(cmd)
-            } else {
-                extra_keywords.get(idx).map(Vec::as_slice).unwrap_or(&[])
-            };
-
-            let indexed = index_command(cmd, kw);
+            let indexed = index_command(cmd);
             let mut seen = HashSet::new();
             for (f_idx, field) in indexed.fields.iter().enumerate() {
                 total_lens[f_idx] += indexed.field_lens[f_idx];
@@ -132,7 +130,8 @@ impl LocalMatcher {
         Self { entries, by_name, vocab, postings }
     }
 
-    fn answer_command(&self, request: &str, criteria: &BTreeMap<String, Option<String>>) -> Answer {
+    /// Every command in the catalog with its probability, best first (ties by name).
+    pub fn rank(&self, request: &str) -> Vec<(&Command, f64)> {
         let q_unquoted = strip_quoted_for_ranking(request);
         let q_terms = extract_weighted_terms(&q_unquoted);
         let q_norm = normalize_text(&q_unquoted);
@@ -149,185 +148,77 @@ impl LocalMatcher {
             }
         }
 
-        let mut scored: Vec<(String, f64)> = Vec::with_capacity(criteria.len());
-        for (name, fallback_desc) in criteria {
-            let score = if let Some(&idx) = self.by_name.get(name) {
-                let entry = &self.entries[idx];
-                let intent_bonus = command_intent_bonus(
-                    &entry.command,
-                    entry.name_lower.as_str(),
-                    &entry.name_words,
-                    &q_ctx,
-                );
+        let mut scored: Vec<(&Command, f64)> = self
+            .entries
+            .iter()
+            .zip(&bm25_scores)
+            .map(|(entry, bm25)| {
+                let intent_bonus =
+                    command_intent_bonus(&entry.command, entry.name_lower.as_str(), &entry.name_words, &q_ctx);
                 let tie_break = if entry.installed { 0.12 } else { 0.0 };
-                bm25_scores[idx] + intent_bonus + tie_break
-            } else {
-                let desc = fallback_desc.as_deref().unwrap_or("");
-                let words = raw_lower_words(&normalize_text(desc));
-                let hits = q_ctx.words.iter().filter(|w| words.contains(w)).count();
-                hits as f64
-            };
-            scored.push((name.clone(), score));
-        }
+                (&entry.command, bm25 + intent_bonus + tie_break)
+            })
+            .collect();
+        scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.name.cmp(&b.0.name)));
 
-        scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-
+        // Softmax over the top 12; the rest share a sliver of probability.
         let top_k = scored.len().min(12);
         let temperature = 2.6;
         let max_s = scored.first().map_or(0.0, |(_, s)| *s);
-
-        let mut exp_scores = Vec::with_capacity(top_k);
-        let mut sum_exp = 0.0f64;
-        for (_, s) in scored.iter().take(top_k) {
-            let e = ((*s - max_s) / temperature).exp();
-            sum_exp += e;
-            exp_scores.push(e);
-        }
-
-        let tail_count = scored.len().saturating_sub(top_k);
+        let exp_scores: Vec<f64> = scored.iter().take(top_k).map(|(_, s)| ((*s - max_s) / temperature).exp()).collect();
+        let sum_exp: f64 = exp_scores.iter().sum();
+        let tail_count = scored.len() - top_k;
         let tail_mass = if tail_count > 0 { 0.005 } else { 0.0 };
         let head_scale = (1.0 - tail_mass) / sum_exp.max(1e-9);
         let tail_prob = if tail_count > 0 { tail_mass / tail_count as f64 } else { 0.0 };
-
-        let mut probabilities = BTreeMap::new();
-        for (i, (name, _)) in scored.iter().enumerate() {
-            let p = if i < top_k { exp_scores[i] * head_scale } else { tail_prob };
-            probabilities.insert(name.clone(), p);
+        for (i, (_, score)) in scored.iter_mut().enumerate() {
+            *score = if i < top_k { exp_scores[i] * head_scale } else { tail_prob };
         }
-
-        let choice = scored.first().map(|(n, _)| n.clone()).unwrap_or_default();
-        Answer::Choice { choice, probabilities }
+        // Equal probabilities (the tail) are listed by name.
+        scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.name.cmp(&b.0.name)));
+        scored
     }
 
-    fn answer_details(&self, request: &str, questions: &Questions) -> Answers {
+    /// Fit, flags and slot values of one command for this request. `None` when
+    /// the command is not in this matcher's catalog.
+    pub fn details(&self, command: &Command, request: &str, candidates: &Candidates) -> Option<Details> {
+        let idx = *self.by_name.get(&command.name)?;
+        let entry = &self.entries[idx];
+        let command = &entry.command;
         let q_norm = normalize_text(request);
         let q_words = raw_lower_words(&q_norm);
         let q_terms = extract_weighted_terms(request);
         let q = QueryContext::new(request, &q_norm, &q_words, &q_terms);
 
-        struct Group<'a> {
-            fit_key: Option<String>,
-            fit_inst: Option<&'a str>,
-            flags: Vec<(String, String, &'a str)>,
-            choices: Vec<(String, String, &'a BTreeMap<String, Option<String>>, &'a str)>,
-            named: HashMap<String, String>,
-            slot_picks: HashMap<String, &'a BTreeMap<String, Option<String>>>,
+        let fit = self.score_fit(idx, entry, &q);
+        let flags = command.flags.iter().map(|flag| score_flag(&command.name, flag, &entry.flag_terms[&flag.id], &q)).collect();
+
+        // Choice slots first: which values `tar` takes depends on its action.
+        let mut slots = vec![SlotPick::Unnamed; command.slots.len()];
+        let mut choice_picks: HashMap<String, String> = HashMap::new();
+        for (i, slot) in command.slots.iter().enumerate().filter(|(_, s)| s.kind == SlotKind::Choice) {
+            let picked = score_choice_slot(&command.name, slot, entry, &q);
+            choice_picks.insert(slot.id.clone(), slot.options[picked].name.clone());
+            slots[i] = SlotPick::Option(picked);
         }
 
-        let mut groups: BTreeMap<String, Group<'_>> = BTreeMap::new();
-        for (q_id, question) in questions {
-            let (cmd_name, suffix) = self.split_question_id(q_id);
-            let group = groups.entry(cmd_name.to_string()).or_insert_with(|| Group {
-                fit_key: None,
-                fit_inst: None,
-                flags: vec![],
-                choices: vec![],
-                named: HashMap::new(),
-                slot_picks: HashMap::new(),
-            });
-            match (suffix, question) {
-                ("fit", Question::Noul { instructions }) => {
-                    group.fit_key = Some(q_id.clone());
-                    group.fit_inst = Some(instructions.as_str());
-                }
-                (s, Question::Noul { .. }) if s.ends_with('?') => {
-                    let slot_id = s.trim_end_matches('?').to_string();
-                    group.named.insert(slot_id, q_id.clone());
-                }
-                (s, Question::Noul { instructions }) => {
-                    group.flags.push((q_id.clone(), s.to_string(), instructions.as_str()));
-                }
-                (s, Question::Choice { instructions, criteria }) => {
-                    if let Some(&idx) = self.by_name.get(cmd_name) {
-                        let cmd = &self.entries[idx].command;
-                        if cmd.slots.iter().any(|sl| sl.id == s && sl.kind == SlotKind::Choice) {
-                            group.choices.push((q_id.clone(), s.to_string(), criteria, instructions.as_str()));
-                        } else {
-                            group.slot_picks.insert(s.to_string(), criteria);
-                        }
-                    } else if criteria.values().any(Option::is_some) {
-                        group.choices.push((q_id.clone(), s.to_string(), criteria, instructions.as_str()));
-                    } else {
-                        group.slot_picks.insert(s.to_string(), criteria);
-                    }
+        let offered: HashMap<String, BTreeSet<&str>> = command
+            .slots
+            .iter()
+            .filter(|s| s.kind != SlotKind::Choice)
+            .map(|s| (s.id.clone(), candidates.for_slot(s.kind)))
+            .filter(|(_, values)| !values.is_empty())
+            .collect();
+        if !offered.is_empty() {
+            for (slot_id, (named, value)) in bind_slots(command, &offered, &choice_picks, &q) {
+                if let Some(i) = command.slots.iter().position(|s| s.id == slot_id)
+                    && !value.is_empty()
+                {
+                    slots[i] = SlotPick::Value { named, value };
                 }
             }
         }
-
-        let mut out = Answers::new();
-        for (cmd_name, group) in groups {
-            let entry_idx = self.by_name.get(&cmd_name).copied();
-            let entry = entry_idx.map(|idx| &self.entries[idx]);
-
-            if let Some(fit_key) = group.fit_key {
-                let p = match (entry_idx, entry) {
-                    (Some(idx), Some(e)) => self.score_fit(idx, e, &q),
-                    _ => fallback_fit(group.fit_inst.unwrap_or(""), &q),
-                };
-                out.insert(fit_key, Answer::Noul { noul: p });
-            }
-
-            for (q_id, flag_id, inst) in group.flags {
-                let flag_opt = entry.and_then(|e| e.command.flags.iter().find(|f| f.id == flag_id));
-                let pre_terms = entry.and_then(|e| e.flag_terms.get(&flag_id));
-                let p = score_flag(&cmd_name, &flag_id, flag_opt, pre_terms, inst, &q);
-                out.insert(q_id, Answer::Noul { noul: p });
-            }
-
-            let mut choice_picks: HashMap<String, String> = HashMap::new();
-            for (q_id, slot_id, criteria, _inst) in group.choices {
-                let slot_opt = entry.and_then(|e| e.command.slots.iter().find(|sl| sl.id == slot_id));
-                let ans = score_choice_slot(&cmd_name, &slot_id, slot_opt, entry, criteria, &q);
-                if let Answer::Choice { ref choice, .. } = ans {
-                    choice_picks.insert(slot_id, choice.clone());
-                }
-                out.insert(q_id, ans);
-            }
-
-            if !group.slot_picks.is_empty() || !group.named.is_empty() {
-                let cmd_opt = entry.map(|e| &e.command);
-                let bound = bind_slots(&cmd_name, cmd_opt, &group.slot_picks, &choice_picks, &q);
-                for (slot_id, criteria) in &group.slot_picks {
-                    let pick_id = format!("{cmd_name}.{slot_id}");
-                    if let Some((named_prob, picked)) = bound.get(slot_id) {
-                        if let Some(named_qid) = group.named.get(slot_id) {
-                            out.insert(named_qid.clone(), Answer::Noul { noul: *named_prob });
-                        }
-                        let mut probs = BTreeMap::new();
-                        let fallback_key = criteria.keys().next().cloned().unwrap_or_default();
-                        let chosen = if criteria.contains_key(picked) {
-                            picked.clone()
-                        } else {
-                            fallback_key
-                        };
-                        for k in criteria.keys() {
-                            probs.insert(k.clone(), if k == &chosen { 0.92 } else { 0.01 });
-                        }
-                        out.insert(pick_id, Answer::Choice { choice: chosen, probabilities: probs });
-                    } else if let Some(named_qid) = group.named.get(slot_id) {
-                        out.insert(named_qid.clone(), Answer::Noul { noul: 0.05 });
-                        let chosen = criteria.keys().next().cloned().unwrap_or_default();
-                        let probs = criteria
-                            .keys()
-                            .map(|k| (k.clone(), if k == &chosen { 0.5 } else { 0.01 }))
-                            .collect();
-                        out.insert(pick_id, Answer::Choice { choice: chosen, probabilities: probs });
-                    }
-                }
-            }
-        }
-        out
-    }
-
-    fn split_question_id<'a>(&self, q_id: &'a str) -> (&'a str, &'a str) {
-        let mut best: Option<(&'a str, &'a str)> = None;
-        for (idx, part) in q_id.match_indices('.') {
-            let prefix = &q_id[..idx];
-            if self.by_name.contains_key(prefix) {
-                best = Some((prefix, &q_id[idx + part.len()..]));
-            }
-        }
-        best.unwrap_or_else(|| q_id.rsplit_once('.').unwrap_or((q_id, "")))
+        Some(Details { fit, flags, slots })
     }
 
     fn score_fit(&self, idx: usize, entry: &IndexedCommand, q: &QueryContext<'_>) -> f64 {
@@ -364,18 +255,6 @@ impl LocalMatcher {
         } else {
             0.15
         }
-    }
-}
-
-impl Backend for LocalMatcher {
-    fn ask(&self, state: &Value, questions: &Questions) -> Result<Answers> {
-        let request = state.get("request").and_then(Value::as_str).unwrap_or_default();
-        if let Some(Question::Choice { criteria, .. }) = questions.get(COMMAND) {
-            let mut answers = Answers::new();
-            answers.insert(COMMAND.to_string(), self.answer_command(request, criteria));
-            return Ok(answers);
-        }
-        Ok(self.answer_details(request, questions))
     }
 }
 
@@ -1042,7 +921,7 @@ fn stem_concepts(s: &str) -> Option<&'static [&'static str]> {
     })
 }
 
-fn index_command(cmd: &Command, keywords: &[String]) -> IndexedCommand {
+fn index_command(cmd: &Command) -> IndexedCommand {
     let mut fields: [HashMap<String, f64>; FIELD_COUNT] = Default::default();
     let mut field_lens = [0.0f64; FIELD_COUNT];
     let mut all_terms = HashSet::new();
@@ -1060,7 +939,7 @@ fn index_command(cmd: &Command, keywords: &[String]) -> IndexedCommand {
 
     add_text(0, &cmd.name, &mut fields, &mut field_lens, &mut all_terms);
     add_text(1, &cmd.description, &mut fields, &mut field_lens, &mut all_terms);
-    for kw in keywords {
+    for kw in &cmd.keywords {
         add_text(2, kw, &mut fields, &mut field_lens, &mut all_terms);
     }
     for slot in &cmd.slots {
@@ -1108,7 +987,7 @@ fn index_command(cmd: &Command, keywords: &[String]) -> IndexedCommand {
 }
 
 // ---------------------------------------------------------------------------
-// Request A: Intent & Disambiguation Bonus
+// Ranking: Intent & Disambiguation Bonus
 // ---------------------------------------------------------------------------
 
 fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String], q: &QueryContext<'_>) -> f64 {
@@ -1355,7 +1234,7 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
 }
 
 // ---------------------------------------------------------------------------
-// Request B: Fit Check
+// Details: Fit Check
 // ---------------------------------------------------------------------------
 
 fn is_off_topic_unmodeled(_cmd: &Command, q: &QueryContext<'_>) -> bool {
@@ -1530,24 +1409,13 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
     }
 }
 
-fn fallback_fit(instructions: &str, q: &QueryContext<'_>) -> f64 {
-    let inst_terms = extract_weighted_terms(instructions);
-    let hits = q.content_terms.iter().filter(|t| inst_terms.contains_key(*t)).count();
-    if hits >= 2 { 0.85 } else if hits == 1 { 0.55 } else { 0.15 }
-}
-
 // ---------------------------------------------------------------------------
-// Request B: Flags & Choice Slots
+// Details: Flags & Choice Slots
 // ---------------------------------------------------------------------------
 
-fn score_flag(
-    cmd_name: &str,
-    flag_id: &str,
-    flag: Option<&Flag>,
-    pre_terms: Option<&HashMap<String, f64>>,
-    instructions: &str,
-    q: &QueryContext<'_>,
-) -> f64 {
+/// How likely `flag` is wanted; `terms` are the flag's indexed words.
+fn score_flag(cmd_name: &str, flag: &Flag, terms: &HashMap<String, f64>, q: &QueryContext<'_>) -> f64 {
+    let flag_id = flag.id.as_str();
     let has = |terms: &[&str]| q.has_any(terms);
     let has_path_slash = q.raw_tokens.iter().any(|t| t.text.contains('/'));
 
@@ -1597,36 +1465,18 @@ fn score_flag(
         return if wanted { 0.94 } else { 0.08 };
     }
 
-    let owned;
-    let f_terms = if let Some(pre) = pre_terms {
-        pre
-    } else {
-        let mut flag_text = instructions.to_string();
-        if let Some(f) = flag {
-            flag_text.push(' ');
-            flag_text.push_str(&f.id.replace('_', " "));
-            flag_text.push(' ');
-            flag_text.push_str(&f.value);
-        }
-        owned = extract_weighted_terms(&flag_text);
-        &owned
-    };
-    let hits = q.content_terms.iter().filter(|t| f_terms.contains_key(*t)).count();
+    let hits = q.content_terms.iter().filter(|t| terms.contains_key(*t)).count();
     if hits >= 2 { 0.85 } else if hits == 1 { 0.50 } else { 0.12 }
 }
 
-fn score_choice_slot(
-    cmd_name: &str,
-    slot_id: &str,
-    slot: Option<&Slot>,
-    entry: Option<&IndexedCommand>,
-    criteria: &BTreeMap<String, Option<String>>,
-    q: &QueryContext<'_>,
-) -> Answer {
+/// The index of the best option of a `choice` slot (ties go to the option name first in order).
+fn score_choice_slot(cmd_name: &str, slot: &Slot, entry: &IndexedCommand, q: &QueryContext<'_>) -> usize {
     let has = |terms: &[&str]| q.has_any(terms);
-    let mut scores: Vec<(String, f64)> = Vec::with_capacity(criteria.len());
+    let slot_id = slot.id.as_str();
+    let mut best: Option<(usize, f64)> = None;
 
-    for (opt_name, opt_desc) in criteria {
+    for (index, option) in slot.options.iter().enumerate() {
+        let opt_name = &option.name;
         let mut s = 0.0f64;
 
         s += match (cmd_name, slot_id, opt_name.as_str()) {
@@ -1706,57 +1556,34 @@ fn score_choice_slot(
 
             ("wc", "unit", "lines") => if has(&["line", "lines", "-l"]) { 6.5 } else { 0.5 },
             ("wc", "unit", "words") => if has(&["word", "words", "-w"]) { 6.5 } else { 0.0 },
-            ("wc", "unit", "characters") => if has(&["character", "characters", "char", "chars", "byte", "-m"]) { 6.5 } else { 0.0 },
+            ("wc", "unit", "characters") if has(&["character", "characters", "char", "chars", "byte", "-m"]) => { 6.5 },
 
             _ => 0.0,
         };
 
-        if let Some(sl) = slot
-            && let Some(opt) = sl.options.iter().find(|o| o.name == *opt_name)
-            && (opt.description.to_lowercase().contains("does not say") || opt.name == "unspecified" || opt.name == "status")
-        {
+        if option.description.to_lowercase().contains("does not say") || opt_name == "unspecified" || opt_name == "status" {
             s += 0.4;
         }
-        let owned;
-        let opt_terms = if let Some(e) = entry
-            && let Some(pre) = e.choice_opt_terms.get(&(slot_id.to_string(), opt_name.clone()))
-        {
-            pre
-        } else {
-            let opt_text = format!("{} {}", opt_name.replace('_', " "), opt_desc.as_deref().unwrap_or(""));
-            owned = extract_weighted_terms(&opt_text);
-            &owned
-        };
+        let opt_terms = &entry.choice_opt_terms[&(slot_id.to_string(), opt_name.clone())];
         for (t, w) in q.term_weights {
             if let Some(&ow) = opt_terms.get(t) {
                 s += 0.8 * w * ow;
             }
         }
 
-        scores.push((opt_name.clone(), s));
+        let better = match best {
+            None => true,
+            Some((b, bs)) => s > bs || (s == bs && *opt_name < slot.options[b].name),
+        };
+        if better {
+            best = Some((index, s));
+        }
     }
-
-    scores.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    let max_s = scores.first().map_or(0.0, |(_, s)| *s);
-    let mut sum_exp = 0.0f64;
-    let exps: Vec<f64> = scores
-        .iter()
-        .map(|(_, s)| {
-            let e = ((*s - max_s) / 1.5).exp();
-            sum_exp += e;
-            e
-        })
-        .collect();
-    let mut probabilities = BTreeMap::new();
-    for ((name, _), e) in scores.iter().zip(exps) {
-        probabilities.insert(name.clone(), e / sum_exp.max(1e-9));
-    }
-    let choice = scores.first().map(|(n, _)| n.clone()).unwrap_or_default();
-    Answer::Choice { choice, probabilities }
+    best.map_or(0, |(index, _)| index)
 }
 
 // ---------------------------------------------------------------------------
-// Request B: Path / Text Slot Role Disambiguation & Joint Binding
+// Details: Path / Text Slot Role Disambiguation & Joint Binding
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2049,29 +1876,24 @@ fn find_raw_token<'a>(cand: &str, q: &'a QueryContext<'a>) -> Option<&'a RawToke
         .or_else(|| q.raw_tokens.iter().find(|rt| rt.lower == cand.to_lowercase()))
 }
 
+/// Assigns the offered values to the command's path and text slots, each value
+/// to at most one slot. Returns, per slot, how sure the binding is and the value
+/// ("" when nothing fits).
 fn bind_slots(
-    cmd_name: &str,
-    cmd_opt: Option<&Command>,
-    slot_picks: &HashMap<String, &BTreeMap<String, Option<String>>>,
+    cmd: &Command,
+    slot_picks: &HashMap<String, BTreeSet<&str>>,
     choice_picks: &HashMap<String, String>,
     q: &QueryContext<'_>,
 ) -> HashMap<String, (f64, String)> {
-    let text_cands: Option<&BTreeMap<String, Option<String>>> = cmd_opt.and_then(|c| {
-        c.slots
-            .iter()
-            .find(|s| s.kind == SlotKind::Text)
-            .and_then(|s| slot_picks.get(&s.id).copied())
-    });
+    let cmd_name = cmd.name.as_str();
+    let text_cands = cmd.slots.iter().find(|s| s.kind == SlotKind::Text).and_then(|s| slot_picks.get(&s.id));
 
-    let ordered_slots: Vec<(String, SlotKind)> = if let Some(cmd) = cmd_opt {
-        cmd.slots
-            .iter()
-            .filter(|s| s.kind != SlotKind::Choice && slot_picks.contains_key(&s.id))
-            .map(|s| (s.id.clone(), s.kind))
-            .collect()
-    } else {
-        slot_picks.keys().map(|id| (id.clone(), SlotKind::Text)).collect()
-    };
+    let ordered_slots: Vec<(String, SlotKind)> = cmd
+        .slots
+        .iter()
+        .filter(|s| s.kind != SlotKind::Choice && slot_picks.contains_key(&s.id))
+        .map(|s| (s.id.clone(), s.kind))
+        .collect();
 
     let tar_skip_inputs = cmd_name == "tar" && choice_picks.get("action").is_some_and(|a| a != "create");
 
@@ -2084,12 +1906,10 @@ fn bind_slots(
             continue;
         }
         let role = infer_slot_role(cmd_name, slot_id, *kind);
-        let criteria = slot_picks[slot_id];
         let mut cands_scored = Vec::new();
 
-        for cand in criteria.keys() {
-            let is_from_files = *kind == SlotKind::Path
-                && text_cands.is_some_and(|tc| !tc.contains_key(cand));
+        for &cand in &slot_picks[slot_id] {
+            let is_from_files = *kind == SlotKind::Path && text_cands.is_some_and(|tc| !tc.contains(cand));
             let s = score_candidate_for_role(
                 cmd_name,
                 cand,
@@ -2100,7 +1920,7 @@ fn bind_slots(
                 q,
             );
             if s > 0.5 {
-                cands_scored.push((cand.clone(), s));
+                cands_scored.push((cand.to_string(), s));
             }
         }
         cands_scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
@@ -2217,14 +2037,13 @@ fn score_candidate_for_role(
         || matches!(next, "service" | "group" | "container" | "image" | "vm" | "network" | "model" | "branch" | "session")
         || (role == SlotRole::ServiceUnit && matches!(next, "log" | "logs" | "unit" | "daemon"));
 
-    if !quoted && !is_path && !is_digits(cand) && !explicitly_labeled && is_non_value_english_word(&lower) {
-        if !is_multi_phrase
+    if !quoted && !is_path && !is_digits(cand) && !explicitly_labeled && is_non_value_english_word(&lower)
+        && !is_multi_phrase
             && !is_upper_env_name(cand)
             && !(matches!(role, SlotRole::ServiceUnit | SlotRole::ProgramName) && prev == "for")
         {
             return 0.0;
         }
-    }
 
     match role {
         SlotRole::PidNumber => {
@@ -2451,9 +2270,9 @@ fn score_candidate_for_role(
         SlotRole::ProgramName => {
             if quoted {
                 8.5
-            } else if matches!(prev, "for" | "is" | "about") && !is_non_value_english_word(&lower) {
-                9.0
-            } else if matches!(next, "installed" | "command" | "processes") && !is_non_value_english_word(&lower) {
+            } else if (matches!(prev, "for" | "is" | "about") || matches!(next, "installed" | "command" | "processes"))
+                && !is_non_value_english_word(&lower)
+            {
                 9.0
             } else if !is_non_value_english_word(&lower) && !is_digits(cand) {
                 7.0
@@ -2471,11 +2290,10 @@ fn score_candidate_for_role(
             }
         }
         SlotRole::ContainerOrImage | SlotRole::VmOrNetwork | SlotRole::AiModel | SlotRole::BranchName | SlotRole::NetInterface | SlotRole::KernelModule => {
-            if cand.contains(':') || cand.contains('-') || cand.chars().any(|c| c.is_ascii_digit()) {
-                if !is_digits(cand) && !is_non_value_english_word(&lower) {
+            if (cand.contains(':') || cand.contains('-') || cand.chars().any(|c| c.is_ascii_digit()))
+                && !is_digits(cand) && !is_non_value_english_word(&lower) {
                     return 9.2;
                 }
-            }
             if matches!(next, "container" | "image" | "vm" | "network" | "model" | "branch" | "locally")
                 && !is_non_value_english_word(&lower)
             {
@@ -2620,24 +2438,8 @@ fn score_candidate_for_role(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{catalog, suggest};
-    use serde::Deserialize;
+    use crate::{catalog, eval, suggest};
     use std::path::Path;
-    use std::time::Instant;
-
-    #[derive(Deserialize)]
-    struct CaseFile {
-        case: Vec<EvalCase>,
-    }
-
-    #[derive(Deserialize)]
-    struct EvalCase {
-        request: String,
-        command: String,
-        expect: Option<String>,
-        #[serde(default)]
-        files: Vec<String>,
-    }
 
     fn load_catalog() -> Vec<Command> {
         let dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/catalog"));
@@ -2666,15 +2468,13 @@ mod tests {
             "summarize this article",
             "play some music",
         ] {
-            let out = suggest(&matcher, &arch, req, vec![], &mut |_| None).unwrap();
+            let out = suggest(&matcher, req, vec![], &mut |_| None).unwrap();
             assert!(out.suggestions.is_empty(), "expected rejection for `{req}`, got {:?}", out.suggestions);
         }
 
         let debian = catalog::usable(all, &["debian".into()], false);
         let deb_matcher = LocalMatcher::new(&debian);
-        let out = suggest(
-            &deb_matcher,
-            &debian,
+        let out = suggest(&deb_matcher,
             "switch the desktop theme to Everforest",
             vec![],
             &mut |_| None,
@@ -2688,9 +2488,7 @@ mod tests {
         let arch = catalog::usable(load_catalog(), &["arch".into(), "omarchy".into()], false);
         let matcher = LocalMatcher::new(&arch);
 
-        let out = suggest(
-            &matcher,
-            &arch,
+        let out = suggest(&matcher,
             "make the deploy script runnable",
             vec!["README.md".into(), "deploy.sh".into(), "src".into()],
             &mut |_| None,
@@ -2698,9 +2496,7 @@ mod tests {
         .unwrap();
         assert_eq!(out.suggestions[0].line, "chmod +x deploy.sh");
 
-        let out2 = suggest(
-            &matcher,
-            &arch,
+        let out2 = suggest(&matcher,
             "print the third column of users.csv",
             vec![],
             &mut |_| None,
@@ -2745,7 +2541,7 @@ mod tests {
 
         for (req, files, expected) in cases {
             let files_vec: Vec<String> = files.iter().map(|s| (*s).to_string()).collect();
-            let out = suggest(&matcher, &arch, req, files_vec, &mut |_| None).unwrap();
+            let out = suggest(&matcher, req, files_vec, &mut |_| None).unwrap();
             assert_eq!(
                 out.suggestions.first().map(|s| s.line.as_str()),
                 Some(*expected),
@@ -2755,7 +2551,7 @@ mod tests {
     }
 
     #[test]
-    fn supports_with_keywords_hook() {
+    fn catalog_keywords_find_a_command() {
         let cmds = vec![
             Command {
                 name: "alpha".into(),
@@ -2764,7 +2560,7 @@ mod tests {
                 destructive: false,
                 platform: None,
                 package: None,
-                keywords: vec![],
+                keywords: vec!["custom-flux-widget".into()],
                 slots: vec![],
                 flags: vec![],
             },
@@ -2780,100 +2576,28 @@ mod tests {
                 flags: vec![],
             },
         ];
-        let keywords = vec![vec!["custom-flux-widget".into()], vec![]];
-        let matcher = LocalMatcher::with_keywords(&cmds, &keywords);
-        let out = suggest(&matcher, &cmds, "custom-flux-widget", vec![], &mut |_| None).unwrap();
+        let matcher = LocalMatcher::new(&cmds);
+        let out = suggest(&matcher, "custom-flux-widget", vec![], &mut |_| None).unwrap();
         assert_eq!(out.suggestions[0].command, "alpha");
-    }
-
-    fn run_eval_file(matcher: &LocalMatcher, catalog: &[Command], path: &str) -> (usize, usize, usize, usize, usize, usize, usize, usize, Vec<u128>) {
-        let text = std::fs::read_to_string(path).unwrap();
-        let cases = toml::from_str::<CaseFile>(&text).unwrap().case;
-        let (mut top1_hit, mut top1_tot) = (0, 0);
-        let (mut top3_hit, mut top3_tot) = (0, 0);
-        let (mut exact_hit, mut exact_tot) = (0, 0);
-        let (mut rej_hit, mut rej_tot) = (0, 0);
-        let mut millis = Vec::new();
-
-        for case in &cases {
-            let out = suggest(matcher, catalog, &case.request, case.files.clone(), &mut |_| None).unwrap();
-            millis.push(out.millis);
-            let first = out.suggestions.first();
-            let got = first.map_or("(no suggestion)", |s| s.line.as_str());
-
-            if case.command == "none" {
-                rej_tot += 1;
-                if out.suggestions.is_empty() {
-                    rej_hit += 1;
-                } else {
-                    println!("MISS [none] {} -> {got}", case.request);
-                }
-            } else {
-                let accepted: Vec<&str> = case.command.split('|').collect();
-                let cmd_ok = first.is_some_and(|s| accepted.contains(&s.command.as_str()));
-                top1_tot += 1;
-                top1_hit += cmd_ok as usize;
-                top3_tot += 1;
-                top3_hit += out.ranked.iter().any(|(n, _)| accepted.contains(&n.as_str())) as usize;
-                if let Some(expect) = &case.expect {
-                    exact_tot += 1;
-                    let line_ok = first.is_some_and(|s| s.line == *expect);
-                    exact_hit += line_ok as usize;
-                    if !line_ok {
-                        println!("MISS [exact] {} -> `{got}` (wanted: `{expect}`), ranked={:?}", case.request, out.ranked);
-                    }
-                } else if !cmd_ok {
-                    println!("MISS [cmd] {} -> `{got}` (wanted: {}), ranked={:?}", case.request, case.command, out.ranked);
-                }
-            }
-        }
-        (top1_hit, top1_tot, top3_hit, top3_tot, exact_hit, exact_tot, rej_hit, rej_tot, millis)
     }
 
     #[test]
     fn eval_cases_and_heldout_benchmark() {
         let all = load_catalog();
-        let arch = catalog::usable(all.clone(), &["arch".into(), "omarchy".into()], false);
-        let matcher = LocalMatcher::new(&arch);
+        let arch = LocalMatcher::new(&catalog::usable(all.clone(), &["arch".into(), "omarchy".into()], false));
+        let debian = LocalMatcher::new(&catalog::usable(all, &["debian".into()], false));
+        let evals = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals");
 
-        let started = Instant::now();
-        let (t1h, t1t, t3h, t3t, exh, ext, rjh, rjt, mut m_cases) =
-            run_eval_file(&matcher, &arch, concat!(env!("CARGO_MANIFEST_DIR"), "/evals/cases.toml"));
-        let cases_ms = started.elapsed().as_millis();
-        m_cases.sort();
-        println!(
-            "\n=== cases.toml ===\ntop-1: {t1h}/{t1t} ({:.1}%)\ntop-3: {t3h}/{t3t} ({:.1}%)\nexact: {exh}/{ext} ({:.1}%)\nrejected: {rjh}/{rjt}\nmedian: {} ms, total: {cases_ms} ms",
-            100.0 * t1h as f64 / t1t as f64,
-            100.0 * t3h as f64 / t3t as f64,
-            100.0 * exh as f64 / ext as f64,
-            m_cases[m_cases.len() / 2],
-        );
-
-        let started_h = Instant::now();
-        let (ht1h, ht1t, ht3h, ht3t, hexh, hext, hrjh, hrjt, mut m_held) =
-            run_eval_file(&matcher, &arch, concat!(env!("CARGO_MANIFEST_DIR"), "/evals/heldout.toml"));
-        let held_ms = started_h.elapsed().as_millis();
-        m_held.sort();
-        println!(
-            "\n=== heldout.toml ===\ntop-1: {ht1h}/{ht1t} ({:.1}%)\ntop-3: {ht3h}/{ht3t} ({:.1}%)\nexact: {hexh}/{hext} ({:.1}%)\nrejected: {hrjh}/{hrjt}\nmedian: {} ms, total: {held_ms} ms",
-            100.0 * ht1h as f64 / ht1t as f64,
-            100.0 * ht3h as f64 / ht3t as f64,
-            100.0 * hexh as f64 / hext as f64,
-            m_held[m_held.len() / 2],
-        );
-
-        let debian = catalog::usable(all, &["debian".into()], false);
-        let deb_matcher = LocalMatcher::new(&debian);
-        let (dt1h, dt1t, _, _, dexh, dext, drjh, drjt, _) =
-            run_eval_file(&deb_matcher, &debian, concat!(env!("CARGO_MANIFEST_DIR"), "/evals/debian.toml"));
-        println!("\n=== debian.toml ===\ntop-1: {dt1h}/{dt1t}, exact: {dexh}/{dext}, rejected: {drjh}/{drjt}");
-
-        assert_eq!(rjh, rjt, "all non-terminal cases in cases.toml must be rejected");
-        assert_eq!(hrjh, hrjt, "all non-terminal cases in heldout.toml must be rejected");
-        assert_eq!(drjh, drjt, "all non-terminal cases in debian.toml must be rejected");
-        assert!(100 * t1h / t1t >= 90, "cases top-1 too low: {t1h}/{t1t}");
-        assert!(100 * exh / ext >= 85, "cases exact too low: {exh}/{ext}");
-        assert!(100 * ht1h / ht1t >= 85, "heldout top-1 too low: {ht1h}/{ht1t}");
-        assert!(100 * hexh / hext >= 80, "heldout exact too low: {hexh}/{hext}");
+        // (matcher, file, least top-1 %, least exact-line %)
+        for (matcher, file, min_top1, min_exact) in [(&arch, "cases", 90, 85), (&arch, "heldout", 85, 80), (&debian, "debian", 0, 0)] {
+            let report = eval::score(matcher, &evals.join(format!("{file}.toml"))).unwrap();
+            for line in report.lines.iter().filter(|line| line.starts_with("MISS")) {
+                println!("{line}");
+            }
+            println!("\n=== {file}.toml ===\n{report}");
+            assert_eq!(report.rejected.hit, report.rejected.total, "all non-terminal cases in {file}.toml must be rejected");
+            assert!(report.top1.percent() >= min_top1, "{file} top-1 too low: {}", report.top1);
+            assert!(report.exact.percent() >= min_exact, "{file} exact too low: {}", report.exact);
+        }
     }
 }

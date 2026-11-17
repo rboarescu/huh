@@ -115,12 +115,10 @@ eval "$(huh shell-init --hooks)"    # last line
 | File | Role |
 |---|---|
 | `build.rs` | Embeds sorted `catalog/*.toml` entries at compile time |
-| `src/main.rs` | CLI (`huh`), request pipeline, `explain` & `why` entry points, output formatting |
-| `src/matcher.rs` | `LocalMatcher`: BM25F index, stems/concepts, fit checks, flag/slot scoring |
+| `src/main.rs` | CLI (`huh`), request pipeline (`suggest`), `explain` & `why` entry points, output formatting |
+| `src/matcher.rs` | `LocalMatcher`: BM25F index, stems/concepts; `rank` orders the catalog, `details` scores fit, flags and slot values |
 | `src/candidates.rs` | Request token/phrase/size/extension extraction and `$PWD` entries |
-| `src/assemble.rs` | Shortlisting, slot filling, shell quoting, and suggestion `parts` |
-| `src/questions.rs` | Question construction and decision thresholds |
-| `src/backend.rs` | Backend trait and `Question`/`Answer` types |
+| `src/assemble.rs` | Decision thresholds, shortlisting, slot filling, shell quoting, and suggestion `parts` |
 | `src/catalog.rs` | Catalog loading, validation, platform filtering, install hints |
 | `src/explain.rs` | Deterministic Error Doctor (`why`) and reverse command explainer (`explain_command`) |
 | `src/session.rs` | Terminal recording (`script` + `record-sink`), shell hooks, readline binding |

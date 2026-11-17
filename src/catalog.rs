@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 #[serde(deny_unknown_fields)]
 pub struct Command {
     pub name: String,
-    /// What the user achieves with it, in plain words. The model matches against this.
+    /// What the user achieves with it, in plain words. The matcher matches against this.
     pub description: String,
     /// Command line with `{id}` placeholders for slots and flags.
     pub template: String,
@@ -46,7 +46,7 @@ pub enum SlotKind {
 pub struct Slot {
     pub id: String,
     pub kind: SlotKind,
-    /// `choice` slots: the question whose answer is one of `options`.
+    /// `choice` slots: the question whose answer is one of `options`; its words help matching.
     pub question: Option<String>,
     #[serde(default)]
     pub options: Vec<SlotOption>,
@@ -75,7 +75,8 @@ pub struct SlotOption {
 pub struct Flag {
     pub id: String,
     pub value: String,
-    /// Yes/no question, phrased so that "yes" means the flag is wanted.
+    /// Yes/no question, phrased so that "yes" means the flag is wanted. Its words
+    /// help matching, and it is shown (in the second person) when huh asks or notes.
     pub question: String,
 }
 

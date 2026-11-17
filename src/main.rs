@@ -1,19 +1,17 @@
 mod assemble;
-mod backend;
 mod candidates;
 mod catalog;
 mod eval;
 mod explain;
 mod matcher;
-mod questions;
 mod session;
 
 use anyhow::{Result, bail};
 use assemble::Suggestion;
-use backend::Backend;
 use candidates::Candidates;
 use catalog::Command;
 use clap::{Parser, Subcommand};
+use matcher::LocalMatcher;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -91,37 +89,32 @@ pub struct Outcome {
     pub millis: u128,
 }
 
-/// The whole pipeline: two backend requests, everything else is code.
+/// The whole pipeline: rank the catalog, shortlist, then build a line for each
+/// shortlisted command that fits. `files` are offered as path values.
 ///
 /// `decide` is asked a yes/no question when a flag or value of the first
 /// suggestion is uncertain; return `None` when there is nobody to ask.
 pub fn suggest(
-    backend: &dyn Backend,
-    catalog: &[Command],
+    matcher: &LocalMatcher,
     request: &str,
     files: Vec<String>,
     decide: &mut dyn FnMut(&str) -> Option<bool>,
 ) -> Result<Outcome> {
     let started = Instant::now();
-    let state = questions::state(request);
-
-    let answers = backend.ask(&state, &questions::command_questions(catalog))?;
-    let ranked = assemble::shortlist(&answers, questions::MAX_SUGGESTIONS)?;
-
-    let commands: Vec<&Command> =
-        ranked.iter().filter_map(|(name, _)| catalog.iter().find(|c| c.name == *name)).collect();
+    let shortlist = assemble::shortlist(matcher.rank(request));
     let candidates = Candidates::new(request, files);
-    let answers = backend.ask(&state, &questions::detail_questions(&commands, &candidates))?;
 
     let mut suggestions = Vec::new();
-    for (command, (_, probability)) in commands.iter().zip(&ranked) {
+    for &(command, probability) in &shortlist {
+        let Some(details) = matcher.details(command, request, &candidates) else { continue };
         // Only the first suggestion is worth interrupting the user for.
         let mut silent = |_: &str| None;
         let ask: &mut dyn FnMut(&str) -> Option<bool> = if suggestions.is_empty() { &mut *decide } else { &mut silent };
-        if let Some(suggestion) = assemble::build(command, *probability, &answers, &candidates, ask)? {
+        if let Some(suggestion) = assemble::build(command, probability, &details, ask)? {
             suggestions.push(suggestion);
         }
     }
+    let ranked = shortlist.iter().map(|(command, p)| (command.name.clone(), *p)).collect();
     Ok(Outcome { suggestions, ranked, millis: started.elapsed().as_millis() })
 }
 
@@ -272,7 +265,7 @@ fn main() -> Result<()> {
 
     match cli.action {
         Some(
-            Action::Why { .. }
+            Action::Why
             | Action::ShellInit { .. }
             | Action::EvalErrors { .. }
             | Action::RecordSink { .. },
@@ -303,8 +296,7 @@ fn main() -> Result<()> {
         }
         Some(Action::Eval { cases, platform }) => {
             let catalog = catalog::usable(everything, &platform, false);
-            let backend = matcher::LocalMatcher::new(&catalog);
-            eval::run(&backend, &catalog, &cases)?;
+            eval::run(&LocalMatcher::new(&catalog), &cases)?;
         }
         None => {
             let request = join_argv(&cli.request);
@@ -326,8 +318,7 @@ fn main() -> Result<()> {
             let interactive =
                 !cli.no_ask && !cli.first_line_only && std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
             let mut decide = |question: &str| if interactive { ask_on_terminal(question) } else { None };
-            let backend = matcher::LocalMatcher::new(&catalog);
-            let outcome = suggest(&backend, &catalog, &request, files, &mut decide)?;
+            let outcome = suggest(&LocalMatcher::new(&catalog), &request, files, &mut decide)?;
             if cli.debug {
                 eprintln!("[debug] {} ms, ranked: {:?}", outcome.millis, outcome.ranked);
             }

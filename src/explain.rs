@@ -1,6 +1,6 @@
 //! Deterministic Error Doctor (`why`) and shell command explainer (`explain_command`).
 //!
-//! No model or network calls are made here: errors are diagnosed with live
+//! No network calls are made here: errors are diagnosed with live
 //! machine checks and structured diagnostic rules, and shell commands are
 //! broken down directly against the command catalog.
 
@@ -340,7 +340,7 @@ fn diagnose_not_executable(last: &Last) -> Option<String> {
     }
 
     let target = extract_exec_target(last);
-    let stat_note = if let Some(meta) = Path::new(&target).metadata().ok() {
+    let stat_note = if let Ok(meta) = Path::new(&target).metadata() {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -796,9 +796,9 @@ fn extract_command_parts(command: &str) -> (&str, &str, &str) {
     }
     let mut offset = 0;
     let rest = trimmed;
-    let mut tokens = rest.split_whitespace();
+    let tokens = rest.split_whitespace();
     let mut prefix_end = 0;
-    while let Some(tok) = tokens.next() {
+    for tok in tokens {
         let tok_start = trimmed[offset..].find(tok).map_or(offset, |i| offset + i);
         let tok_end = tok_start + tok.len();
         if tok == "sudo" || (tok.contains('=') && !tok.starts_with('-')) {
@@ -910,13 +910,12 @@ fn extract_systemd_failed_action(output: &str) -> Option<String> {
 fn extract_tar_archive(last: &Last) -> Option<String> {
     let tokens: Vec<&str> = last.command.split_whitespace().collect();
     for (i, tok) in tokens.iter().enumerate() {
-        if *tok == "-f" || (tok.starts_with('-') && !tok.starts_with("--") && tok.ends_with('f')) {
-            if let Some(file) = tokens.get(i + 1)
+        if (*tok == "-f" || (tok.starts_with('-') && !tok.starts_with("--") && tok.ends_with('f')))
+            && let Some(file) = tokens.get(i + 1)
                 && !file.starts_with('-')
             {
                 return Some((*file).to_string());
             }
-        }
     }
     for tok in tokens.iter().skip(1) {
         if !tok.starts_with('-')

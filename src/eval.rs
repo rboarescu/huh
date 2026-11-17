@@ -1,7 +1,6 @@
-//! `huh eval`: run test requests through the backend and score the results.
+//! `huh eval`: run test requests through the matcher and score the results.
 
-use crate::backend::Backend;
-use crate::catalog::Command;
+use crate::matcher::LocalMatcher;
 use crate::suggest;
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -26,15 +25,21 @@ struct Case {
 }
 
 #[derive(Default)]
-struct Tally {
-    hit: usize,
-    total: usize,
+pub struct Tally {
+    pub hit: usize,
+    pub total: usize,
 }
 
 impl Tally {
     fn add(&mut self, hit: bool) {
         self.total += 1;
         self.hit += hit as usize;
+    }
+
+    /// Whole percent of hits; 100 when there were no cases.
+    #[cfg(test)]
+    pub fn percent(&self) -> usize {
+        (100 * self.hit).checked_div(self.total).unwrap_or(100)
     }
 }
 
@@ -47,15 +52,53 @@ impl std::fmt::Display for Tally {
     }
 }
 
-pub fn run(backend: &dyn Backend, catalog: &[Command], path: &Path) -> Result<()> {
+/// The scores of one cases file, with one "ok"/"MISS" line per case.
+#[derive(Default)]
+pub struct Report {
+    pub top1: Tally,
+    pub top3: Tally,
+    pub exact: Tally,
+    pub rejected: Tally,
+    pub millis: Vec<u128>,
+    pub lines: Vec<String>,
+}
+
+impl std::fmt::Display for Report {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "right command first:        {}", self.top1)?;
+        writeln!(f, "right command in top 3:     {}", self.top3)?;
+        writeln!(f, "exact command line:         {}", self.exact)?;
+        write!(f, "\"nothing fits\" recognised:  {}", self.rejected)?;
+        let mut millis = self.millis.clone();
+        millis.sort();
+        if let (Some(median), Some(slowest)) = (millis.get(millis.len() / 2), millis.last()) {
+            write!(f, "\ntime per request:           median {median} ms, slowest {slowest} ms")?;
+        }
+        Ok(())
+    }
+}
+
+/// `huh eval`: prints every case, then the scores.
+pub fn run(matcher: &LocalMatcher, path: &Path) -> Result<()> {
+    let report = score(matcher, path)?;
+    for line in &report.lines {
+        println!("{line}");
+    }
+    println!("\n{report}");
+    Ok(())
+}
+
+pub fn score(matcher: &LocalMatcher, path: &Path) -> Result<Report> {
     let text = std::fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
     let cases = toml::from_str::<CaseFile>(&text).with_context(|| format!("invalid {}", path.display()))?.case;
 
-    let (mut top1, mut top3, mut exact, mut rejected) = (Tally::default(), Tally::default(), Tally::default(), Tally::default());
-    let mut millis: Vec<u128> = Vec::new();
+    let mut report = Report::default();
+    let Report { top1, top3, exact, rejected, .. } = &mut report;
+    let mut lines = Vec::new();
+    let mut millis = Vec::new();
 
     for case in &cases {
-        let outcome = suggest(backend, catalog, &case.request, case.files.clone(), &mut |_| None)?;
+        let outcome = suggest(matcher, &case.request, case.files.clone(), &mut |_| None)?;
         millis.push(outcome.millis);
         let first = outcome.suggestions.first();
         let got = first.map_or("(no suggestion)", |s| s.line.as_str());
@@ -80,27 +123,15 @@ pub fn run(backend: &dyn Backend, catalog: &[Command], path: &Path) -> Result<()
             }
         };
         let wanted = case.expect.as_deref().unwrap_or(&case.command);
-        if ok {
-            println!("ok    {}  ->  {got}", case.request);
+        lines.push(if ok {
+            format!("ok    {}  ->  {got}", case.request)
         } else {
-            println!("MISS  {}  ->  {got}   (wanted: {wanted})", case.request);
-        }
+            format!("MISS  {}  ->  {got}   (wanted: {wanted})", case.request)
+        });
     }
-
-    millis.sort();
-    println!();
-    println!("right command first:        {top1}");
-    println!("right command in top 3:     {top3}");
-    println!("exact command line:         {exact}");
-    println!("\"nothing fits\" recognised:  {rejected}");
-    if !millis.is_empty() {
-        println!(
-            "time per request:           median {} ms, slowest {} ms",
-            millis[millis.len() / 2],
-            millis[millis.len() - 1]
-        );
-    }
-    Ok(())
+    report.lines = lines;
+    report.millis = millis;
+    Ok(report)
 }
 
 #[derive(Deserialize)]

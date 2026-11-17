@@ -1,4 +1,4 @@
-//! Values the model may pick for path and text slots. The model cannot write text,
+//! Values the matcher may pick for path and text slots. It never invents text,
 //! so every value has to be offered: words from the request, plus entries in the
 //! current folder for paths.
 
