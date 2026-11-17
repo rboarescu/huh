@@ -52,8 +52,14 @@ fn man_dirs() -> Vec<PathBuf> {
 }
 
 /// The man page file for `name` (like `git-commit`), looking in sections 1 and 8.
+/// A man page name is used as a path piece, so it must not be able to climb out of the man
+/// folders: no `/`, no NUL, no leading dot, not empty.
+pub fn safe_page_name(name: &str) -> bool {
+    !name.is_empty() && !name.contains(['/', '\0', '\\']) && !name.starts_with('.')
+}
+
 pub fn find_page(name: &str) -> Option<PathBuf> {
-    if name.is_empty() || name.contains('/') || name.starts_with('.') {
+    if !safe_page_name(name) {
         return None;
     }
     for dir in man_dirs() {

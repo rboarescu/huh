@@ -35,6 +35,8 @@ pub struct Inv {
     pub root: bool,
     pub remote: Option<String>,
     pub piped_in: bool,
+    /// The file (or text) standard input is redirected from, when the line says so.
+    pub stdin_from: Option<String>,
     pub inner_raw: Option<String>,
     pub inner_prog: Option<String>,
 }
@@ -152,17 +154,10 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
         None => String::new(),
     };
     let recursive = inv.has(&["-r", "-R", "--recursive"]);
+    secret_warnings(inv, &mut warn);
 
     match prog {
-        "sudo" | "doas" | "su" => {
-            let what = inv.inner_raw.as_deref().map(|c| format!("`{c}`")).unwrap_or_else(|| "a command".to_string());
-            warn(
-                prog,
-                format!(
-                    "runs {what}{on} with administrator (root) rights: it can read, change or delete any file{on}."
-                ),
-            );
-        }
+        "sudo" | "doas" | "su" => check_priv(inv, &on, &mut warn),
         "rm" => {
             let kind = if recursive { "deletes folders and everything inside them" } else { "deletes files" };
             let force = if inv.has(&["-f", "--force"]) { ", without asking and ignoring missing files" } else { "" };
@@ -203,10 +198,15 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                     "rm" | "kill" | "mv" | "chmod" | "chown" | "shred" | "dd" | "sed" | "unlink" | "rmdir" | "truncate"
                 )
             {
+                let source = match (&inv.stdin_from, inv.piped_in) {
+                    (Some(f), _) => format!("the lines of {f}"),
+                    (None, true) => "whatever the earlier command prints".to_string(),
+                    (None, false) => "whatever arrives on standard input".to_string(),
+                };
                 warn(
                     "xargs",
                     format!(
-                        "feeds whatever the earlier command prints straight into `{inner}`. Check that output first (put `echo` in front of `{inner}` to preview the commands)."
+                        "feeds {source} straight into `{inner}`. Check that input first (put `echo` in front of `{inner}` to preview the commands)."
                     ),
                 );
             }
@@ -238,9 +238,6 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
         }
         "git" => check_git(inv, &mut warn),
         "docker" | "docker-compose" => check_docker(inv, &mut warn),
-        "kubectl" if inv.sub_is(&["delete", "drain", "replace"]) => {
-            warn("delete", "removes cluster resources, which may take running applications down.".to_string());
-        }
         "dd" => {
             for arg in &inv.pos {
                 if let Some(target) = arg.text.strip_prefix("of=") {
@@ -282,9 +279,18 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
         "truncate" => {
             warn(prog, "cuts or extends the file to the given size: data beyond the new size is lost.".to_string())
         }
-        "tee" if !inv.has(&["-a", "--append"]) => {
+        "tee" => {
+            let append = inv.has(&["-a", "--append"]);
             for arg in &inv.pos {
-                if arg.text != "/dev/null" && !arg.text.starts_with("/dev/std") {
+                if arg.text == "/dev/null" || arg.text.starts_with("/dev/std") {
+                    continue;
+                }
+                if let Some(text) =
+                    persistence_text(&arg.text, if append { Write::Append } else { Write::Replace }, on.as_str())
+                    && (append || !arg.text.starts_with("/etc/"))
+                {
+                    warn("tee", text);
+                } else if !append {
                     warn(
                         "tee",
                         format!("replaces the current contents of {}{on} (use `tee -a` to append instead).", arg.text),
@@ -294,7 +300,11 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
         }
         "sed" if inv.has(&["-i", "--in-place"]) => {
             let part = inv.part_for(&["-i", "--in-place"]);
-            let suffix = part.strip_prefix("--in-place=").or_else(|| part.strip_prefix("-i")).filter(|s| !s.is_empty());
+            let suffix = part
+                .strip_prefix("--in-place=")
+                .or_else(|| part.strip_prefix("-i"))
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
             let mut text = match suffix {
                 Some(s) => format!("edits the files themselves; the original is kept as a backup with the suffix `{s}`."),
                 None => "edits the files themselves with no backup: a wrong script cannot be undone (add a suffix, like -i.bak, to keep a copy).".to_string(),
@@ -305,12 +315,27 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                 );
             }
             warn(&part, text);
+            for arg in &inv.pos {
+                if let Some(text) = persistence_text(&arg.text, Write::Edit, on.as_str()) {
+                    warn("-i", text);
+                }
+            }
+        }
+        "ln" if inv.has(&["-f", "--force"]) && inv.pos.len() >= 2 => {
+            let name = inv.pos.last().map(|p| p.text.as_str()).unwrap_or("");
+            warn(
+                &inv.part_for(&["-f", "--force"]),
+                format!("replaces an existing file or link named `{name}` without asking."),
+            );
         }
         "cp" | "mv"
             if !inv.has(&["-n", "--no-clobber", "-i", "--interactive", "-b", "--backup"]) && inv.pos.len() >= 2 =>
         {
             let dest = inv.pos.last().map(|p| p.text.as_str()).unwrap_or("");
             warn(prog, format!("if `{dest}` (or a file inside it) already exists, it is replaced without asking."));
+            if let Some(text) = persistence_text(dest, Write::Replace, on.as_str()) {
+                warn(prog, text);
+            }
             if prog == "mv" && inv.pos.iter().any(|p| is_system_path(&p.text) && p.text != "/") {
                 warn(prog, "moves a system folder, which can break the machine.".to_string());
             }
@@ -397,7 +422,22 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                 format!("files in the archive replace files of the same name already in the target folder{on}."),
             );
         }
-        "crontab" if inv.has(&["-r"]) => warn("-r", "deletes ALL your scheduled jobs without asking.".to_string()),
+        "crontab" => {
+            if inv.has(&["-r"]) {
+                warn("-r", "deletes ALL your scheduled jobs without asking.".to_string());
+            } else if !inv.has(&["-l", "-e"])
+                && let Some(src) = inv.pos.first()
+            {
+                let from =
+                    if src.text == "-" { "what is piped in".to_string() } else { format!("the file {}", src.text) };
+                warn(
+                    "crontab",
+                    format!(
+                        "replaces your WHOLE list of scheduled jobs{on} with {from}: any job that is not in it is lost, and the new jobs then run on their own schedule without you being there."
+                    ),
+                );
+            }
+        }
         "reboot" | "poweroff" | "halt" => warn(
             prog,
             format!(
@@ -428,6 +468,13 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                             ),
                         );
                     }
+                    "enable" => warn(
+                        sub,
+                        format!(
+                            "makes {units}{on} start automatically at every boot{}; it keeps coming back until it is disabled.",
+                            if inv.has(&["--now"]) { " and starts it right now" } else { "" }
+                        ),
+                    ),
                     "poweroff" | "reboot" | "halt" | "suspend" | "isolate" => {
                         warn(sub, format!("changes the power state of the machine{on}."))
                     }
@@ -438,42 +485,24 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
         "usermod" | "useradd" | "userdel" | "passwd" | "groupadd" | "gpasswd" => {
             warn(prog, "changes user accounts or their permissions on this machine.".to_string());
         }
-        "ufw" | "iptables" | "nft"
-            if inv.sub().is_some_and(|s| {
-                matches!(s, "enable" | "disable" | "reset" | "allow" | "deny" | "delete" | "-F" | "flush")
-            }) || prog != "ufw" && inv.has(&["-F", "-X"]) =>
-        {
-            warn(prog, "changes the firewall rules, which can lock you out or expose services.".to_string());
-        }
-        "pip" | "pip3" | "python" | "python3" => check_python(inv, &mut warn),
+        "ufw" | "iptables" | "nft" | "ip6tables" => check_firewall(inv, &mut warn),
+        "pip" | "pip3" | "python" | "python3" | "uv" | "poetry" => check_python(inv, &mut warn),
+        "perl" | "ruby" | "node" => check_inline_code(inv, &mut warn),
         "npm" | "pnpm" | "yarn" => check_node(inv, &mut warn),
         "make" => check_make(inv, &mut warn),
         "cmake" => {
-            if inv.has(&["--build"]) {
+            let installs = inv.has(&["--install"])
+                || inv.values.iter().any(|(f, v)| f == "--target" && v == "install")
+                || inv.pos.iter().any(|p| p.text == "install");
+            if installs {
                 warn(
-                    "--build",
-                    "starts compiling the project: this can take a long time and uses all the CPU cores you allow."
-                        .to_string(),
-                );
-            }
-            if inv.has(&["--install"]) {
-                warn(
-                    "--install",
-                    "copies the build results into the install folder (system folders such as /usr/local need root)."
+                    if inv.has(&["--install"]) { "--install" } else { "--build" },
+                    "also installs: copies the build results into the install folder (system folders such as /usr/local need root)."
                         .to_string(),
                 );
             }
         }
         "cargo" => match inv.sub() {
-            Some(s @ ("build" | "run" | "test" | "check" | "clippy" | "bench" | "doc")) => {
-                warn(
-                    s,
-                    format!(
-                        "starts a Rust compile, which can take minutes and creates files in `target/`{}.",
-                        if s == "run" { "; then it runs the program" } else { "" }
-                    ),
-                );
-            }
             Some("install") => {
                 warn("install", "downloads, compiles and installs a program into ~/.cargo/bin.".to_string())
             }
@@ -483,6 +512,58 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
             ),
             _ => {}
         },
+        "kubectl" => check_kubectl(inv, &mut warn),
+        "helm" => match inv.sub() {
+            Some("install" | "upgrade") => warn(
+                inv.sub().unwrap_or("install"),
+                "changes what runs on the cluster: it creates or updates real resources.".to_string(),
+            ),
+            Some("uninstall" | "delete") => {
+                warn("uninstall", "removes the release and the resources it created on the cluster.".to_string())
+            }
+            _ => {}
+        },
+        "terraform" => {
+            if let Some(sub @ ("apply" | "destroy")) = inv.sub() {
+                let what = if sub == "destroy" {
+                    "DELETES real infrastructure"
+                } else {
+                    "creates, changes or deletes real infrastructure"
+                };
+                if inv.has(&["-auto-approve"]) {
+                    warn(
+                        "-auto-approve",
+                        format!(
+                            "{what} without asking you to confirm the plan first. Run `terraform plan` and read it before this."
+                        ),
+                    );
+                } else {
+                    warn(sub, format!("{what} (it shows the plan and asks before doing it)."));
+                }
+            }
+        }
+        "gh" if inv.path.get(1).is_some_and(|p| p == "pr") && inv.path.get(2).is_some_and(|p| p == "merge") => {
+            if inv.has(&["--admin"]) {
+                warn(
+                    "--admin",
+                    "merges even when required checks or reviews have not passed, bypassing the branch protection rules.".to_string(),
+                );
+            } else {
+                warn("merge", "merges the pull request into its target branch on GitHub.".to_string());
+            }
+        }
+        "psql" | "mysql" | "mariadb" | "sqlite3" => check_sql(inv, &mut warn),
+        "dpkg" | "rpm" => check_low_level_pkg(inv, &mut warn),
+        "apk" | "xbps-install" | "xbps-remove" | "emerge" | "nix-env" => {
+            let changes = match prog {
+                "apk" => inv.sub_is(&["add", "del", "upgrade"]),
+                "emerge" => !inv.has(&["-p", "--pretend", "-s", "--search"]),
+                _ => true,
+            };
+            if changes {
+                warn(prog, "changes the software installed on the whole system.".to_string());
+            }
+        }
         "apt" | "apt-get" | "dnf" | "yum" | "zypper" => {
             if let Some(sub) = inv.sub()
                 && matches!(
@@ -495,6 +576,8 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                         | "dist-upgrade"
                         | "full-upgrade"
                         | "erase"
+                        | "in"
+                        | "rm"
                 )
             {
                 warn(
@@ -539,6 +622,350 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
     }
 }
 
+fn check_kubectl(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
+    let Some(sub) = inv.sub() else { return };
+    let all = inv.has(&["--all", "-A", "--all-namespaces"]);
+    match sub {
+        "delete" | "drain" | "replace" => {
+            let sweeping = if inv.has(&["--all"]) {
+                " With --all it removes EVERY resource of that kind in the namespace."
+            } else {
+                ""
+            };
+            warn(sub, format!("removes cluster resources, which may take running applications down.{sweeping}"));
+        }
+        "apply" | "create" | "scale" | "rollout" => {
+            let rollout_view = sub == "rollout" && inv.pos.get(1).is_some_and(|p| p.text == "status");
+            if !rollout_view && !inv.has(&["--dry-run"]) {
+                warn(sub, "changes the live cluster (the current kubectl context decides which one).".to_string());
+            }
+        }
+        "exec" => warn(sub, "runs a command inside a running container of the cluster.".to_string()),
+        "get" | "logs" | "describe" if all && sub == "logs" => {
+            warn("--all", "reads logs from every matching pod, which can be a lot of output.".to_string());
+        }
+        _ => {}
+    }
+}
+
+fn check_low_level_pkg(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
+    let prog = inv.prog.as_str();
+    let install = if prog == "dpkg" {
+        inv.has(&["-i", "--install"])
+    } else {
+        inv.has(&["-i", "--install", "-U", "--upgrade", "-F", "--freshen"])
+    };
+    let remove =
+        if prog == "dpkg" { inv.has(&["-r", "--remove", "-P", "--purge"]) } else { inv.has(&["-e", "--erase"]) };
+    if install {
+        warn(
+            &inv.part_for(&["-i", "--install", "-U", "--upgrade", "-F", "--freshen"]),
+            "installs a package as root and runs its maintainer scripts, which are arbitrary commands that execute on this machine before and after the files are copied.".to_string(),
+        );
+    }
+    if remove {
+        warn(
+            &inv.part_for(&["-r", "--remove", "-P", "--purge", "-e", "--erase"]),
+            "removes the package from the whole system (its removal scripts run as root).".to_string(),
+        );
+    }
+}
+
+fn check_firewall(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
+    let prog = inv.prog.as_str();
+    if prog == "ufw" {
+        match inv.sub() {
+            Some("enable") => {
+                let forced = if inv.has(&["--force"]) {
+                    " --force skips the confirmation prompt that would warn you about this."
+                } else {
+                    ""
+                };
+                warn(
+                    "enable",
+                    format!(
+                        "turns the firewall on and keeps it on at every boot. Over SSH this can lock you out unless ssh is already allowed (`ufw allow ssh` first).{forced}"
+                    ),
+                );
+            }
+            Some("disable" | "reset") => warn(
+                inv.sub().unwrap_or("disable"),
+                "turns the firewall off or deletes its rules: services become reachable from the network.".to_string(),
+            ),
+            Some("allow" | "deny" | "delete" | "limit" | "reject") => warn(
+                inv.sub().unwrap_or("allow"),
+                "changes the firewall rules, which can lock you out or expose services.".to_string(),
+            ),
+            _ => {}
+        }
+        return;
+    }
+    if inv.has(&["-F", "--flush"]) {
+        warn(
+            &inv.part_for(&["-F", "--flush"]),
+            "flushes (deletes) every firewall rule: the protection they gave is gone, and if the default policy is DROP all traffic, your ssh included, is cut off.".to_string(),
+        );
+    }
+    if inv.has(&["-X", "--delete-chain"]) {
+        warn(
+            &inv.part_for(&["-X", "--delete-chain"]),
+            "deletes user-made firewall chains and the rules in them.".to_string(),
+        );
+    }
+    if inv.has(&["-P", "--policy"]) {
+        let chain = inv.value(&["-P", "--policy"]).unwrap_or("a chain");
+        let target = inv.pos.first().map(|p| p.text.as_str()).unwrap_or("");
+        let text = match target {
+            "ACCEPT" => format!(
+                "sets the default for {chain} to ACCEPT: everything that no rule blocks is let through, which opens the firewall."
+            ),
+            "DROP" | "REJECT" => format!(
+                "sets the default for {chain} to {target}: everything that no rule allows is blocked, which can cut off your ssh session."
+            ),
+            _ => {
+                format!("changes the default policy of {chain}, which decides what happens to traffic no rule matches.")
+            }
+        };
+        warn(&inv.part_for(&["-P", "--policy"]), text);
+    }
+    if !inv.has(&["-F", "--flush", "-X", "--delete-chain", "-P", "--policy"])
+        && (inv.has(&["-A", "--append", "-I", "--insert", "-D", "--delete"])
+            || inv.sub().is_some_and(|s| matches!(s, "flush" | "delete" | "add")))
+    {
+        warn(prog, "changes the firewall rules, which can lock you out or expose services.".to_string());
+    }
+}
+
+/// SQL given on the command line that destroys or rewrites data.
+fn check_sql(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
+    let (flags, from_pos): (&[&str], bool) = match inv.prog.as_str() {
+        "psql" => (&["-c", "--command"], false),
+        "mysql" | "mariadb" => (&["-e", "--execute"], false),
+        _ => (&["-cmd"], true),
+    };
+    let mut texts: Vec<(String, String)> = Vec::new();
+    for (f, v) in &inv.values {
+        if flags.contains(&f.as_str()) {
+            texts.push((inv.part_for(flags), v.clone()));
+        }
+    }
+    if from_pos {
+        for p in inv.pos.iter().skip(1) {
+            texts.push((p.text.clone(), p.text.clone()));
+        }
+    }
+    for (part, sql) in texts {
+        for stmt in sql.split(';') {
+            let stmt = stmt.trim();
+            let upper = stmt.to_ascii_uppercase();
+            let mut words = upper.split_whitespace();
+            let Some(first) = words.next() else { continue };
+            let has_where = upper.split_whitespace().any(|w| w == "WHERE");
+            let named = stmt.split_whitespace().take(4).collect::<Vec<_>>().join(" ");
+            let text = match first {
+                "DROP" => Some("permanently removes it and all the data in it".to_string()),
+                "TRUNCATE" => Some("empties the table: every row is deleted at once".to_string()),
+                "ALTER" => Some(
+                    "changes the structure of a table or database, which can lose data or break programs using it"
+                        .to_string(),
+                ),
+                "DELETE" if !has_where => Some("has no WHERE, so it deletes EVERY row of the table".to_string()),
+                "UPDATE" if !has_where => Some("has no WHERE, so it changes EVERY row of the table".to_string()),
+                _ => None,
+            };
+            if let Some(what) = text {
+                warn(
+                    &part,
+                    format!(
+                        "runs the SQL statement `{named}` straight away: this {what}. There is no confirmation and often no undo."
+                    ),
+                );
+            }
+        }
+    }
+}
+
+/// Is `path` a shell startup file, a system settings file or a git hook? Returns a warning for
+/// writing to it.
+#[derive(Clone, Copy, PartialEq)]
+enum Write {
+    Append,
+    Replace,
+    Edit,
+}
+
+fn persistence_text(path: &str, how: Write, on: &str) -> Option<String> {
+    let verb = match how {
+        Write::Append => "adds to",
+        Write::Replace => "replaces the current contents of",
+        Write::Edit => "edits in place",
+    };
+    let p = path.trim_end_matches('/');
+    let startup = [
+        ".bashrc",
+        ".zshrc",
+        ".profile",
+        ".bash_profile",
+        ".bash_login",
+        ".zprofile",
+        ".zshenv",
+        ".zlogin",
+        ".config/fish/config.fish",
+    ]
+    .iter()
+    .any(|f| p == *f || p.ends_with(&format!("/{f}")));
+    if startup {
+        return Some(format!(
+            "{verb} the shell startup file {path}{on}: whatever is in it runs every time a new shell starts, which is a common way to make code or changes persist.{}",
+            match how {
+                Write::Append => " Existing settings in it are kept.",
+                Write::Replace => " Existing settings in it are lost.",
+                Write::Edit => "",
+            }
+        ));
+    }
+    if p.contains(".git/hooks/") || p.ends_with(".git/hooks") {
+        return Some(format!(
+            "writes into the git hooks folder ({path}): hook scripts run automatically on later git commands (commit, push, checkout, ...)."
+        ));
+    }
+    if p.starts_with("/etc/") {
+        return Some(format!(
+            "{verb} the system file {path}{on}: it changes how the whole machine behaves{}.",
+            if how == Write::Replace { " (what was there is lost)" } else { "" }
+        ));
+    }
+    None
+}
+
+/// A secret passed as a plain value on the command line or in an assignment.
+pub fn secret_assignment(name: &str, value: &str) -> Option<String> {
+    let upper = name.to_ascii_uppercase();
+    let secret_name = matches!(upper.as_str(), "PGPASSWORD" | "MYSQL_PWD" | "PASSWORD" | "TOKEN" | "SECRET")
+        || [
+            "_PASSWORD",
+            "_PASSWD",
+            "_TOKEN",
+            "_SECRET",
+            "_SECRET_KEY",
+            "_SECRET_ACCESS_KEY",
+            "_API_KEY",
+            "_ACCESS_KEY",
+        ]
+        .iter()
+        .any(|suffix| upper.ends_with(suffix));
+    if !secret_name || value.is_empty() || value.starts_with('$') {
+        return None;
+    }
+    Some(format!(
+        "{name} is set to a secret value written right in the command: it is saved in your shell history and can show up in the process list. Read it from a file or a prompt instead."
+    ))
+}
+
+pub const SECRET_OPTIONS: [&str; 9] = [
+    "--password",
+    "--passwd",
+    "--pass",
+    "--token",
+    "--secret",
+    "--api-key",
+    "--apikey",
+    "--auth-token",
+    "--access-token",
+];
+
+const SECRET_PATTERNS: [&str; 9] = [
+    "authorization: bearer ",
+    "authorization: basic ",
+    "token=",
+    "password=",
+    "passwd=",
+    "secret=",
+    "api_key=",
+    "apikey=",
+    "access_token=",
+];
+
+fn secret_warnings(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
+    const TEXT: &str = "puts a password or token right on the command line: it is saved in your shell history and any user on the machine can read it in the process list while this runs. Leave the value out to be prompted, or read it from a file or an environment variable set elsewhere.";
+    let mut seen: Vec<String> = Vec::new();
+    let mut hit = |part: &str, warn: &mut dyn FnMut(&str, String)| {
+        if !seen.iter().any(|s| s == part) {
+            seen.push(part.to_string());
+            warn(part, TEXT.to_string());
+        }
+    };
+    let mysql_like = matches!(inv.prog.as_str(), "mysql" | "mariadb" | "mysqldump" | "mysqladmin");
+    for (flag, value) in &inv.values {
+        let lower = flag.to_ascii_lowercase();
+        let secret_flag = SECRET_OPTIONS.contains(&lower.as_str())
+            || (matches!(flag.as_str(), "-p" | "--password")
+                && (mysql_like || matches!(inv.prog.as_str(), "sshpass" | "docker")))
+            || (matches!(flag.as_str(), "-u" | "--user") && inv.prog == "curl" && value.contains(':'));
+        if secret_flag && !value.is_empty() {
+            let names = [flag.as_str()];
+            hit(&inv.part_for(&names), warn);
+        }
+    }
+    let texts = inv.values.iter().map(|(_, v)| v.as_str()).chain(inv.pos.iter().map(|p| p.text.as_str()));
+    for text in texts {
+        let low = text.to_ascii_lowercase();
+        let found =
+            SECRET_PATTERNS.iter().any(|pat| low.find(pat).is_some_and(|at| !low[at + pat.len()..].trim().is_empty()))
+                || low.split("://").nth(1).is_some_and(|rest| {
+                    let authority = rest.split('/').next().unwrap_or("");
+                    authority.contains('@') && authority.split('@').next().is_some_and(|u| u.contains(':'))
+                });
+        if found {
+            let shown: String = text.chars().take(40).collect();
+            hit(&shown, warn);
+        }
+    }
+}
+
+fn check_priv(inv: &Inv, on: &str, warn: &mut dyn FnMut(&str, String)) {
+    let prog = inv.prog.as_str();
+    let su = prog == "su";
+    let login_marker = inv.pos.iter().any(|p| p.text == "-");
+    let named: Option<&str> =
+        if su { inv.pos.iter().map(|p| p.text.as_str()).find(|t| *t != "-") } else { inv.value(&["-u", "--user"]) };
+    let group = inv.value(&["-g", "--group"]);
+    let root = named.is_none_or(|u| u == "root");
+    let mut phrase = if root {
+        "with administrator (root) rights".to_string()
+    } else {
+        format!("as the user {}", named.unwrap_or(""))
+    };
+    if let Some(g) = group {
+        phrase.push_str(&format!(" and the group {g}"));
+    }
+    let reach = if root {
+        format!("it can read, change or delete any file{on}")
+    } else {
+        format!("it can read, change or delete any file that user can{on}")
+    };
+    let command = if su { inv.value(&["-c", "--command"]).map(str::to_string) } else { inv.inner_raw.clone() };
+    let text = match command {
+        Some(c) => format!("runs `{c}`{on} {phrase}: {reach}."),
+        None => {
+            let login = login_marker || inv.has(&["-i", "--login", "-l"]) || (su && inv.has(&["-l", "--login"]));
+            let shell_kind = if login {
+                "a login shell (a fresh environment, as if that user had just logged in)"
+            } else {
+                "a shell"
+            };
+            if su || inv.has(&["-i", "--login", "-s", "--shell"]) {
+                format!(
+                    "opens {shell_kind}{on} {phrase}: every command typed into it, not just one, runs with those rights; {reach}."
+                )
+            } else {
+                format!("runs a command{on} {phrase}: {reach}.")
+            }
+        }
+    };
+    warn(prog, text);
+}
+
 fn unset_text(var: &str, expanded: &str, verb: &str) -> String {
     format!(
         "if `${var}` is empty or unset, this becomes `{}`{}. Nothing on this line sets {var}. Use \"${{{var}:?}}\" so the shell stops instead of {verb} the wrong thing.",
@@ -578,10 +1005,24 @@ fn check_git(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
                     "rewrites the remote branch (but refuses if someone pushed since you last fetched).".to_string(),
                 );
             }
-            if inv.has(&["--delete", "-d"]) || pos.iter().any(|p| p.starts_with(':')) {
+            if let Some(spec) = pos.iter().skip(1).find(|p| p.starts_with('+')) {
+                warn(
+                    spec,
+                    "a refspec starting with + is a force push: it overwrites the remote branch with yours, discarding commits others may have pushed. Prefer --force-with-lease.".to_string(),
+                );
+            }
+            if inv.has(&["--delete", "-d"]) {
                 warn(
                     &inv.part_for(&["--delete", "-d"]),
                     "deletes a branch or tag on the remote for everyone.".to_string(),
+                );
+            } else if let Some(spec) = pos.iter().find(|p| p.starts_with(':') && p.len() > 1) {
+                warn(
+                    spec,
+                    format!(
+                        "pushing an empty source to `{}` deletes that branch or tag on the remote for everyone.",
+                        &spec[1..]
+                    ),
                 );
             }
             if inv.has(&["--mirror"]) {
@@ -590,6 +1031,20 @@ fn check_git(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
                     "makes the remote an exact copy of this repository, deleting anything it has that you do not."
                         .to_string(),
                 );
+            }
+        }
+        "config" => {
+            let key = pos.first().map(|k| k.to_ascii_lowercase()).unwrap_or_default();
+            if key == "core.hookspath" && pos.len() > 1 && !inv.has(&["--unset"]) {
+                warn(
+                    "core.hooksPath",
+                    "points git at another folder of hook scripts: the programs in it run automatically on later git commands (commit, push, checkout, ...), in this repository or every one if --global.".to_string(),
+                );
+            }
+            if matches!(key.as_str(), "core.fsmonitor" | "core.sshcommand" | "core.pager" | "core.editor")
+                && pos.len() > 1
+            {
+                warn(pos[0], "sets a program that git itself starts later during ordinary git commands.".to_string());
             }
         }
         "rebase" => {
@@ -722,13 +1177,13 @@ fn check_docker(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
         }
     }
     if last == "build" {
-        warn("build", "starts building an image: this can take a long time and downloads data.".to_string());
+        warn("build", "starts building an image (can take a while and downloads data).".to_string());
     }
     if path.get(1) == Some(&"compose") && last == "up" && !inv.has(&["-d", "--detach"]) {
         warn("up", "starts the services and stays attached to their output until you press Ctrl+C.".to_string());
     }
     if path.get(1) == Some(&"compose") && last == "up" && inv.has(&["--build"]) {
-        warn("--build", "builds the images first, which can take a while.".to_string());
+        warn("--build", "builds the images first (can take a while).".to_string());
     }
     if matches!(last, "logs") && inv.has(&["-f", "--follow"]) {
         warn("-f", "keeps running and printing new lines until you press Ctrl+C.".to_string());
@@ -739,24 +1194,65 @@ fn check_docker(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
 }
 
 fn check_python(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
-    let pip_like =
-        matches!(inv.prog.as_str(), "pip" | "pip3") || (inv.has(&["-m"]) && inv.value(&["-m"]) == Some("pip"));
-    if !pip_like {
+    check_inline_code(inv, warn);
+    let prog = inv.prog.as_str();
+    let pip_like = matches!(prog, "pip" | "pip3")
+        || (inv.has(&["-m"]) && inv.value(&["-m"]) == Some("pip"))
+        || (prog == "uv" && inv.pos.first().is_some_and(|p| p.text == "pip"));
+    let tool_install = (prog == "uv" && inv.sub_is(&["add", "sync"]))
+        || (prog == "poetry" && inv.sub_is(&["install", "add", "update"]));
+    if !pip_like && !tool_install {
         return;
     }
-    let install = inv.sub_is(&["install"]) || inv.pos.iter().any(|p| p.text == "install");
+    let install = tool_install || inv.sub_is(&["install"]) || inv.pos.iter().any(|p| p.text == "install");
     if inv.has(&["--break-system-packages"]) {
         warn("--break-system-packages", "tells pip to ignore your operating system's protection and install into the system-wide Python. That can break system tools that depend on specific versions. A virtualenv (`python -m venv`) or `pipx` is the safe way.".to_string());
     }
     if install {
-        warn(
-            "install",
-            "downloads and installs packages; installing can run the package's own setup code on your machine."
-                .to_string(),
-        );
+        warn("install", "installs packages (can run their setup code on this machine).".to_string());
     }
-    if inv.sub_is(&["uninstall"]) {
+    if inv.sub_is(&["uninstall"]) || inv.pos.iter().any(|p| p.text == "uninstall") {
         warn("uninstall", "removes the packages.".to_string());
+    }
+}
+
+/// Code given on the command line (`python3 -c`, `perl -e`, `node -e`) that shells out.
+fn check_inline_code(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
+    let flags: &[&str] = match inv.prog.as_str() {
+        "python" | "python3" => &["-c"],
+        "perl" | "ruby" => &["-e", "-E"],
+        "node" => &["-e", "--eval", "-p", "--print"],
+        _ => return,
+    };
+    let Some(code) = inv.value(flags) else { return };
+    let low = code.to_ascii_lowercase();
+    let mut needles = vec![
+        "os.system",
+        "subprocess",
+        "os.popen",
+        "popen(",
+        "pty.spawn",
+        "child_process",
+        "execsync",
+        "spawnsync",
+        "system(",
+        "exec(",
+        "qx{",
+        "qx(",
+        "%x(",
+    ];
+    if matches!(inv.prog.as_str(), "perl" | "ruby") {
+        needles.push("`");
+        needles.push("system ");
+    }
+    if let Some(hit) = needles.iter().find(|n| low.contains(**n)) {
+        warn(
+            &inv.part_for(flags),
+            format!(
+                "the code given can run shell commands (it uses `{}`), and huh does not look inside it: read it before running.",
+                hit.trim()
+            ),
+        );
     }
 }
 
@@ -768,9 +1264,9 @@ fn check_node(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
         warn(&inv.part_for(&["-g", "--global"]), "installs or removes packages system-wide (shared by every project, often needs root) instead of in this project.".to_string());
     }
     if is_install || (inv.prog == "yarn" && inv.pos.is_empty()) {
-        warn(sub, "downloads packages and may run their install scripts on your machine; can take a while and writes node_modules/.".to_string());
+        warn(sub, "installs packages (can run their install scripts on this machine).".to_string());
     } else if matches!(sub, "run" | "start" | "test" | "build" | "dev" | "exec" | "dlx" | "x") {
-        warn(sub, "starts a project script (whatever package.json defines for it; huh does not read that file). Build and dev scripts can run for a long time.".to_string());
+        warn(sub, "runs a script that package.json defines (huh does not read that file).".to_string());
     }
     if matches!(sub, "uninstall" | "remove" | "rm") {
         warn(sub, "removes packages.".to_string());
@@ -801,8 +1297,6 @@ fn check_make(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
             "runs the Makefile's clean recipe, which deletes build output (the Makefile decides exactly what)."
                 .to_string(),
         );
-    } else {
-        warn("make", "starts a build as described by the Makefile (huh does not read it): can take a long time and creates or changes files in this folder.".to_string());
     }
 }
 
@@ -817,7 +1311,9 @@ pub fn check_redir(op: &str, fd: Option<&str>, target: &str, raw: &str, context:
         return;
     }
     let mut text = None;
-    if target.starts_with("/dev/") {
+    if let Some(p) = persistence_text(target, if appends { Write::Append } else { Write::Replace }, "") {
+        text = Some(p);
+    } else if target.starts_with("/dev/") {
         text = Some(format!("writes raw data straight onto the device {target}, which destroys what is stored on it."));
     } else if overwrite {
         let system =

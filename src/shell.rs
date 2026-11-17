@@ -100,20 +100,24 @@ pub enum Cmd {
         words: Option<Vec<Word>>,
         body: Script,
         raw_head: String,
+        redirs: Vec<Redir>,
     },
     While {
         until: bool,
         cond: Script,
         body: Script,
         raw_head: String,
+        redirs: Vec<Redir>,
     },
     If {
         branches: Vec<(Script, Script)>,
         otherwise: Option<Script>,
+        redirs: Vec<Redir>,
     },
     Case {
         subject: Word,
         arms: Vec<Arm>,
+        redirs: Vec<Redir>,
     },
     Func {
         name: String,
@@ -597,7 +601,8 @@ impl Parser {
             }
         }
         self.expect_word("fi");
-        Cmd::If { branches, otherwise }
+        let redirs = self.parse_trailing_redirs();
+        Cmd::If { branches, otherwise, redirs }
     }
 
     fn parse_for(&mut self) -> Cmd {
@@ -611,7 +616,8 @@ impl Parser {
             self.expect_word("do");
             let body = self.parse_script(&["done"]);
             self.expect_word("done");
-            return Cmd::For { var: String::new(), words: None, body, raw_head: head };
+            let redirs = self.parse_trailing_redirs();
+            return Cmd::For { var: String::new(), words: None, body, raw_head: head, redirs };
         }
         let var = self.read_plain_name();
         self.skip_blanks(false);
@@ -638,7 +644,8 @@ impl Parser {
         self.expect_word("do");
         let body = self.parse_script(&["done"]);
         self.expect_word("done");
-        Cmd::For { var, words, body, raw_head: head }
+        let redirs = self.parse_trailing_redirs();
+        Cmd::For { var, words, body, raw_head: head, redirs }
     }
 
     fn read_plain_name(&mut self) -> String {
@@ -662,7 +669,8 @@ impl Parser {
         self.expect_word("do");
         let body = self.parse_script(&["done"]);
         self.expect_word("done");
-        Cmd::While { until, cond, body, raw_head: head }
+        let redirs = self.parse_trailing_redirs();
+        Cmd::While { until, cond, body, raw_head: head, redirs }
     }
 
     fn parse_case(&mut self) -> Cmd {
@@ -717,7 +725,8 @@ impl Parser {
             }
         }
         self.expect_word("esac");
-        Cmd::Case { subject, arms }
+        let redirs = self.parse_trailing_redirs();
+        Cmd::Case { subject, arms, redirs }
     }
 
     fn parse_trailing_redirs(&mut self) -> Vec<Redir> {
@@ -1356,7 +1365,7 @@ mod tests {
         assert!(p.notes.is_empty(), "{:?}", p.notes);
 
         let p = parse("if [ -f x ]; then echo yes; elif true; then echo mid; else echo no; fi");
-        let Cmd::If { branches, otherwise } = &p.script.items[0].chain.first.cmds[0] else { panic!() };
+        let Cmd::If { branches, otherwise, .. } = &p.script.items[0].chain.first.cmds[0] else { panic!() };
         assert_eq!(branches.len(), 2);
         assert!(otherwise.is_some());
 

@@ -135,10 +135,11 @@ pub fn render(e: &Explanation) -> String {
     if n == 0 {
         return "There is nothing to explain in that text.\n".to_string();
     }
+    let noun = if e.multiline { "script" } else { "line" };
     let what = if n == 1 {
-        "This line does 1 thing:".to_string()
+        format!("This {noun} does 1 thing:")
     } else {
-        format!("This line does {n} things, in this order:")
+        format!("This {noun} does {n} things, in this order:")
     };
     let _ = writeln!(out, "{what}");
     for (i, s) in e.steps.iter().enumerate() {

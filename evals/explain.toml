@@ -58,7 +58,8 @@ warn = ["replace files of the same name", "-R"]
 [[case]]
 line = "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(nproc) && sudo make install"
 expect = ["Move into another folder", "CMAKE_BUILD_TYPE=Release", "nproc", "the `install` recipe", "with administrator (root) rights"]
-warn = ["install", "sudo", "starts a build"]
+warn = ["install", "sudo"]
+no_warn = ["starts a build"]
 
 [[case]]
 line = "for f in *.png; do convert \"$f\" -resize 50% \"small_$f\"; done"
@@ -197,7 +198,7 @@ no_warn = ["recipe", "starts a build"]
 [[case]]
 line = "cargo build --release"
 expect = ["Optimised build"]
-warn = ["Rust compile"]
+no_warn = ["Rust compile", "target/"]
 
 [[case]]
 line = "docker build -t app ."
@@ -341,3 +342,348 @@ expect = ["Print the given text"]
 [[case]]
 line = "export PATH=\"$HOME/bin:$PATH\""
 expect = ["sets the variable PATH", "$HOME is your home folder"]
+
+# --- verifier round: package tools, privilege, secrets, unknown options, persistence ---
+
+[[case]]
+line = "sudo dpkg -i foo.deb"
+expect = ["Debian package tool", "Install a package file", "foo.deb"]
+absent = ["belongs to", "no description"]
+warn = ["installs a package as root", "maintainer scripts"]
+
+[[case]]
+line = "dpkg -S /usr/bin/ls"
+expect = ["which package a file belongs to"]
+no_warn = ["maintainer scripts"]
+
+[[case]]
+line = "sudo rpm -ivh pkg.rpm"
+expect = ["RPM package tool", "Print progress marks"]
+absent = ["no description"]
+warn = ["installs a package as root", "maintainer scripts"]
+
+[[case]]
+line = "rpm -qf /usr/bin/ls"
+expect = ["The package that owns /usr/bin/ls"]
+no_warn = ["maintainer scripts"]
+
+[[case]]
+line = "sudo apk add curl && sudo zypper install git"
+expect = ["Install packages", "openSUSE"]
+warn = ["changes the software installed", "sudo"]
+
+[[case]]
+line = "sudo -u postgres psql -c \"DROP DATABASE prod;\""
+expect = ["as the user postgres", "Run this SQL"]
+absent = ["as administrator", "administrator (root) rights: it"]
+warn = ["as the user postgres", "DROP DATABASE prod", "permanently removes"]
+no_warn = ["with administrator (root) rights"]
+
+[[case]]
+line = "mysql -u prod -e \"DELETE FROM users\""
+warn = ["DELETE FROM users", "EVERY row"]
+
+[[case]]
+line = "psql -c \"delete from users where id = 3\""
+no_warn = ["EVERY row", "straight away"]
+
+[[case]]
+line = "psql -c \"update users set admin = true\""
+warn = ["update users set admin = true", "EVERY row"]
+
+[[case]]
+line = "sqlite3 app.db \"TRUNCATE TABLE t\""
+warn = ["TRUNCATE TABLE t"]
+
+[[case]]
+line = "terraform apply -auto-approve"
+expect = ["-auto-approve", "do NOT ask for confirmation", "real infrastructure"]
+absent = ["-a ", "bogus", "huh has no description"]
+warn = ["-auto-approve", "without asking you to confirm"]
+
+[[case]]
+line = "terraform destroy"
+warn = ["DELETES real infrastructure"]
+
+[[case]]
+line = "go test ./... -race -count=1"
+expect = ["Check for data races", "run each test once"]
+absent = ["no description", "-r  ", "-c  "]
+no_warn = ["compile"]
+
+[[case]]
+line = "java -jar app.jar --port 80"
+expect = ["run the program packaged in the jar", "app.jar"]
+absent = ["-j  ", "-a  ", "-r  "]
+
+[[case]]
+line = "frobnicate -auto-approve -x"
+expect = ["-auto-approve", "huh does not know", "kept it whole"]
+absent = ["-a  ", "-u  ", "-t  "]
+
+[[case]]
+line = "mysql -u root -p\"hunter2\" -e \"select 1\""
+expect = ["-p\"hunter2\"", "password is `hunter2`", "Run this SQL, then exit: select 1"]
+absent = ["-h  ", "-n  ", "-t  ", "-r  "]
+warn = ["-p\"hunter2\"", "shell history", "process list"]
+no_warn = ["straight away"]
+
+[[case]]
+line = "curl -H \"Authorization: Bearer abc123\" https://api.example.com/v1/me"
+warn = ["Authorization: Bearer", "shell history"]
+
+[[case]]
+line = "PGPASSWORD=s3cret psql -h db -U app"
+warn = ["PGPASSWORD", "shell history"]
+
+[[case]]
+line = "AWS_SECRET_ACCESS_KEY=abc aws s3 ls"
+warn = ["AWS_SECRET_ACCESS_KEY", "shell history"]
+
+[[case]]
+line = "tool --password=hunter2 --token abc"
+warn = ["--password=hunter2", "--token"]
+
+[[case]]
+line = "curl -H \"Authorization: Bearer $TOKEN\" https://x.example"
+warn = ["process list"]
+
+[[case]]
+line = "curl https://example.com/?page=2"
+no_warn = ["shell history"]
+
+[[case]]
+line = "kubectl delete pods --all -n prod"
+expect = ["DELETE resources", "every resource of the kind"]
+warn = ["removes cluster resources", "EVERY resource"]
+
+[[case]]
+line = "kubectl get pods -A"
+no_warn = ["changes the live cluster", "removes"]
+
+[[case]]
+line = "kubectl apply -f deploy.yaml"
+warn = ["changes the live cluster"]
+
+[[case]]
+line = "helm upgrade --install web ./chart -n prod"
+expect = ["change an existing release"]
+warn = ["real resources"]
+
+[[case]]
+line = "gh pr merge 12 --admin --squash"
+expect = ["Merge a pull request", "branch protection"]
+warn = ["--admin", "bypassing the branch protection"]
+
+[[case]]
+line = "uv pip install requests && poetry add flask"
+warn = ["setup code"]
+
+[[case]]
+line = "git push origin +main"
+warn = ["+main", "force push"]
+
+[[case]]
+line = "git push --mirror backup"
+warn = ["--mirror", "exact copy"]
+
+[[case]]
+line = "git push origin --delete old-branch"
+warn = ["--delete", "deletes a branch or tag on the remote"]
+
+[[case]]
+line = "git push origin :old-branch"
+warn = [":old-branch", "deletes that branch"]
+
+[[case]]
+line = "git push origin main"
+no_warn = ["force", "deletes", "mirror"]
+
+[[case]]
+line = "echo 'export PATH=$PATH:/x' >> ~/.bashrc"
+warn = [">> ~/.bashrc", "shell startup file", "every time a new shell starts"]
+
+[[case]]
+line = "echo 'alias x=y' | tee -a ~/.zshrc"
+warn = ["shell startup file ~/.zshrc"]
+
+[[case]]
+line = "sed -i 's/a/b/' ~/.profile"
+warn = ["shell startup file ~/.profile"]
+
+[[case]]
+line = "echo 'set -g x' > ~/.config/fish/config.fish"
+warn = ["shell startup file"]
+
+[[case]]
+line = "echo 'nameserver 1.1.1.1' | sudo tee -a /etc/resolv.conf"
+warn = ["system file /etc/resolv.conf", "adds to"]
+
+[[case]]
+line = "sudo sed -i 's/yes/no/' /etc/ssh/sshd_config"
+warn = ["system file /etc/ssh/sshd_config"]
+
+[[case]]
+line = "git config core.hooksPath /tmp/hooks"
+warn = ["core.hooksPath", "run automatically"]
+
+[[case]]
+line = "cp evil.sh .git/hooks/pre-commit"
+warn = ["git hooks folder"]
+
+[[case]]
+line = "echo 'x' > .git/hooks/post-merge"
+warn = ["git hooks folder", "run automatically"]
+
+[[case]]
+line = "(crontab -l; echo '* * * * * /tmp/x') | crontab -"
+warn = ["replaces your WHOLE list of scheduled jobs", "what is piped in"]
+
+[[case]]
+line = "crontab jobs.txt"
+warn = ["the file jobs.txt"]
+
+[[case]]
+line = "crontab -l"
+no_warn = ["WHOLE"]
+
+[[case]]
+line = "sudo systemctl enable --now sshd"
+warn = ["every boot", "right now"]
+
+[[case]]
+line = "trap 'rm -rf \"$TMP\"' EXIT"
+expect = ["runs it later", "exits", "Delete files and folders for good", "later, when the script or shell exits"]
+warn = ["rm"]
+
+[[case]]
+line = "trap - EXIT"
+expect = ["removes the handler"]
+
+[[case]]
+line = "while read l; do echo $l; done < /etc/passwd"
+render = ["This line does 1 thing"]
+expect = ["reads input from the file `/etc/passwd`", "applies to the whole construct"]
+absent = ["does nothing but redirect", "2 things"]
+
+[[case]]
+line = "set -e\ncd /tmp\nls -l"
+render = ["This script does 3 things, in this order:"]
+render_absent = ["This line does"]
+
+[[case]]
+line = "sudo ufw --force enable"
+expect = ["Do not ask for confirmation"]
+absent = ["no description"]
+warn = ["lock you out", "ssh is already allowed"]
+
+[[case]]
+line = "sudo iptables -P INPUT ACCEPT"
+warn = ["INPUT to ACCEPT", "opens the firewall"]
+
+[[case]]
+line = "sudo iptables -F"
+warn = ["flushes", "every firewall rule"]
+
+[[case]]
+line = "sudo su -"
+expect = ["login shell", "not a user name"]
+absent = ["The user name"]
+warn = ["login shell"]
+
+[[case]]
+line = "sudo -i"
+warn = ["opens a login shell", "every command typed into it"]
+
+[[case]]
+line = "sudo -s"
+warn = ["opens a shell"]
+
+[[case]]
+line = "ln -sf /opt/app/current /usr/local/bin/app"
+expect = ["Replace an existing link or file"]
+warn = ["replaces an existing file or link named `/usr/local/bin/app`"]
+
+[[case]]
+line = "xargs rm -rf < list.txt"
+expect = ["items read from `list.txt`"]
+absent = ["the earlier command"]
+warn = ["the lines of `list.txt`"]
+no_warn = ["earlier command"]
+
+[[case]]
+line = "ls | xargs rm -rf"
+warn = ["whatever the earlier command prints"]
+
+[[case]]
+line = "ls *.bak | xargs -I{} mv {} /tmp/old/"
+expect = ["replaces {}"]
+absent = ["added to the end"]
+
+[[case]]
+line = "python3 -c \"import os; os.system('id')\""
+warn = ["can run shell commands", "os.system"]
+
+[[case]]
+line = "perl -e 'system(\"ls\")'"
+warn = ["can run shell commands"]
+
+[[case]]
+line = "node -e \"require('child_process').execSync('id')\""
+warn = ["can run shell commands", "child_process"]
+
+[[case]]
+line = "python3 -c \"print(1)\""
+no_warn = ["shell commands"]
+
+[[case]]
+line = "git clone --depth 1 https://example.com/a.git"
+expect = ["latest commit, with no earlier history"]
+absent = ["1 commits"]
+
+[[case]]
+line = "sed -i.bak 's/a/b/' f.txt"
+expect = ["-i.bak"]
+warn = ["suffix `.bak`"]
+no_warn = ["suffix ` .bak`"]
+
+[[case]]
+line = "scp -r ./x user@host:/tmp/"
+expect = ["The place to copy it to (the part before the colon"]
+absent = ["(HOST:PATH is a remote place) ("]
+
+[[case]]
+line = "sudo apt update && sudo apt upgrade -y && sudo apt autoremove"
+warn = ["`apt update` and `apt upgrade -y` and `apt autoremove`"]
+
+[[case]]
+line = "cargo test --release"
+no_warn = ["Rust compile", "target/"]
+
+[[case]]
+line = "make -j8"
+no_warn = ["starts a build", "Makefile"]
+
+[[case]]
+line = "sudo make install"
+warn = ["install", "system folders"]
+
+[[case]]
+line = "docker build -t app ."
+warn = ["building an image"]
+
+[[case]]
+line = "cmake --build . --target install"
+warn = ["also installs"]
+
+[[case]]
+line = "cmake --build ."
+no_warn = ["install", "build"]
+
+[[case]]
+line = "npm install"
+warn = ["install scripts"]
+
+[[case]]
+line = "pip install requests"
+warn = ["setup code"]

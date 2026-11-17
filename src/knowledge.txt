@@ -135,7 +135,8 @@ pos: a file or folder to move...
 
 @ln | Make links between files
 -s, --symbolic | make a symbolic link (a shortcut) instead of a hard link
--f, --force | replace an existing link or file
+-f, --force | replace an existing link or file of that name
+-n, --no-dereference | treat an existing link to a folder as a plain name
 pos: the thing to point to ; the name of the new link
 
 @chmod | Change who may read, write or run a file
@@ -421,7 +422,7 @@ pos: the computer to connect to (USER@HOST) ; >>remote
 -C | compress the traffic
 -o OPTION | set the ssh option OPTION
 -J HOST | go through the jump host HOST
-pos: the file to copy (a remote one is written HOST:PATH) ; the file or place to copy it to (HOST:PATH is a remote place)...
+pos: the file to copy ; the place to copy it to...
 
 @rsync | Synchronise folders, locally or over ssh
 -a, --archive | copy recursively and keep permissions, dates, links and owners
@@ -506,7 +507,7 @@ pos: what to do (start, stop, restart, status, enable, disable, ...) ; the unit 
 =restart | stop the unit and start it again
 =reload | ask the unit to re-read its configuration without stopping
 =status | show whether the unit is running, with its latest log lines
-=enable | start the unit automatically at boot
+=enable | start the unit automatically at boot (and with --now, also right away)
 =disable | stop starting the unit automatically at boot
 =mask | block the unit from being started at all
 =daemon-reload | re-read all unit files (needed after editing one)
@@ -744,6 +745,11 @@ pos: the crate to add...
 -q, --quiet | quiet
 -i, --index-url URL | use the package index URL
 pos: what to do (install, uninstall, list, ...) ; the package...
+=install | install packages (this can run each package's own setup code)
+=uninstall | remove packages
+=list | list installed packages
+=freeze | print installed packages with exact versions
+=show | show details of one installed package
 
 @pip install | Install Python packages (runs their install code)
 pos: the package to install (or a file or folder with one)...
@@ -959,7 +965,9 @@ pos: ...
 --force-with-lease | overwrite the remote branch only if nobody else has pushed since you last looked
 -u, --set-upstream | remember this remote branch as the default for this branch
 --tags | also push all tags
---delete | DELETE the named branch or tag on the remote
+--delete, -d | DELETE the named branch or tag on the remote
+--mirror | make the remote an exact copy of this repository, deleting what it has extra
+--all | push every branch
 -n, --dry-run | only show what would be pushed
 --no-verify | skip the pre-push hook
 pos: the remote (usually origin) ; the branch or refspec to push...
@@ -980,7 +988,7 @@ pos: the remote (usually origin) ; the branch to pull...
 pos: the remote (usually origin) ; the branch to fetch...
 
 @git clone | Copy a repository from elsewhere
---depth N | only download the last N commits
+--depth N | only download the latest N commits of history
 -b, --branch NAME | check out the branch NAME
 --recursive, --recurse-submodules | also clone submodules
 --single-branch | only fetch one branch
@@ -1326,10 +1334,351 @@ pos: what to do (up, down, ps, logs, build, ...)
 
 @kubectl | Control a Kubernetes cluster
 -n, --namespace NS | use the namespace NS
+-A, --all-namespaces | look at every namespace
 -f, --filename FILE | the manifest file FILE
---context NAME | use the cluster context NAME
 -o, --output FORMAT | output format
+-l, --selector SELECTOR | only the resources whose labels match SELECTOR
+-c, --container NAME | the container NAME inside the pod
+-i, --stdin | keep standard input open
+-t, --tty | allocate a terminal
+-w, --watch | keep watching for changes
+--all | every resource of the kind named (not just one)
+--context NAME | use the cluster context NAME
+--kubeconfig FILE | use the cluster login file FILE
+--force | delete or replace immediately, without waiting
+--dry-run [MODE] | only show what would happen (client or server)
+--follow | keep printing new log lines
 pos: what to do (get, apply, delete, ...) ; the resource...
+=get | list resources
+=describe | show the details and recent events of a resource
+=apply | create or change resources to match a manifest file
+=delete | DELETE resources from the cluster
+=rollout | manage a deployment rollout (status, restart, undo)
+=exec | run a command inside a running pod
+=logs | print the log of a pod
+=create | create a resource
+=scale | change the number of replicas
+=port-forward | forward a local port to a pod
+=config | read or change kubectl's cluster logins
+=drain | evict all pods from a node
+=top | show CPU and memory use
+
+@helm | The Kubernetes package manager (charts)
+-n, --namespace NS | use the namespace NS
+-f, --values FILE | take chart values from FILE
+--set KEY=VALUE | set one chart value
+--version VERSION | use this chart version
+--wait | wait until everything is ready
+--atomic | undo the change if it does not succeed
+--create-namespace | create the namespace if missing
+-i, --install | with upgrade: install the release if it does not exist yet
+--dry-run | only show what would be installed
+pos: what to do (install, upgrade, uninstall, ...) ; the release name ; the chart
+=install | install a chart as a new release on the cluster
+=upgrade | change an existing release (with --install, create it if missing)
+=uninstall | remove a release and the resources it created
+=list | list releases
+=repo | manage chart repositories
+=template | print the generated manifests without installing
+=rollback | go back to an earlier revision of a release
+=status | show the state of a release
+
+@terraform | Plan and change cloud infrastructure from configuration files
+!single
+-auto-approve | do NOT ask for confirmation: changes real infrastructure straight away
+-var KEY=VALUE | set the variable KEY
+-var-file FILE | read variables from FILE
+-target RESOURCE | only change RESOURCE
+-chdir DIR | run in the folder DIR
+-lock BOOL | whether to lock the state while working
+-refresh BOOL | whether to refresh the state first
+-input BOOL | whether to ask for missing input
+-parallelism N | how many changes to run at once
+-out FILE | save the plan to FILE
+-destroy | plan the removal of everything
+pos: what to do (init, plan, apply, destroy, ...) ; ...
+=init | download providers and prepare the folder
+=plan | show what would change, without changing anything
+=apply | create, change or delete real infrastructure to match the files
+=destroy | DELETE all the infrastructure these files manage
+=validate | check the configuration for mistakes
+=fmt | format the configuration files
+=output | print the output values
+=state | inspect or change the state file
+=import | bring an existing resource under terraform's control
+=workspace | manage separate states
+=show | show the state or a saved plan
+
+@go | Build, test and manage Go programs
+!single
+-race | check for data races while running
+-count N | run each test N times (1 also turns off result caching)
+-v | print each test as it runs
+-run REGEX | only run tests matching REGEX
+-o FILE | write the program to FILE
+-tags LIST | build with these build tags
+-ldflags FLAGS | pass FLAGS to the linker
+-u | update the dependencies
+-timeout DURATION | stop tests that run longer than DURATION
+-cover | measure test coverage
+-json | print results as JSON
+pos: what to do (build, test, run, ...) ; the packages or files...
+=build | compile the packages
+=test | compile and run tests
+=run | compile and run a program right away
+=install | compile and install into the Go bin folder
+=get | download and add a dependency
+=mod | manage the module and its dependencies
+=vet | look for suspicious code
+=fmt | format the source files
+=generate | run code generators written in the source
+=clean | delete build files
+=tool | run a Go tool
+
+@gh | GitHub from the command line
+-R, --repo REPO | the repository OWNER/NAME
+pos: what to do (pr, issue, repo, ...) ; ...
+
+@gh pr | Work with pull requests
+pos: what to do (create, list, merge, ...) ; ...
+
+@gh pr merge | Merge a pull request
+--admin | merge even if the branch protection rules (checks, reviews) are not met
+--squash, -s | squash its commits into one
+--merge, -m | create a merge commit
+--rebase, -r | rebase its commits onto the base branch
+--auto | merge when the requirements are met
+-d, --delete-branch | delete the branch afterwards
+pos: the pull request number, URL or branch
+
+@gh pr create | Open a pull request
+-t, --title TITLE | the pull request title
+-b, --body BODY | the pull request description
+-B, --base BRANCH | the branch to merge into
+-d, --draft | open it as a draft
+-f, --fill | fill the title and body from the commits
+pos: ...
+
+@gh pr list | List pull requests
+pos: ...
+
+@gh repo | Work with repositories
+pos: what to do (clone, create, delete, ...) ; ...
+
+@gh issue | Work with issues
+pos: what to do (create, list, close, ...) ; ...
+
+@gh api | Call the GitHub API directly
+-X, --method METHOD | the HTTP method
+-f, --raw-field KEY=VALUE | add a text field to the request
+-F, --field KEY=VALUE | add a typed field to the request
+pos: the API path
+
+@uv | A fast Python package and project manager
+pos: what to do (pip, run, sync, add, ...) ; ...
+=pip | pip-compatible package commands (install, uninstall, ...)
+=run | run a command or script in the project's environment
+=sync | make the environment match the lock file
+=add | add a dependency to the project
+=remove | remove a dependency from the project
+=venv | create a virtual environment
+=lock | write the lock file
+=tool | run or install Python command line tools
+=python | manage Python versions
+
+@poetry | Python project and dependency manager
+pos: what to do (install, add, run, ...) ; ...
+=install | install the dependencies of the project
+=add | add a dependency to the project
+=remove | remove a dependency
+=run | run a command in the project's environment
+=build | build the package
+=publish | upload the package to a registry
+=update | update the dependencies
+=lock | write the lock file
+=shell | start a shell inside the environment
+
+@dpkg | The low-level Debian package tool (works on .deb files)
+-i, --install | install a package file (runs the package's own scripts as root)
+-r, --remove | remove packages (keeps their settings)
+-P, --purge | remove packages and their settings
+-l, --list | list installed packages
+-L, --listfiles | list the files a package installed
+-s, --status | show a package's status
+-S, --search PATTERN | find which package a file belongs to
+-x, --extract | unpack a .deb into a folder without installing it
+-c, --contents | list the files inside a .deb
+--configure | finish setting up an unpacked package
+--force-depends | ignore broken dependencies
+--force-all | ignore every problem and carry on
+pos: the package file or name...
+
+@rpm | The low-level RPM package tool (Fedora, RHEL, SUSE)
+-i, --install | install a package file (runs the package's own scripts as root)
+-U, --upgrade | install a package file, replacing an older version
+-F, --freshen | upgrade only packages that are already installed
+-e, --erase | remove the package
+-q, --query | look at installed packages
+-f, --file FILE | the package that owns FILE
+-a, --all | every installed package
+-l, --list | list the files of the package
+-p, --package | look at a package file instead of an installed package
+-V, --verify | check an installed package against its original files
+-v, --verbose | more output
+-h, --hash | print progress marks
+--nodeps | ignore broken dependencies
+--force | install even if it replaces files or packages
+--import FILE | trust the signing key FILE
+pos: the package file or name...
+
+@apk | The Alpine Linux package manager
+-U, --update-cache | refresh the package list first
+-W, --who-owns FILE | find which package owns FILE
+--no-cache | do not keep a package cache
+pos: what to do (add, del, update, upgrade, info, ...) ; the package...
+=add | install packages
+=del | remove packages
+=update | refresh the list of available packages
+=upgrade | upgrade installed packages
+=info | show package information
+=search | search for packages
+
+@zypper | The openSUSE package manager
+-y, --non-interactive | answer yes to every question
+pos: what to do (install, remove, refresh, update, ...) ; the package...
+=install | install the packages named
+=in | install the packages named
+=remove | uninstall the packages named
+=rm | uninstall the packages named
+=refresh | refresh the package lists
+=update | update installed packages
+=dist-upgrade | move to a newer distribution release
+=search | search for packages
+
+@xbps-install | The Void Linux package installer
+-S, --sync | refresh the package list
+-u, --update | upgrade installed packages
+-y, --yes | answer yes to every question
+pos: the package...
+
+@xbps-remove | Remove Void Linux packages
+-R, --recursive | also remove packages nothing else needs
+-o, --remove-orphans | remove packages nothing needs
+-y, --yes | answer yes to every question
+pos: the package...
+
+@xbps-query | Look at Void Linux packages
+-s, --search | search installed and available packages
+-f, --files | list a package's files
+pos: the package...
+
+@emerge | The Gentoo package manager
+-a, --ask | show what would happen and ask first
+-v, --verbose | more output
+-u, --update | upgrade to the newest version
+-C, --unmerge | remove the packages
+-c, --depclean | remove packages nothing needs
+-s, --search | search for packages
+-p, --pretend | only show what would happen
+pos: the package...
+
+@nix | The Nix package manager
+pos: what to do (run, shell, develop, build, ...) ; ...
+=run | build and run a program from a flake
+=shell | start a shell with the packages available
+=develop | start a development shell from a flake
+=build | build a package
+=profile | manage the packages installed for your user
+=flake | work with flake files
+=store | work with the store of built packages
+=search | search for packages
+=repl | start an interactive session
+
+@nix-env | Install and remove Nix packages for your user
+-i, --install | install packages
+-e, --uninstall | remove packages
+-u, --upgrade | upgrade packages
+-q, --query | list packages
+-A, --attr | select packages by attribute name
+pos: the package...
+
+@mysql | The MySQL command line client
+-u, --user USER | log in as USER
+-p, --password [PASSWORD] | the password (written right after -p with no space; leave it out to be asked)
+-h, --host HOST | connect to the server HOST
+-P, --port PORT | connect to the port PORT
+-D, --database DB | use the database DB
+-e, --execute SQL | run SQL, print the result, then exit
+-N, --skip-column-names | do not print column names
+-B, --batch | tab-separated output
+pos: the database...
+
+@mariadb | The MariaDB command line client
+-u, --user USER | log in as USER
+-p, --password [PASSWORD] | the password (written right after -p with no space; leave it out to be asked)
+-h, --host HOST | connect to the server HOST
+-P, --port PORT | connect to the port PORT
+-D, --database DB | use the database DB
+-e, --execute SQL | run SQL, print the result, then exit
+pos: the database...
+
+@psql | The PostgreSQL command line client
+-U, --username USER | log in as USER
+-h, --host HOST | connect to the server HOST
+-p, --port PORT | connect to the port PORT
+-d, --dbname DB | use the database DB
+-c, --command SQL | run this SQL (or backslash command), then exit
+-f, --file FILE | run the SQL in FILE
+-W, --password | ask for a password
+-w, --no-password | never ask for a password
+-t, --tuples-only | print only the rows
+-A, --no-align | plain, unaligned output
+pos: the database ; the user
+
+@sqlite3 | The SQLite command line client
+-cmd COMMAND | run COMMAND before reading anything else
+-readonly | open the database read-only
+-header | print column names
+-csv | CSV output
+!single
+pos: the database file ; the SQL to run...
+
+@java | Run a Java program
+!single
+-jar FILE | run the program packaged in the jar FILE
+-cp, -classpath CLASSPATH | where to look for Java classes
+-version | print the Java version
+-Xmx SIZE | the largest memory size
+pos: the class or program to run ; an argument for it...
+
+@perl | Run a Perl program
+-e CODE | run the Perl code CODE
+-i [SUFFIX] | edit the files in place
+-p | run the code on every line and print each line
+-n | run the code on every line
+-l | add line endings to printed output
+-w | turn on warnings
+pos: the script to run ; an argument for the script...
+
+@ruby | Run a Ruby program
+-e CODE | run the Ruby code CODE
+pos: the script to run ; an argument for the script...
+
+@iptables | Set up the Linux firewall (packet filter)
+-P, --policy CHAIN | set the default action (ACCEPT or DROP, written next) for CHAIN
+-F, --flush [CHAIN] | delete all rules (of the chain)
+-X, --delete-chain [CHAIN] | delete user-made chains
+-A, --append CHAIN | add a rule to the end of the chain
+-I, --insert CHAIN | add a rule to the start of the chain
+-D, --delete CHAIN | delete a rule from the chain
+-L, --list [CHAIN] | list the rules
+-t, --table TABLE | the table (filter, nat, ...)
+-j, --jump TARGET | what to do with a matching packet (ACCEPT, DROP, ...)
+-p, --protocol PROTO | match this protocol
+--dport PORT | match this destination port
+-s, --source ADDR | match this source address
+-n, --numeric | show addresses as numbers
+pos: ...
 
 @xdg-open | Open a file or URL with the default app
 pos: the file or URL
@@ -1359,7 +1708,8 @@ pos: the output file
 -l | list the scheduled jobs
 -e | edit the scheduled jobs
 -r | DELETE all your scheduled jobs
-pos: ...
+-u USER | work on the jobs of USER
+pos: a file holding the new list of jobs, or - to read it from standard input
 
 @reboot | Restart the computer
 @poweroff | Shut the computer down
@@ -1385,7 +1735,15 @@ pos: the user name
 pos: the user name
 
 @ufw | Manage the firewall
+--force | do not ask for confirmation
+--dry-run | only show what would change
 pos: what to do (enable, disable, allow, deny, status, ...) ; the rule...
+=enable | turn the firewall on (and keep it on at every boot)
+=disable | turn the firewall off
+=reset | delete all rules and turn the firewall off
+=allow | let matching traffic in
+=deny | block matching traffic
+=status | show the firewall state and rules
 
 @modprobe | Load or remove kernel modules
 -r, --remove | remove the module
@@ -1454,5 +1812,6 @@ pos: the text to repeat
 @groups | Show your groups
 @su | Switch to another user
 -c COMMAND | run COMMAND as that user
--l, -, --login | start a login shell
+-l, --login | start a login shell (a fresh environment, like logging in)
+-s, --shell SHELL | run SHELL instead of the user's default
 pos: the user name

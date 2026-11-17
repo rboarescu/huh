@@ -65,6 +65,8 @@ pub struct Explanation {
     pub blocks: Vec<Block>,
     pub warnings: Vec<Warning>,
     pub notes: Vec<String>,
+    /// The input had more than one line, so it is a script rather than a single line.
+    pub multiline: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -99,7 +101,8 @@ pub fn explain_line(catalog: &[Command], text: &str, opts: Options) -> Explanati
     let steps = make_steps(&blocks);
     let mut notes = parsed.notes;
     notes.append(&mut engine.notes);
-    Explanation { steps, blocks, warnings: std::mem::take(&mut engine.warnings), notes }
+    let multiline = text.trim().lines().count() > 1;
+    Explanation { steps, blocks, warnings: std::mem::take(&mut engine.warnings), notes, multiline }
 }
 
 /// Starts every sentence with a capital letter.
@@ -178,7 +181,7 @@ fn scan_cmd(cmd: &Cmd, set: &mut HashSet<String>) {
             scan_assignments(cond, set);
             scan_assignments(body, set);
         }
-        Cmd::If { branches, otherwise } => {
+        Cmd::If { branches, otherwise, .. } => {
             for (c, b) in branches {
                 scan_assignments(c, set);
                 scan_assignments(b, set);
@@ -303,6 +306,35 @@ impl<'a> Engine<'a> {
         }
     }
 
+    /// Adds a warning unless it is already there. Several `sudo` warnings that grant the same
+    /// rights are merged into one that names every command.
+    fn push_warning(&mut self, w: Warning) {
+        if self.warnings.contains(&w) {
+            return;
+        }
+        if matches!(w.part.as_str(), "sudo" | "doas")
+            && w.text.starts_with("runs `")
+            && let Some(cut) = w.text.rfind('`')
+        {
+            let (head, tail) = w.text.split_at(cut + 1);
+            for e in &mut self.warnings {
+                if e.part == w.part
+                    && e.text.starts_with("runs `")
+                    && let Some(ecut) = e.text.rfind('`')
+                    && e.text[ecut + 1..] == *tail
+                {
+                    let added = head.strip_prefix("runs ").unwrap_or(head);
+                    if !e.text[..=ecut].contains(added) {
+                        e.text = format!("{} and {added}{tail}", &e.text[..=ecut]);
+                        e.context = String::new();
+                    }
+                    return;
+                }
+            }
+        }
+        self.warnings.push(w);
+    }
+
     fn note(&mut self, text: String) {
         if !self.notes.contains(&text) {
             self.notes.push(text);
@@ -310,7 +342,7 @@ impl<'a> Engine<'a> {
     }
 
     fn man_page(&mut self, name: &str) -> Option<Rc<ManPage>> {
-        if !self.opts.man {
+        if !self.opts.man || !manpage::safe_page_name(name) {
             return None;
         }
         if let Some(hit) = self.man.get(name) {
@@ -335,6 +367,9 @@ impl<'a> Engine<'a> {
     }
 
     fn installed(&mut self, name: &str) -> bool {
+        if !manpage::safe_page_name(name) {
+            return false;
+        }
         if let Some(hit) = self.which.get(name) {
             return hit.is_some();
         }
@@ -448,7 +483,7 @@ impl<'a> Engine<'a> {
                 self.redir_rows(redirs, env, &mut b, "{ ...; }");
                 b
             }
-            Cmd::For { var, words, body, raw_head } => {
+            Cmd::For { var, words, body, raw_head, redirs } => {
                 let mut b = compound(raw_head, "a loop");
                 let what = match words {
                     None => "each argument given to the script".to_string(),
@@ -483,9 +518,10 @@ impl<'a> Engine<'a> {
                 }
                 let inner = self.explain_script(body, env);
                 b.inner.push(Inner { label: "each time round, it runs:".into(), blocks: inner });
+                self.compound_redirs(redirs, env, &mut b, "loop");
                 b
             }
-            Cmd::While { until, cond, body, raw_head } => {
+            Cmd::While { until, cond, body, raw_head, redirs } => {
                 let mut b = compound(raw_head, "a loop");
                 b.headline = format!(
                     "loop: repeats the commands inside {} the condition {}",
@@ -504,9 +540,10 @@ impl<'a> Engine<'a> {
                 b.inner.push(Inner { label: "the condition:".into(), blocks: c });
                 let inner = self.explain_script(body, env);
                 b.inner.push(Inner { label: "each time round, it runs:".into(), blocks: inner });
+                self.compound_redirs(redirs, env, &mut b, "loop");
                 b
             }
-            Cmd::If { branches, otherwise } => {
+            Cmd::If { branches, otherwise, redirs } => {
                 let mut b = compound("if ...; then ...; fi", "a condition");
                 let first_test = branches.first().and_then(|(c, _)| {
                     self.explain_script(c, env)
@@ -537,9 +574,10 @@ impl<'a> Engine<'a> {
                     let e = self.explain_script(o, env);
                     b.inner.push(Inner { label: "when nothing matched (else):".into(), blocks: e });
                 }
+                self.compound_redirs(redirs, env, &mut b, "if ... fi");
                 b
             }
-            Cmd::Case { subject, arms } => {
+            Cmd::Case { subject, arms, redirs } => {
                 let mut b = compound("case ... esac", "a choice");
                 b.headline =
                     format!("choice: runs different commands depending on what {} matches", shorten(&subject.raw, 30));
@@ -554,6 +592,7 @@ impl<'a> Engine<'a> {
                     let blocks = self.explain_script(&arm.body, env);
                     b.inner.push(Inner { label: format!("if it matches {}:", arm.patterns.join(" or ")), blocks });
                 }
+                self.compound_redirs(redirs, env, &mut b, "case ... esac");
                 b
             }
             Cmd::Func { name, body } => {
@@ -654,6 +693,15 @@ impl<'a> Engine<'a> {
         if notes.is_empty() { meaning } else { format!("{meaning} ({})", notes.join("; ")) }
     }
 
+    /// Redirections after `done`, `fi` or `esac` belong to the whole construct.
+    fn compound_redirs(&mut self, redirs: &[Redir], env: &Env, out: &mut CmdBlock, context: &str) {
+        let before = out.rows.len();
+        self.redir_rows(redirs, env, out, context);
+        for r in &mut out.rows[before..] {
+            r.meaning.push_str(" (applies to the whole construct, not to one command inside it)");
+        }
+    }
+
     fn redir_rows(&mut self, redirs: &[Redir], env: &Env, out: &mut CmdBlock, context: &str) {
         for r in redirs {
             let target = r.target.text.as_str();
@@ -745,6 +793,13 @@ impl<'a> Engine<'a> {
                 piece: shorten(&format!("{name}={}", value.raw), 50),
                 meaning: self.decorate(meaning, value),
             });
+            if let Some(text) = risk::secret_assignment(name, &value.text) {
+                self.push_warning(Warning {
+                    part: shorten(&format!("{name}=..."), 50),
+                    context: shorten(&s.raw, 90),
+                    text,
+                });
+            }
             self.sub_inners(value, env, &mut out);
         }
         if s.words.is_empty() {
@@ -820,6 +875,13 @@ impl<'a> Engine<'a> {
             root: env.root,
             remote: env.remote.clone(),
             piped_in: env.piped_in,
+            stdin_from: s
+                .redirs
+                .iter()
+                .find(|r| matches!(r.op.as_str(), "<" | "<<<") && r.fd.as_deref().is_none_or(|f| f == "0"))
+                .map(|r| {
+                    if r.op == "<" { format!("`{}`", r.target.text) } else { "the text given on the line".to_string() }
+                }),
             ..Inv::default()
         };
         let mut st = State {
@@ -898,9 +960,7 @@ impl<'a> Engine<'a> {
         let mut found = Vec::new();
         risk::check(&inv, &assigned, &mut found);
         for w in found {
-            if !self.warnings.contains(&w) {
-                self.warnings.push(w);
-            }
+            self.push_warning(w);
         }
 
         // Headline.
@@ -914,7 +974,10 @@ impl<'a> Engine<'a> {
             display.push_str(e);
         }
         out.headline = match (&inner_headline, key.as_str()) {
-            (Some((h, _)), "sudo" | "doas") => format!("as administrator: {h}"),
+            (Some((h, _)), "sudo" | "doas") => match inv.value(&["-u", "--user"]) {
+                Some(u) if u != "root" => format!("as the user {u}: {h}"),
+                _ => format!("as administrator: {h}"),
+            },
             (
                 Some((h, _)),
                 "env" | "nohup" | "time" | "nice" | "ionice" | "setsid" | "stdbuf" | "command" | "exec" | "builtin"
@@ -1016,6 +1079,16 @@ impl<'a> Engine<'a> {
                 out.rows.push(Row { piece: w.raw.clone(), meaning: meaning.into() });
                 i += 1;
                 continue;
+            }
+            if matches!(st.key.as_str(), "env" | "export") && is_assignment(&w.raw) {
+                let (name, value) = w.text.split_once('=').unwrap_or((&w.text, ""));
+                if let Some(text) = risk::secret_assignment(name, value) {
+                    self.push_warning(Warning {
+                        part: shorten(&format!("{name}=..."), 50),
+                        context: shorten(&out.raw, 90),
+                        text,
+                    });
+                }
             }
             if st.key == "env" && is_assignment(&w.raw) {
                 out.rows.push(Row {
@@ -1203,11 +1276,38 @@ impl<'a> Engine<'a> {
         if self.lookup(st, &t).is_some() {
             return self.apply_flag(st, words, i, &t, None, None, env, out, inv);
         }
-        if single {
-            return self.apply_flag(st, words, i, &t, None, None, env, out, inv);
-        }
         let body = t[1..].to_string();
+        if single || !self.can_split(st, &body) {
+            // Single-dash long options (`-auto-approve`, `-race`, `-jar`): keep the token whole.
+            let (flag, attached) = match t.split_once('=') {
+                Some((f, v)) => (f.to_string(), Some(v.to_string())),
+                None => (t.clone(), None),
+            };
+            return self.apply_flag(st, words, i, &flag, attached, None, env, out, inv);
+        }
         self.explain_bundle(st, words, i, &body, false, env, out, inv)
+    }
+
+    /// May `-abc` be read as the separate short options -a -b -c? Only when the program is in
+    /// the curated table as a getopt-style program, or when every letter is a known short
+    /// option of it (curated, catalog or man page). Otherwise the token is kept whole.
+    fn can_split(&mut self, st: &State, body: &str) -> bool {
+        if body.chars().count() <= 1 {
+            return true;
+        }
+        let kn = Knowledge::get();
+        if kn.section(std::slice::from_ref(&st.key)).is_some() {
+            return true;
+        }
+        let letters: Vec<char> = body.chars().collect();
+        // An attached value (`-p"secret"`, `-j4`) is fine once its first letter is known and takes one.
+        let first = format!("-{}", letters[0]);
+        if let Some(f) = self.lookup(st, &first)
+            && !matches!(f.arg, ArgKind::None)
+        {
+            return true;
+        }
+        letters.iter().all(|c| c.is_ascii_alphanumeric() && self.lookup(st, &format!("-{c}")).is_some())
     }
 
     /// Splits `-xzvf` into single options (or `xzvf` for old-style tar).
@@ -1303,7 +1403,11 @@ impl<'a> Engine<'a> {
         let mut consumed = 1;
         let mut value: Option<String> = attached.clone();
         let mut value_word: Option<&Word> = None;
-        let requires = matches!(found.as_ref().map(|f| &f.arg), Some(ArgKind::Required(_)));
+        let requires = matches!(found.as_ref().map(|f| &f.arg), Some(ArgKind::Required(_)))
+            || (found.is_none()
+                && risk::SECRET_OPTIONS.contains(&flag)
+                && !flag.contains('=')
+                && words.get(i + 1).is_some_and(|n| !n.text.starts_with('-')));
         if requires && value.is_none() && i + 1 < words.len() && !st.only_pos {
             let next = &words[i + 1];
             value = Some(next.text.clone());
@@ -1312,6 +1416,14 @@ impl<'a> Engine<'a> {
         }
         let piece = match (&attached, value_word) {
             (_, Some(vw)) => format!("{display_flag} {}", shorten(&vw.raw, 50)),
+            (Some(_), None)
+                if bundled
+                    && w.raw.starts_with(display_flag)
+                    && (w.raw.contains(['"', '\''])
+                        || matches!(found.as_ref().map(|f| &f.arg), Some(ArgKind::Optional(_)))) =>
+            {
+                shorten(&w.raw, 60)
+            }
             (Some(a), None) if bundled => format!("{display_flag} {}", shorten(a, 50)),
             _ if bundled => display_flag.to_string(),
             _ => shorten(&w.raw, 60),
@@ -1333,8 +1445,15 @@ impl<'a> Engine<'a> {
                 meaning = if man_exists {
                     format!("an option of `{}` that is neither in huh's notes nor in its man page", st.path.join(" "))
                 } else {
-                    format!("an option of `{}` that huh has no description for", st.path.join(" "))
+                    format!("an option of `{}` that huh does not know", st.path.join(" "))
                 };
+                if words[i].raw.contains(['"', '\'']) && flag.starts_with('-') && !flag.starts_with("--") {
+                    meaning.push_str(" (kept whole, quotes included, so its value is not torn into separate letters)");
+                } else if flag.starts_with('-') && !flag.starts_with("--") && flag.chars().count() > 2 {
+                    meaning.push_str(
+                        " (written with one dash but longer than one letter, so huh kept it whole instead of reading it as several short options)",
+                    );
+                }
             }
         }
         inv.flags.push(flag.to_string());
@@ -1372,6 +1491,26 @@ impl<'a> Engine<'a> {
             ("docker", "-v" | "--volume") => decode::volume_spec(value).map(|t| (false, t)),
             ("kill" | "killall" | "pkill", "-s" | "--signal") => {
                 decode::signal(value).map(|s| (true, format!("send signal {} ({}): {}", s.number, s.name, s.meaning)))
+            }
+            ("go", "-count") => Some((
+                true,
+                match value {
+                    "1" => "run each test once and turn off result caching".to_string(),
+                    n => format!("run each test {n} times (a number other than 0 also turns off result caching)"),
+                },
+            )),
+            ("git", "--depth") => Some((
+                true,
+                match value {
+                    "1" => "only download the latest commit, with no earlier history".to_string(),
+                    n => format!("only download the latest {n} commits of history"),
+                },
+            )),
+            ("mysql" | "mariadb", "-p" | "--password") => {
+                Some((true, format!("the password is `{value}`, written right after -p with no space")))
+            }
+            ("mysql" | "mariadb", "-e" | "--execute") | ("psql", "-c" | "--command") => {
+                Some((true, format!("run this SQL, then exit: {}", shorten(value, 60))))
             }
             ("timeout", "-s" | "--signal") => decode::signal(value)
                 .map(|s| (true, format!("send signal {} ({}) when the time is up", s.number, s.name))),
@@ -1469,6 +1608,55 @@ impl<'a> Engine<'a> {
             out.rows.push(Row { piece: w.raw.clone(), meaning: capitalize(m) });
             st.extra.push(t.clone());
             st.desc = capitalize(m);
+            return 1;
+        }
+        if st.key == "trap" {
+            let events: Vec<String> = words[1..]
+                .iter()
+                .filter(|w| !w.text.starts_with('-') || w.text.len() > 1)
+                .skip(1)
+                .map(|w| trap_event(&w.text))
+                .collect();
+            if idx == 0 {
+                if t.is_empty() {
+                    out.rows.push(Row {
+                        piece: shorten(&w.raw, 60),
+                        meaning: "an empty handler: the signals that follow are ignored".into(),
+                    });
+                    return 1;
+                }
+                if t == "-" {
+                    out.rows.push(Row {
+                        piece: "-".into(),
+                        meaning: "removes the handler: the signals that follow go back to their default action".into(),
+                    });
+                    return 1;
+                }
+                let parsed = shell::parse(&t);
+                for n in parsed.notes {
+                    self.note(format!("in the trap command: {n}"));
+                }
+                out.rows.push(Row {
+                    piece: shorten(&w.raw, 60),
+                    meaning: "a command line that is not run now: the shell stores it and runs it later, when the event named after it happens; explained below".into(),
+                });
+                let blocks = self.explain_script(&parsed.script, env);
+                if let Some(h) = summarize_blocks(&blocks) {
+                    *inner_headline = Some((h, Vec::new()));
+                }
+                st.desc = "Stores a command that runs later, when the event named happens (not now)".to_string();
+                let when = if events.is_empty() { "the event named".to_string() } else { events.join(" or ") };
+                out.inner.push(Inner { label: format!("later, when {when}, the shell runs:"), blocks });
+                return 1;
+            }
+            out.rows.push(Row { piece: w.raw.clone(), meaning: capitalize(&trap_event(&t)) });
+            return 1;
+        }
+        if st.key == "su" && t == "-" && idx == 0 {
+            out.rows.push(Row {
+                piece: "-".into(),
+                meaning: "not a user name: `-` means start a login shell, with the environment that user would get when logging in (a user name, if any, comes after it)".into(),
+            });
             return 1;
         }
         if st.key == "dig" {
@@ -1569,7 +1757,14 @@ impl<'a> Engine<'a> {
                     }
                     ("xargs", _) => {
                         env2.piped_in = true;
-                        "for the items read from standard input (added to the end of its arguments), xargs runs:".into()
+                        let src = match &inv.stdin_from {
+                            Some(f) => format!("the items read from {f}"),
+                            None => "the items read from standard input".to_string(),
+                        };
+                        match inv.value(&["-I", "-i", "--replace"]) {
+                            Some(r) => format!("for each of {src}, which replaces {r} in the command, xargs runs:"),
+                            None => format!("for {src} (added to the end of its arguments), xargs runs:"),
+                        }
                     }
                     ("env", _) => "with that environment, it runs:".into(),
                     ("nohup", _) => "immune to the terminal closing, it runs:".into(),
@@ -1753,6 +1948,20 @@ fn summarize_blocks(blocks: &[Block]) -> Option<String> {
         1 => Some(heads[0].to_string()),
         2 => Some(format!("{}; then {}", heads[0], heads[1])),
         n => Some(format!("{}; then {}; and {} more", heads[0], heads[1], n - 2)),
+    }
+}
+
+fn trap_event(name: &str) -> String {
+    let upper = name.trim_start_matches("SIG").to_ascii_uppercase();
+    match upper.as_str() {
+        "EXIT" | "0" => "the script or shell exits, normally or because of an error (EXIT)".into(),
+        "ERR" => "a command fails (ERR)".into(),
+        "INT" | "2" => "you press Ctrl+C (INT)".into(),
+        "TERM" | "15" => "the process is asked to stop (TERM)".into(),
+        "HUP" | "1" => "the terminal closes (HUP)".into(),
+        "DEBUG" => "before every command (DEBUG)".into(),
+        "RETURN" => "a function returns (RETURN)".into(),
+        _ => format!("the signal or event {name}"),
     }
 }
 
@@ -2038,6 +2247,77 @@ mod tests {
         out
     }
 
+    fn catalog_entry(template: &str) -> Command {
+        toml::from_str(&format!(
+            "name = \"package owns file\"\ndescription = \"Find which installed package a file belongs to\"\ntemplate = \"{template}\"\n"
+        ))
+        .expect("catalog entry")
+    }
+
+    #[test]
+    fn a_catalog_entry_needs_its_flag_discriminator() {
+        for (template, line, owns) in [
+            ("dpkg -S {file}", ["dpkg", "-S", "/usr/bin/ls"], true),
+            ("dpkg -S {file}", ["dpkg", "-i", "foo.deb"], false),
+            ("rpm -qf {file}", ["rpm", "-qf", "/usr/bin/ls"], true),
+            ("rpm -qf {file}", ["rpm", "-i", "foo.rpm"], false),
+            ("pacman -Qo {file}", ["pacman", "-S", "foo"], false),
+            ("pacman -Qo {file}", ["pacman", "-Qo", "/bin/ls"], true),
+            ("apk info -W {file}", ["apk", "info", "curl"], false),
+            ("apk info -W {file}", ["apk", "info", "-W"], true),
+        ] {
+            let catalog = [catalog_entry(template)];
+            let engine = Engine::new(&catalog, Options { man: false, path: false });
+            assert_eq!(engine.catalog_for(line[0], &line).is_some(), owns, "{template} vs {line:?}");
+        }
+    }
+
+    #[test]
+    fn dpkg_install_is_not_described_as_owning_a_file() {
+        let catalog = [catalog_entry("dpkg -S {file}")];
+        let e = explain_line(&catalog, "sudo dpkg -i foo.deb", Options { man: false, path: false });
+        let text = flat_text(&e);
+        assert!(!text.contains("belongs to"), "{text}");
+        assert!(!text.contains("no description"), "{text}");
+        assert!(e.warnings.iter().any(|w| w.text.contains("maintainer scripts")), "{:?}", e.warnings);
+    }
+
+    #[test]
+    fn sudo_with_a_user_does_not_claim_root() {
+        let e = explain("sudo -u postgres psql -c \"DROP DATABASE prod;\"");
+        let sudo = e.warnings.iter().find(|w| w.part == "sudo").expect("sudo warning");
+        assert!(sudo.text.contains("as the user postgres") && !sudo.text.contains("administrator (root)"), "{sudo:?}");
+        assert!(e.warnings.iter().any(|w| w.text.contains("DROP DATABASE prod")));
+    }
+
+    #[test]
+    fn unknown_programs_keep_single_dash_options_whole() {
+        let r = rows("terraform2 apply -auto-approve");
+        assert!(r.iter().any(|x| x.piece == "-auto-approve"), "{r:#?}");
+        assert!(!r.iter().any(|x| x.piece == "-a"), "{r:#?}");
+        let r = rows("mysql -u root -p\"hunter2\" -e \"select 1\"");
+        assert!(meaning_of(&r, "-p\"hunter2\"").contains("password"), "{r:#?}");
+    }
+
+    #[test]
+    fn man_page_names_cannot_climb_out_of_the_man_folders() {
+        for bad in ["../../etc/x", "a/b", "", ".hidden", "..", "a\0b"] {
+            assert!(!crate::manpage::safe_page_name(bad), "{bad:?}");
+            assert!(crate::manpage::find_page(bad).is_none(), "{bad:?}");
+        }
+        assert!(crate::manpage::safe_page_name("git-commit"));
+        // Running the engine with the man page lookup on must not probe such a path either.
+        let _ = explain_line(&[], "../../etc/x --help; ./.hidden -x", Options { man: true, path: true });
+    }
+
+    #[test]
+    fn the_whole_loop_owns_its_redirect() {
+        let e = explain("while read l; do echo $l; done < /etc/passwd");
+        assert_eq!(e.steps.len(), 1, "{:?}", e.steps);
+        let e = explain("set -e\nls");
+        assert!(e.multiline && crate::render::render(&e).contains("This script does 2 things"));
+    }
+
     #[derive(serde::Deserialize)]
     struct EvalFile {
         case: Vec<EvalCase>,
@@ -2056,6 +2336,11 @@ mod tests {
         #[serde(default)]
         no_warn: Vec<String>,
         needs_man: Option<String>,
+        /// Substrings that must appear in the rendered text (headline included).
+        #[serde(default)]
+        render: Vec<String>,
+        #[serde(default)]
+        render_absent: Vec<String>,
     }
 
     #[test]
@@ -2081,6 +2366,16 @@ mod tests {
             for s in &case.expect {
                 if !text.to_lowercase().contains(&s.to_lowercase()) {
                     failures.push(format!("{:?}: missing {s:?}\n{text}", case.line));
+                }
+            }
+            for s in &case.render {
+                if !rendered.contains(s.as_str()) {
+                    failures.push(format!("{:?}: rendered text is missing {s:?}\n{rendered}", case.line));
+                }
+            }
+            for s in &case.render_absent {
+                if rendered.contains(s.as_str()) {
+                    failures.push(format!("{:?}: rendered text should not contain {s:?}\n{rendered}", case.line));
                 }
             }
             for s in &case.absent {

@@ -112,7 +112,10 @@ pub(crate) fn template_stage_prefix<'a>(
                 break;
             }
             // Keep subcommand words (non-flags) and flag-discriminators for pacman/yay/systemctl.
-            let is_subcommand_flag = matches!(prog, "pacman" | "yay") && w.starts_with('-')
+            let is_subcommand_flag = matches!(
+                prog,
+                "pacman" | "yay" | "paru" | "dpkg" | "rpm" | "apk" | "emerge" | "nix-env" | "xbps-query"
+            ) && w.starts_with('-')
                 || (prog == "systemctl" && w == "--user")
                 || (prog == "ip" && w == "-br");
             if w.starts_with('-') && !is_subcommand_flag {
