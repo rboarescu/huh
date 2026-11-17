@@ -1,0 +1,215 @@
+# Package managers and package names per family of Linux systems.
+#
+# This file is compiled into huh. A copy at ~/.config/huh/platforms.toml (or the
+# file named by $HUH_PLATFORMS) is merged on top of it: families are overridden
+# field by field, `packages` and `programs` entries are added or replaced.
+#
+# huh never runs any of these commands. It only prints them.
+#
+# Adding a distro: add a `[families.<name>]` table (ids, detect, commands) and, where its
+# package names differ, add the family to a row of `[packages]`. Nothing else changes.
+# Adding a program: add it to `same` if its package has that name on every distro, or
+# add a row to `[packages]` (and `[programs]` when the program and package names differ).
+#
+# Command strings: `{}` marks where the package (or program, or file) goes. Without `{}`
+# it is appended at the end.
+#
+# Rule for unknown programs: a program name is only used as a package name when this
+# file says so (`same`, or a `[packages]` row with a `*` entry or an entry for the family).
+# Otherwise huh prints the family's `provides` search instead of guessing a package name.
+
+# Programs whose package has the same name on every family below.
+same = [
+  "htop", "btop", "tmux", "git", "vim", "nano", "tree", "zip", "unzip", "rsync", "wget", "curl",
+  "jq", "nmap", "strace", "lsof", "socat", "ethtool", "fzf", "bat", "eza", "iperf3", "tcpdump",
+  "smartmontools", "upower", "ripgrep", "neovim", "pciutils", "usbutils", "traceroute", "mtr",
+  "docker-compose", "snapper", "ncdu", "zsh", "fish", "less", "make", "gcc", "whois", "cmake",
+  "bubblewrap",
+]
+
+# Tools that belong to one distro or package manager. huh never suggests installing them
+# with another family's manager (e.g. `apt install pacman`). The package managers named
+# in `detect` and in the commands below count as well.
+tools = ["omarchy", "yay", "paru", "sudo", "doas", "flatpak", "snap"]
+
+# program -> package key, where they differ. The key is looked up in [packages].
+[programs]
+rg = "ripgrep"
+nvim = "neovim"
+ss = "iproute2"
+ip = "iproute2"
+zbarimg = "zbar"
+virsh = "libvirt"
+sqlite3 = "sqlite"
+convert = "imagemagick"
+magick = "imagemagick"
+dig = "bind"
+nslookup = "bind"
+host = "bind"
+nc = "openbsd-netcat"
+python3 = "python"
+pip = "python-pip"
+pip3 = "python-pip"
+node = "nodejs"
+7z = "7zip"
+7za = "7zip"
+lsusb = "usbutils"
+lspci = "pciutils"
+lsblk = "util-linux"
+lscpu = "util-linux"
+dmesg = "util-linux"
+mount = "util-linux"
+umount = "util-linux"
+ps = "procps"
+free = "procps"
+top = "procps"
+pgrep = "procps"
+pkill = "procps"
+uptime = "procps"
+watch = "procps"
+nmcli = "networkmanager"
+systemctl = "systemd"
+journalctl = "systemd"
+systemd-inhibit = "systemd"
+loginctl = "systemd"
+usermod = "shadow"
+useradd = "shadow"
+groupadd = "shadow"
+passwd = "shadow"
+modprobe = "kmod"
+lsmod = "kmod"
+tracepath = "iputils"
+ssh = "openssh"
+scp = "openssh"
+ssh-copy-id = "openssh"
+ssh-keygen = "openssh"
+gh = "github-cli"
+btrfs = "btrfs-progs"
+man = "man-db"
+xdg-open = "xdg-utils"
+
+# package key -> family -> package name. `*` is the name on every family without its own
+# entry; "" means the family has no such package (so huh stays quiet instead of guessing).
+# A family that has neither an entry nor `*` is unknown: huh prints the provides search.
+# Keys are Arch package names; omarchy inherits arch.
+[packages]
+ripgrep = { "*" = "ripgrep" }
+zbar = { arch = "zbar", debian = "zbar-tools", fedora = "zbar", suse = "zbar", alpine = "zbar", void = "zbar", nixos = "zbar", gentoo = "media-gfx/zbar" }
+libvirt = { arch = "libvirt", debian = "libvirt-clients", fedora = "libvirt-client", suse = "libvirt-client", alpine = "libvirt-client", void = "libvirt", nixos = "libvirt", gentoo = "app-emulation/libvirt" }
+sqlite = { arch = "sqlite", debian = "sqlite3", fedora = "sqlite", suse = "sqlite3", alpine = "sqlite", void = "sqlite", nixos = "sqlite", gentoo = "dev-db/sqlite" }
+imagemagick = { arch = "imagemagick", debian = "imagemagick", fedora = "ImageMagick", suse = "ImageMagick", alpine = "imagemagick", void = "ImageMagick", nixos = "imagemagick", gentoo = "media-gfx/imagemagick" }
+fd = { arch = "fd", debian = "fd-find", fedora = "fd-find", suse = "fd", alpine = "fd", void = "fd", nixos = "fd", gentoo = "sys-apps/fd" }
+ffmpeg = { "*" = "ffmpeg", fedora = "ffmpeg-free" }
+bind = { arch = "bind", debian = "bind9-dnsutils", fedora = "bind-utils", suse = "bind-utils", alpine = "bind-tools", nixos = "bind", gentoo = "net-dns/bind-tools" }
+openbsd-netcat = { arch = "openbsd-netcat", debian = "netcat-openbsd", fedora = "nmap-ncat", suse = "netcat-openbsd", alpine = "netcat-openbsd", nixos = "netcat", gentoo = "net-analyzer/openbsd-netcat" }
+python = { arch = "python", debian = "python3", fedora = "python3", suse = "python3", alpine = "python3", void = "python3", nixos = "python3", gentoo = "dev-lang/python" }
+python-pip = { arch = "python-pip", debian = "python3-pip", fedora = "python3-pip", suse = "python3-pip", alpine = "py3-pip", void = "python3-pip", gentoo = "dev-python/pip" }
+nodejs = { arch = "nodejs", debian = "nodejs", fedora = "nodejs", alpine = "nodejs", void = "nodejs", nixos = "nodejs", gentoo = "net-libs/nodejs" }
+npm = { arch = "npm", debian = "npm", fedora = "npm", alpine = "npm", nixos = "nodePackages.npm" }
+"7zip" = { arch = "7zip", debian = "p7zip-full", alpine = "7zip", nixos = "p7zip" }
+procps = { arch = "procps-ng", debian = "procps", fedora = "procps-ng", suse = "procps", alpine = "procps-ng", void = "procps-ng", nixos = "procps", gentoo = "sys-process/procps" }
+networkmanager = { arch = "networkmanager", debian = "network-manager", fedora = "NetworkManager", suse = "NetworkManager", alpine = "networkmanager-cli", void = "NetworkManager", nixos = "networkmanager", gentoo = "net-misc/networkmanager" }
+systemd = { arch = "systemd", debian = "systemd", fedora = "systemd", suse = "systemd", alpine = "", void = "", nixos = "systemd", gentoo = "sys-apps/systemd" }
+shadow = { arch = "shadow", debian = "passwd", fedora = "shadow-utils", suse = "shadow", alpine = "shadow", void = "shadow", nixos = "shadow", gentoo = "sys-apps/shadow" }
+kmod = { "*" = "kmod", gentoo = "sys-apps/kmod" }
+iputils = { arch = "iputils", debian = "iputils-tracepath", fedora = "iputils", suse = "iputils", void = "iputils", nixos = "iputils", gentoo = "net-misc/iputils" }
+iproute2 = { "*" = "iproute2", fedora = "iproute", gentoo = "sys-apps/iproute2" }
+util-linux = { "*" = "util-linux", gentoo = "sys-apps/util-linux" }
+openssh = { arch = "openssh", debian = "openssh-client", fedora = "openssh-clients", suse = "openssh-clients", alpine = "openssh-client", void = "openssh", nixos = "openssh", gentoo = "net-misc/openssh" }
+github-cli = { arch = "github-cli", debian = "gh", fedora = "gh", suse = "gh", alpine = "github-cli", void = "github-cli", nixos = "gh", gentoo = "dev-util/github-cli" }
+man-db = { arch = "man-db", debian = "man-db", fedora = "man-db", suse = "man", alpine = "mandoc", void = "man-db" }
+docker = { arch = "docker", debian = "docker.io", fedora = "docker", suse = "docker", alpine = "docker", void = "docker", nixos = "docker", gentoo = "app-containers/docker" }
+btrfs-progs = { "*" = "btrfs-progs", gentoo = "sys-fs/btrfs-progs" }
+xdg-utils = { "*" = "xdg-utils", gentoo = "x11-misc/xdg-utils" }
+unrar = { arch = "unrar", suse = "unrar", alpine = "unrar", void = "unrar", nixos = "unrar" }
+tailscale = { arch = "tailscale", alpine = "tailscale", void = "tailscale", nixos = "tailscale" }
+ollama = { arch = "ollama", nixos = "ollama" }
+yay = { "*" = "" }
+paru = { "*" = "" }
+cargo = { "*" = "cargo", arch = "rust", gentoo = "dev-lang/rust" }
+rustc = { "*" = "rustc", arch = "rust", gentoo = "dev-lang/rust" }
+
+[families.arch]
+ids = ["arch", "archarm", "artix", "manjaro", "endeavouros", "cachyos", "garuda", "arcolinux", "parabola", "blackarch", "steamos", "chimeraos", "archcraft", "rebornos"]
+detect = ["pacman"]
+install = "sudo pacman -S"
+remove = "sudo pacman -Rs"
+search = "pacman -Ss"
+update = "sudo pacman -Syu"
+owns = "pacman -Qo"
+provides = "pacman -F {}"
+
+[families.omarchy]
+extends = "arch"
+ids = ["omarchy"]
+install = "omarchy pkg add"
+remove = "omarchy pkg drop"
+
+[families.debian]
+ids = ["debian", "ubuntu", "linuxmint", "pop", "elementary", "zorin", "raspbian", "kali", "devuan", "neon", "parrot", "mx", "deepin", "pureos", "tuxedo", "lmde", "trisquel", "peppermint", "bodhi", "ubuntu-core"]
+detect = ["apt-get", "apt"]
+install = "sudo apt install"
+remove = "sudo apt remove"
+search = "apt search"
+update = "sudo apt update && sudo apt upgrade"
+owns = "dpkg -S"
+provides = "apt-file search bin/{}"
+
+[families.fedora]
+ids = ["fedora", "rhel", "centos", "rocky", "almalinux", "ol", "amzn", "nobara", "bazzite", "scientific", "eurolinux", "centos-stream"]
+detect = ["dnf", "yum"]
+install = "sudo dnf install"
+remove = "sudo dnf remove"
+search = "dnf search"
+update = "sudo dnf upgrade"
+owns = "rpm -qf"
+provides = "dnf provides '*/bin/{}'"
+
+[families.suse]
+ids = ["opensuse", "opensuse-leap", "opensuse-tumbleweed", "opensuse-microos", "opensuse-slowroll", "suse", "sles", "sled", "sle-micro", "geckolinux"]
+detect = ["zypper"]
+install = "sudo zypper install"
+remove = "sudo zypper remove"
+search = "zypper search"
+update = "sudo zypper update"
+owns = "rpm -qf"
+provides = "zypper search --provides {}"
+
+[families.alpine]
+ids = ["alpine", "postmarketos", "wolfi"]
+detect = ["apk"]
+install = "sudo apk add"
+remove = "sudo apk del"
+search = "apk search"
+update = "sudo apk update && sudo apk upgrade"
+owns = "apk info -W"
+provides = "apk search -e cmd:{}"
+
+[families.void]
+ids = ["void"]
+detect = ["xbps-install"]
+install = "sudo xbps-install -S"
+remove = "sudo xbps-remove -R"
+search = "xbps-query -Rs"
+update = "sudo xbps-install -Su"
+owns = "xbps-query -o"
+provides = "xlocate {}"
+
+[families.gentoo]
+ids = ["gentoo", "funtoo", "calculate", "pentoo", "redcore", "sabayon"]
+detect = ["emerge"]
+install = "sudo emerge --ask"
+remove = "sudo emerge --ask --depclean"
+search = "emerge --search"
+update = "sudo emerge --sync && sudo emerge --ask --update --deep --newuse @world"
+owns = "equery belongs"
+provides = "e-file {}"
+
+[families.nixos]
+ids = ["nixos"]
+detect = ["nix", "nix-env"]
+install = "nix profile install nixpkgs#{}"
+remove = "nix profile remove {}"
+search = "nix search nixpkgs {}"
+update = "sudo nixos-rebuild switch --upgrade"
+provides = "nix-locate bin/{}"

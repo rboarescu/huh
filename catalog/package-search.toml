@@ -1,0 +1,9 @@
+name = "package search"
+description = "Search for a program that is available to install"
+template = "{pkg_search}"
+keywords = ["find package", "search software", "is there a package", "available packages", "pacman -Ss"]
+
+[[slots]]
+id = "term"
+kind = "text"
+what = "the program or keyword to search for"

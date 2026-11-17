@@ -1,0 +1,10 @@
+name = "package provides program"
+description = "Find which package provides a program that is not installed yet"
+template = "{pkg_provides}"
+keywords = ["which package provides", "which package has the command", "what package contains program", "package for command", "provides", "pacman -F", "apt-file", "dnf provides"]
+
+[[slots]]
+id = "program"
+kind = "text"
+what = "the program to look for"
+raw = true

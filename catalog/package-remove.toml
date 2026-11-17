@@ -1,0 +1,9 @@
+name = "package remove"
+description = "Uninstall a program or package"
+template = "{pkg_remove}"
+keywords = ["uninstall program", "remove app", "delete package", "uninstall software", "remove package", "drop app", "pacman -R", "omarchy uninstall"]
+
+[[slots]]
+id = "package"
+kind = "text"
+what = "the program to uninstall"

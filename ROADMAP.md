@@ -15,6 +15,20 @@
 
 `backend.rs` / `questions.rs` (the text question/answer protocol left from the hosted-model days) are gone: `LocalMatcher::rank` and `LocalMatcher::details` return typed results that `assemble.rs` turns into lines. Output is byte-identical to before. Code is rustfmt-formatted and clippy-clean.
 
+## Completed: Platform module and other distros (2026-11-17)
+
+Fixes "Next" item 4 (other distros) and the install/not-found parts of item 3.
+
+- **`src/platform.rs` + `data/platforms.toml`** are the single source of truth (the catalog's `INSTALLERS` and the doctor's `INSTALL`/`KNOWN_PACKAGES` are gone). Families: arch, omarchy (extends arch), debian, fedora, suse, alpine, void, gentoo, nixos. Detection: os-release `ID`/`ID_LIKE` chain from `/etc` then `/usr/lib`, derivatives that only name a parent (elementary, Zorin, Artix) mapped by family `ids`, and for unknown IDs the package manager binary on PATH. `~/.config/huh/platforms.toml` (or `$HUH_PLATFORMS`) extends the data without a rebuild.
+- **Package names per family** (`nmcli` -> `network-manager`, `ip` -> `iproute` on Fedora, `usermod` -> `passwd`/`shadow-utils`, `dig` -> `bind9-dnsutils`/`bind-utils`/`bind`, ...). Unknown programs get the system's provides-search (`pacman -F`, `apt-file search`, `dnf provides`, `zypper search --provides`, `apk search -e cmd:`, `xlocate`, `e-file`, `nix-locate`) instead of a guessed package; only names listed as same-everywhere or mapped are used directly. Package managers and distro tools are never offered for installation (`--all-commands` no longer says `apt install pacman`). `yay` is not installable with pacman.
+- **Package tasks are generic**: catalog entries `package install|remove|search`, `system update`, `package owns file`, `package provides program` use `{pkg_*}` placeholders filled per family; the 14 per-manager entries were removed. Eval case names changed accordingly (`pacman install` -> `package install`, ...). On `arch,omarchy` the top suggestion is now `omarchy pkg add` / `omarchy pkg drop` (four expected lines changed for that reason). `huh explain` still recognises every family's commands through generated explain-only variants.
+- **PATH detection**: exec bit required, symlinks followed, `~` expanded, empty entries ignored, full bash built-in list (`kill`, `read`, ...). `/usr/sbin` and `/sbin` are searched too but only count for suggestions that run through `sudo` (sudo's PATH has them, a Debian user's does not); otherwise the note says the tool is in sbin, not on PATH.
+- **`huh why`**: understands `sh: 1: x: not found`, `sh: x: not found`, bare `x: command not found` (plus bash/zsh/fish); never suggests installing a program that is installed (says where it is instead); a one-edit typo of an installed command (`sl` -> `ls`) beats installing a package unless the name is a known program; typo fixes keep the arguments and pick the command-position word (`gti status` -> `git status`).
+- **Portability**: `cargo build --release --target x86_64-unknown-linux-musl` gives a static binary that runs on Debian 11, Ubuntu 20.04 and Alpine (documented in README).
+- Verified in Docker (debian 11/12, ubuntu 20.04/24.04, fedora, arch, opensuse tumbleweed, alpine, void, gentoo, nixos/nix with no os-release).
+
+Not done: `huh` panics on a closed pipe (`huh ... | head`); NixOS has no "which package owns this file" command; Tumbleweed uses `zypper update` rather than `dup`; `sudo` is suggested even in containers where the user is root and sudo is absent.
+
 ## Next: findings from real-world simulation (2026-11-17)
 
 The evals score 100%, but four simulated users (beginner on Omarchy, sysadmin, failing-command diagnosis, other distros in Docker) found the evals overfit. Fix in this order:
@@ -42,17 +56,9 @@ The evals score 100%, but four simulated users (beginner on Omarchy, sysadmin, f
      - git errors (not a repo, merge conflict, bad branch);
      - Python Syntax/Indentation/Key errors;
      - pip `externally-managed-environment`;
-     - dash's `sh: 1: x: not found`.
-4. **Other distros**
-   - Install hints use the binary name as the package name (`apt install nmcli`, `systemctl`, `ps`), and `KNOWN_PACKAGES` in explain.rs is Arch-only (`apt install bind`, `libvirt`).
-   - explain.rs keeps its own install table, which disagrees with catalog.rs (`pacman -S` instead of `omarchy pkg add`).
-   - Unknown platforms (openSUSE, Alpine, NixOS, Gentoo, Void, Artix, and Ubuntu-only `ID_LIKE` such as elementary) get no package manager; "install htop" gives `which htop`.
-   - PATH detection:
-     - misses `/usr/sbin` for non-root Debian users;
-     - counts non-executable files as installed;
-     - doesn't expand `~`;
-     - `kill` is missing from the builtins list.
-   - The release binary needs glibc ≥ 2.34. It does not start on Debian 11, Ubuntu 20.04, RHEL 8 or Alpine, so a static musl build is needed.
+     - ~~dash's `sh: 1: x: not found`~~ (done 2026-11-17, see "Platform module").
+   - ~~`sl: command not found` gets `pacman -S sl` instead of `ls`~~ (done 2026-11-17).
+4. ~~**Other distros**~~ Done 2026-11-17 (see "Completed: Platform module and other distros"): per-family package names, one install table, openSUSE/Alpine/Void/Gentoo/NixOS/Artix/elementary/Zorin, PATH detection fixes and a static musl build.
 5. **Catalog gaps**:
    - systemctl `--failed`;
    - git reset/restore/stash/checkout and push `-u`;
