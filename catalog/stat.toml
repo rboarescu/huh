@@ -1,0 +1,9 @@
+name = "stat"
+description = "Show the facts about one file: its size, owner, permissions and when it was last changed"
+template = "stat {target}"
+keywords = ["file stats", "last modified", "modification time", "when was file changed", "file metadata", "file info", "exact size"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file to inspect"

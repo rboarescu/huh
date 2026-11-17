@@ -1,0 +1,4 @@
+name = "lscpu"
+description = "Show details about the processor (CPU)"
+template = "lscpu"
+keywords = ["cpu info", "processor cores", "cpu model", "threads", "cpu architecture", "how many cores"]

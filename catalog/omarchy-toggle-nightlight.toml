@@ -1,0 +1,5 @@
+name = "omarchy toggle nightlight"
+description = "Turn the warm night-time screen colour (night light) on or off"
+template = "omarchy toggle nightlight"
+platform = "omarchy"
+keywords = ["night light", "blue light filter", "warm screen", "eye comfort", "hyprsunset"]

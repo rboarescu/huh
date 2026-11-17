@@ -1,0 +1,11 @@
+name = "tmux attach"
+description = "Reconnect to a tmux terminal session that is still running"
+template = "tmux attach {name}"
+keywords = ["reattach tmux", "reconnect tmux", "resume session", "attach session"]
+
+[[slots]]
+id = "name"
+kind = "text"
+what = "the session to reconnect to"
+default = ""
+format = "-t {}"

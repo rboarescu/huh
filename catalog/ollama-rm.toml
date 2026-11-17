@@ -1,0 +1,10 @@
+name = "ollama rm"
+description = "Delete a downloaded Ollama AI model"
+template = "ollama rm {model}"
+destructive = true
+keywords = ["delete model", "remove ollama model", "erase downloaded model"]
+
+[[slots]]
+id = "model"
+kind = "text"
+what = "the AI model to delete"

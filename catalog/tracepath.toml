@@ -1,0 +1,9 @@
+name = "tracepath"
+description = "Trace the network path packets take to reach a host"
+template = "tracepath -n {host}"
+keywords = ["traceroute", "trace route", "trace ip", "run a trace", "network path", "packet hops", "hops", "path packets take", "network route trace", "latency per hop"]
+
+[[slots]]
+id = "host"
+kind = "text"
+what = "the hostname or IP address to trace"

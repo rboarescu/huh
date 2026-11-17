@@ -1,0 +1,10 @@
+name = "ip route get"
+description = "Show which network route and interface are used to reach an IP address"
+template = "ip route get {address}"
+package = "iproute2"
+keywords = ["which interface", "route to ip", "check route", "routing lookup", "which gateway", "network path to ip", "ip route check", "interface used for ip"]
+
+[[slots]]
+id = "address"
+kind = "text"
+what = "the IP address to check the route for"

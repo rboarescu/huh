@@ -1,0 +1,19 @@
+name = "chown"
+description = "Change which user owns a file or folder"
+template = "sudo chown {recursive} {owner} {target}"
+keywords = ["change owner", "ownership", "make owner", "give file to user", "file owner"]
+
+[[flags]]
+id = "recursive"
+value = "-R"
+question = "Does the user want the change applied to everything inside a folder?"
+
+[[slots]]
+id = "owner"
+kind = "text"
+what = "the user who should become the owner"
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file or folder whose owner should change"

@@ -1,0 +1,10 @@
+name = "git diff"
+description = "Show what has changed in the files since the last git commit"
+template = "git diff {target}"
+keywords = ["uncommitted changes", "what changed in file", "git changes", "inspect diff"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file whose changes to show"
+default = ""

@@ -1,0 +1,15 @@
+name = "omarchy capture screenrecording"
+description = "Record a video of the screen"
+template = "omarchy capture screenrecording {desktop_audio} {microphone}"
+platform = "omarchy"
+keywords = ["record screen", "screen capture video", "desktop recording", "record with mic", "record desktop audio"]
+
+[[flags]]
+id = "desktop_audio"
+value = "--with-desktop-audio"
+question = "Does the user want the computer's own sound included in the recording?"
+
+[[flags]]
+id = "microphone"
+value = "--with-microphone-audio"
+question = "Does the user want their microphone or voice included in the recording?"

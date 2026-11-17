@@ -1,0 +1,4 @@
+name = "free"
+description = "Show how much memory (RAM) is in use and how much is free"
+template = "free -h"
+keywords = ["free ram", "memory usage", "how much ram", "available memory", "ram left", "swap memory"]

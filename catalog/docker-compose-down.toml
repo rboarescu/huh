@@ -1,0 +1,4 @@
+name = "docker compose down"
+description = "Stop and remove the services of a Docker Compose project"
+template = "docker compose down"
+keywords = ["stop compose", "tear down stack", "remove compose containers"]

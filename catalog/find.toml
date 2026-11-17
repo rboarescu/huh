@@ -1,0 +1,51 @@
+name = "find"
+description = "Find files or folders by name, by size or by when they were last changed, anywhere under a folder"
+template = "find {where} {type} {name} {changed} {size}"
+keywords = ["find files", "search for files", "locate file", "find folder", "find by name", "find large files", "recently modified files", "recently changed files", "files bigger than", "changed in last days", "where is file"]
+
+[[slots]]
+id = "where"
+kind = "path"
+what = "the folder to look under"
+default = "."
+
+[[slots]]
+id = "type"
+kind = "choice"
+question = "What kind of thing is the user looking for?"
+
+[[slots.options]]
+name = "files"
+value = "-type f"
+description = "Only files"
+
+[[slots.options]]
+name = "folders"
+value = "-type d"
+description = "Only folders"
+
+[[slots.options]]
+name = "either"
+value = ""
+description = "Files or folders, the user does not say which"
+
+[[slots]]
+id = "name"
+kind = "text"
+what = "the file name or name pattern to look for"
+default = ""
+format = "-name {}"
+
+[[slots]]
+id = "changed"
+kind = "text"
+what = "the number of days back in which the files were changed"
+default = ""
+format = "-mtime -{}"
+
+[[slots]]
+id = "size"
+kind = "text"
+what = "the minimum file size (e.g. 50M, 1G)"
+default = ""
+format = "-size +{}"

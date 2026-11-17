@@ -1,0 +1,9 @@
+name = "cargo new"
+description = "Create a new Rust project"
+template = "cargo new {name}"
+keywords = ["new rust project", "init rust project", "create rust crate"]
+
+[[slots]]
+id = "name"
+kind = "text"
+what = "the name of the new project"

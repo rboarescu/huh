@@ -1,0 +1,20 @@
+name = "omarchy brightness display"
+description = "Make the screen brighter or dimmer"
+template = "omarchy brightness display {change}"
+platform = "omarchy"
+keywords = ["brighter screen", "dim screen", "screen brightness", "backlight up", "backlight down"]
+
+[[slots]]
+id = "change"
+kind = "choice"
+question = "What should happen to the screen brightness?"
+
+[[slots.options]]
+name = "brighter"
+value = "+10%"
+description = "The screen should be brighter"
+
+[[slots.options]]
+name = "dimmer"
+value = "10%-"
+description = "The screen should be dimmer"

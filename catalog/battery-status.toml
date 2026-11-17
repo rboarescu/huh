@@ -1,0 +1,5 @@
+name = "battery status"
+description = "Show the battery's charge, health and time remaining"
+template = "upower -i $(upower -e | grep BAT)"
+package = "upower"
+keywords = ["battery level", "battery percentage", "battery health", "charge remaining", "upower", "power status"]

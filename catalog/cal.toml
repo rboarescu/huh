@@ -1,0 +1,4 @@
+name = "cal"
+description = "Show a calendar of the current month"
+template = "cal"
+keywords = ["calendar", "month calendar", "dates this month"]

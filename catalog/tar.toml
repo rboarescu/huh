@@ -1,0 +1,35 @@
+name = "tar"
+description = "Pack files into a .tar.gz archive, unpack one, or look inside one"
+template = "tar {action} {archive} {inputs}"
+keywords = ["tarball", "tar.gz", "unpack archive", "extract tar", "extract tar.gz", "pack folder", "create tar.gz", "compress folder", "list archive contents", "inspect tar", "whats inside tar"]
+
+[[slots]]
+id = "action"
+kind = "choice"
+question = "What does the user want to do with the archive?"
+
+[[slots.options]]
+name = "create"
+value = "-czf"
+description = "Pack files or folders into a new archive"
+
+[[slots.options]]
+name = "extract"
+value = "-xzf"
+description = "Unpack an existing archive"
+
+[[slots.options]]
+name = "list_contents"
+value = "-tzf"
+description = "See what an archive contains without unpacking it"
+
+[[slots]]
+id = "archive"
+kind = "path"
+what = "the archive file"
+
+[[slots]]
+id = "inputs"
+kind = "path"
+what = "the file or folder to put into a new archive"
+default = ""

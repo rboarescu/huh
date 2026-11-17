@@ -1,0 +1,672 @@
+# Held-out requests: never used for tuning. Do not reword questions to fix misses here.
+# Five phase 1 "none" cases (install firefox, restart nginx, download a page, processes
+# by memory, ip address) were given real expected answers when phase 2 added those commands,
+# and "change my wallpaper" when the Omarchy commands were added.
+
+[[case]]
+request = "let me run backup.py as a program"
+command = "chmod"
+expect = "chmod +x backup.py"
+
+[[case]]
+request = "stop anyone from editing final-report.pdf"
+command = "chmod"
+expect = "chmod a-w final-report.pdf"
+
+[[case]]
+request = "what files are in /etc/nginx"
+command = "ls"
+expect = "ls /etc/nginx"
+
+[[case]]
+request = "show everything here, dotfiles too, with permissions"
+command = "ls"
+expect = "ls -l -a"
+
+[[case]]
+request = "back up my thesis.docx as thesis-backup.docx"
+command = "cp"
+expect = "cp thesis.docx thesis-backup.docx"
+
+[[case]]
+request = "move screenshot.png to the pictures folder"
+command = "mv"
+expect = "mv screenshot.png pictures"
+
+[[case]]
+request = "remove the temp directory completely"
+command = "rm"
+expect = "rm -r temp"
+
+[[case]]
+request = "erase draft.txt"
+command = "rm"
+expect = "rm draft.txt"
+
+[[case]]
+request = "new directory named assets"
+command = "mkdir"
+expect = "mkdir assets"
+
+[[case]]
+request = "dump the contents of .bashrc to the screen"
+command = "cat"
+expect = "cat .bashrc"
+
+[[case]]
+request = "find the word password in config.ini ignoring case"
+command = "grep"
+expect = "grep -i password config.ini"
+
+[[case]]
+request = "show me every line with ERROR in app.log and tell me which line it's on"
+command = "grep"
+expect = "grep -n ERROR app.log"
+
+[[case]]
+request = "is there a file named id_rsa anywhere in my home directory"
+command = "find"
+
+[[case]]
+request = "look for directories called .git under code"
+command = "find"
+expect = "find code -type d -name .git"
+
+[[case]]
+request = "top 5 lines of scores.txt"
+command = "head"
+expect = "head -n 5 scores.txt"
+
+[[case]]
+request = "what are the last 100 lines in syslog"
+command = "tail"
+expect = "tail -n 100 syslog"
+
+[[case]]
+request = "follow the output of build.log live"
+command = "tail"
+expect = "tail -f -n 10 build.log"
+
+[[case]]
+request = "size of the node_modules directory"
+command = "du"
+expect = "du -sh node_modules"
+
+[[case]]
+request = "am i running out of storage"
+command = "df"
+expect = "df -h"
+
+[[case]]
+request = "extract photos.tar.gz"
+command = "tar"
+expect = "tar -xzf photos.tar.gz"
+
+[[case]]
+request = "compress the website folder into site.tar.gz"
+command = "tar"
+expect = "tar -czf site.tar.gz website"
+
+[[case]]
+request = "number of characters in tweet.txt"
+command = "wc"
+expect = "wc -m tweet.txt"
+
+[[case]]
+request = "how long is log.txt in lines"
+command = "wc"
+expect = "wc -l log.txt"
+
+[[case]]
+request = "what time is it in Tokyo"
+command = "none"
+
+[[case]]
+request = "install firefox"
+command = "pacman install"
+expect = "sudo pacman -S firefox"
+
+[[case]]
+request = "restart the nginx service"
+command = "systemctl"
+expect = "sudo systemctl restart nginx"
+
+[[case]]
+request = "download the page at example.com"
+command = "curl"
+expect = "curl -L example.com"
+
+[[case]]
+request = "write me a poem"
+command = "none"
+
+[[case]]
+request = "show which processes are using the most memory"
+command = "top|ps"
+expect = "top -o %MEM"
+
+[[case]]
+request = "what's my ip address"
+command = "ip"
+expect = "ip -br addr"
+
+# --- Phase 2: written before the 80-command catalog was first run ---
+
+[[case]]
+request = "make an empty file named todo.txt"
+command = "touch"
+expect = "touch todo.txt"
+
+[[case]]
+request = "give bob ownership of the shared folder and everything inside"
+command = "chown"
+expect = "sudo chown -R bob shared"
+
+[[case]]
+request = "tell me the size and permissions of key.pem"
+command = "stat|ls"
+
+[[case]]
+request = "open notes.txt so i can change it"
+command = "nano"
+expect = "nano notes.txt"
+
+[[case]]
+request = "compare config.old with config.new"
+command = "diff"
+expect = "diff config.old config.new"
+
+[[case]]
+request = "put the lines of scores.txt in numerical order"
+command = "sort"
+expect = "sort -n scores.txt"
+
+[[case]]
+request = "how many times does each line appear in votes.txt"
+command = "uniq"
+expect = "sort votes.txt | uniq -c"
+
+[[case]]
+request = "unpack fonts.zip"
+command = "unzip"
+expect = "unzip fonts.zip"
+
+[[case]]
+request = "make a zip of the src folder called src.zip"
+command = "zip"
+expect = "zip -r src.zip src"
+
+[[case]]
+request = "what folder is this"
+command = "pwd"
+expect = "pwd"
+
+[[case]]
+request = "change into /var/log"
+command = "cd"
+expect = "cd /var/log"
+
+[[case]]
+request = "show all running processes"
+command = "ps"
+expect = "ps aux"
+
+[[case]]
+request = "stop the process with id 977"
+command = "kill"
+expect = "kill 977"
+
+[[case]]
+request = "close all chrome processes"
+command = "pkill"
+expect = "pkill chrome"
+
+[[case]]
+request = "how much memory is in use"
+command = "free"
+expect = "free -h"
+
+[[case]]
+request = "what day is it"
+command = "date"
+expect = "date"
+
+[[case]]
+request = "how long since the last reboot"
+command = "uptime"
+expect = "uptime"
+
+[[case]]
+request = "what's my username"
+command = "whoami"
+expect = "whoami"
+
+[[case]]
+request = "show cpu information"
+command = "lscpu"
+expect = "lscpu"
+
+[[case]]
+request = "which drives are attached"
+command = "lsblk"
+expect = "lsblk"
+
+[[case]]
+request = "stop the apache service"
+command = "systemctl"
+expect = "sudo systemctl stop apache"
+
+[[case]]
+request = "show me the nginx logs since boot"
+command = "journalctl"
+expect = "journalctl -b -u nginx"
+
+[[case]]
+request = "power off"
+command = "shutdown"
+expect = "shutdown now"
+
+[[case]]
+request = "reboot the system"
+command = "reboot"
+expect = "reboot"
+
+[[case]]
+request = "is curl installed and where"
+command = "which"
+expect = "which curl"
+
+[[case]]
+request = "read the manual for tar"
+command = "man"
+expect = "man tar"
+
+[[case]]
+request = "can i reach 8.8.8.8"
+command = "ping"
+expect = "ping -c 4 8.8.8.8"
+
+[[case]]
+request = "log into pi@raspberrypi.local"
+command = "ssh"
+expect = "ssh pi@raspberrypi.local"
+
+[[case]]
+request = "what's listening on my ports"
+command = "ss"
+expect = "ss -tulpn"
+
+[[case]]
+request = "remove the package steam"
+command = "pacman remove"
+expect = "sudo pacman -Rs steam"
+
+[[case]]
+request = "upgrade the whole system"
+command = "pacman update"
+expect = "sudo pacman -Syu"
+
+[[case]]
+request = "look for a pdf reader i can install"
+command = "pacman search"
+
+[[case]]
+request = "switch to the main branch"
+command = "git switch"
+expect = "git switch main"
+
+[[case]]
+request = "save my staged work with message \"add tests\""
+command = "git commit"
+expect = "git commit -m 'add tests'"
+
+[[case]]
+request = "download the repo at https://github.com/torvalds/linux"
+command = "git clone"
+expect = "git clone https://github.com/torvalds/linux"
+
+[[case]]
+request = "pull in what my teammates pushed"
+command = "git pull"
+expect = "git pull"
+
+[[case]]
+request = "what branches exist"
+command = "git branch"
+expect = "git branch"
+
+[[case]]
+request = "open report.pdf"
+command = "xdg-open"
+expect = "xdg-open report.pdf"
+
+[[case]]
+request = "get the sha256 of installer.sh"
+command = "sha256sum"
+expect = "sha256sum installer.sh"
+
+[[case]]
+request = "set an alarm for 7am"
+command = "none"
+
+[[case]]
+request = "summarize this article for me"
+command = "none"
+
+[[case]]
+request = "burn an iso to a usb stick"
+command = "none"
+
+[[case]]
+request = "change my wallpaper"
+command = "omarchy theme bg next"
+expect = "omarchy theme bg next"
+
+# --- docker and virsh: written before these entries were first run ---
+
+[[case]]
+request = "which containers are up"
+command = "docker ps"
+expect = "docker ps"
+
+[[case]]
+request = "launch an alpine container with an interactive shell"
+command = "docker run"
+expect = "docker run -it alpine"
+
+[[case]]
+request = "follow the output of the container proxy live"
+command = "docker logs"
+expect = "docker logs -f proxy"
+
+[[case]]
+request = "halt the container named cache"
+command = "docker stop"
+expect = "docker stop cache"
+
+[[case]]
+request = "download the postgres:16 image"
+command = "docker pull"
+expect = "docker pull postgres:16"
+
+[[case]]
+request = "start everything in docker-compose.yml"
+command = "docker compose up"
+expect = "docker compose up -d"
+
+[[case]]
+request = "open a terminal in the running container app"
+command = "docker exec"
+expect = "docker exec -it app sh"
+
+[[case]]
+request = "reclaim disk space from docker"
+command = "docker system prune"
+expect = "docker system prune"
+
+[[case]]
+request = "show all vms, even the ones that are off"
+command = "virsh list"
+expect = "virsh list --all"
+
+[[case]]
+request = "power on the vm fedora"
+command = "virsh start"
+expect = "virsh start fedora"
+
+[[case]]
+request = "pull the plug on the vm crashbox"
+command = "virsh destroy"
+expect = "virsh destroy crashbox"
+
+[[case]]
+request = "find the address of the vm devbox"
+command = "virsh domifaddr"
+expect = "virsh domifaddr devbox"
+
+[[case]]
+request = "stop the vm pihole from starting automatically at boot"
+command = "virsh autostart"
+expect = "virsh autostart --disable pihole"
+
+[[case]]
+request = "turn off the vm fedora cleanly"
+command = "virsh shutdown"
+expect = "virsh shutdown fedora"
+
+# --- Omarchy and friends: written before these entries were first run ---
+
+[[case]]
+request = "apply the Catppuccin theme"
+command = "omarchy theme set"
+expect = "omarchy theme set Catppuccin"
+
+[[case]]
+request = "show me the list of omarchy themes"
+command = "omarchy theme list"
+expect = "omarchy theme list"
+
+[[case]]
+request = "change the font to CaskaydiaMono"
+command = "omarchy font set"
+expect = "omarchy font set CaskaydiaMono"
+
+[[case]]
+request = "grab a screenshot of one window to my clipboard"
+command = "omarchy capture screenshot"
+expect = "omarchy capture screenshot windows copy"
+
+[[case]]
+request = "make a screen recording including system sound"
+command = "omarchy capture screenrecording"
+expect = "omarchy capture screenrecording --with-desktop-audio"
+
+[[case]]
+request = "lock my computer"
+command = "omarchy system lock"
+expect = "omarchy system lock"
+
+[[case]]
+request = "bluetooth won't connect, restart it"
+command = "omarchy restart"
+expect = "omarchy restart bluetooth"
+
+[[case]]
+request = "measure my upload speed"
+command = "omarchy network speedtest"
+expect = "omarchy network speedtest up"
+
+[[case]]
+request = "switch dns to google"
+command = "omarchy dns"
+expect = "omarchy dns Google"
+
+[[case]]
+request = "mute the sound"
+command = "omarchy audio output volume"
+expect = "omarchy audio output volume mute-toggle"
+
+[[case]]
+request = "make the screen brighter"
+command = "omarchy brightness display"
+expect = "omarchy brightness display +10%"
+
+[[case]]
+request = "i want maximum performance"
+command = "omarchy powerprofiles set"
+expect = "omarchy powerprofiles set autodetect performance"
+
+[[case]]
+request = "set a reminder for 45 minutes from now"
+command = "omarchy reminder"
+expect = "omarchy reminder 45"
+
+[[case]]
+request = "stop notifications from popping up"
+command = "omarchy toggle notification silencing"
+expect = "omarchy toggle notification silencing"
+
+[[case]]
+request = "don't let the laptop go to sleep"
+command = "omarchy toggle idle"
+expect = "omarchy toggle idle stay-awake"
+
+[[case]]
+request = "bring everything on this machine up to date"
+command = "pacman update|omarchy update"
+
+[[case]]
+request = "show the tailscale network"
+command = "tailscale status"
+expect = "tailscale status"
+
+[[case]]
+request = "take this machine off the tailnet"
+command = "tailscale down"
+expect = "sudo tailscale down"
+
+[[case]]
+request = "open a new tmux session named build"
+command = "tmux new"
+expect = "tmux new -s build"
+
+[[case]]
+request = "which tmux sessions are running"
+command = "tmux ls"
+expect = "tmux ls"
+
+[[case]]
+request = "scan for wireless networks"
+command = "nmcli wifi list"
+expect = "nmcli device wifi list"
+
+[[case]]
+request = "join the wifi called CafeGuest"
+command = "nmcli wifi connect"
+expect = "nmcli --ask device wifi connect CafeGuest"
+
+[[case]]
+request = "fetch the mistral model with ollama"
+command = "ollama pull"
+expect = "ollama pull mistral"
+
+[[case]]
+request = "talk to the phi4 model"
+command = "ollama run"
+expect = "ollama run phi4"
+
+[[case]]
+request = "get visual-studio-code-bin from the aur"
+command = "yay install"
+expect = "yay -S visual-studio-code-bin"
+
+[[case]]
+request = "build the rust project"
+command = "cargo build"
+expect = "cargo build"
+
+[[case]]
+request = "start a rust project named calculator"
+command = "cargo new"
+expect = "cargo new calculator"
+
+[[case]]
+request = "add tokio as a dependency"
+command = "cargo add"
+expect = "cargo add tokio"
+
+[[case]]
+request = "show existing snapshots"
+command = "snapper list"
+expect = "sudo snapper list"
+
+[[case]]
+request = "which files under src were modified in the past 3 days"
+command = "find"
+expect = "find src -type f -mtime -3"
+
+[[case]]
+request = "find files over a gigabyte in my home folder"
+command = "find"
+
+# --- Task entries: written before these entries were first run. Assumes SHELL is bash. ---
+
+[[case]]
+request = "make JAVA_HOME point to /usr/lib/jvm/default every time i open a terminal"
+command = "set shell variable"
+expect = "echo 'export JAVA_HOME=/usr/lib/jvm/default' >> ~/.bashrc"
+
+[[case]]
+request = "put ~/.local/bin on my path for good"
+command = "add to PATH"
+expect = "echo 'export PATH=\"$PATH:~/.local/bin\"' >> ~/.bashrc"
+
+[[case]]
+request = "i want gs to be a shortcut for \"git status\""
+command = "add shell alias"
+expect = "echo \"alias gs='git status'\" >> ~/.bashrc"
+
+[[case]]
+request = "i need to be in the libvirt group"
+command = "add user to group"
+expect = "sudo usermod -aG libvirt $USER"
+
+[[case]]
+request = "what groups does my user have"
+command = "groups"
+expect = "groups"
+
+[[case]]
+request = "check the status of my user service pipewire"
+command = "systemctl --user"
+expect = "systemctl --user status pipewire"
+
+[[case]]
+request = "set up passwordless ssh to mediabox"
+command = "ssh-copy-id"
+expect = "ssh-copy-id mediabox"
+
+[[case]]
+request = "how much charge is left in the battery"
+command = "battery status"
+expect = "upower -i $(upower -e | grep BAT)"
+
+[[case]]
+request = "who else is on my local network"
+command = "ip neigh"
+expect = "ip neigh"
+
+[[case]]
+request = "extract backup.rar"
+command = "unrar"
+expect = "unrar x backup.rar"
+
+[[case]]
+request = "free the memory used by the model phi4"
+command = "ollama stop"
+expect = "ollama stop phi4"
+
+[[case]]
+request = "look for the word timeout in the nginx service logs"
+command = "search service log"
+expect = "journalctl -u nginx | grep -i timeout"
+
+[[case]]
+request = "which things in Downloads are the biggest"
+command = "largest items|du"
+expect = "du -sh Downloads/* | sort -h"
+
+[[case]]
+request = "decode the qr code in wifi.jpg"
+command = "zbarimg"
+expect = "zbarimg wifi.jpg"
+
+[[case]]
+request = "print the third column of users.csv"
+command = "cut"
+expect = "cut -d, -f3 users.csv"
+
+[[case]]
+request = "show the 20 most recent log lines for docker"
+command = "journalctl"
+expect = "journalctl -u docker -n 20 --no-pager"

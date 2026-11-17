@@ -1,0 +1,9 @@
+name = "unzip"
+description = "Unpack a .zip archive"
+template = "unzip {archive}"
+keywords = ["extract zip", "unpack zip", "open zip file", "decompress zip"]
+
+[[slots]]
+id = "archive"
+kind = "path"
+what = "the .zip file to unpack"

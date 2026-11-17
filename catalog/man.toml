@@ -1,0 +1,9 @@
+name = "man"
+description = "Learn how to use a command by reading its manual page"
+template = "man {name}"
+keywords = ["manual", "help page", "documentation", "how to use command", "command reference", "usage guide"]
+
+[[slots]]
+id = "name"
+kind = "text"
+what = "the command to read about"

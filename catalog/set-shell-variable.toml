@@ -1,0 +1,16 @@
+name = "set shell variable"
+description = "Set an environment variable permanently, by adding an export line to my shell's startup file"
+template = "echo 'export {name}={value}' >> {shell_rc}"
+keywords = ["export variable", "env var", "environment variable", "permanent export", "bashrc export", "set env", "save variable"]
+
+[[slots]]
+id = "name"
+kind = "text"
+what = "the name of the environment variable"
+raw = true
+
+[[slots]]
+id = "value"
+kind = "text"
+what = "the value to give the variable"
+raw = true

@@ -1,0 +1,4 @@
+name = "tailscale status"
+description = "Show the devices on my Tailscale VPN and whether they are connected"
+template = "tailscale status"
+keywords = ["tailscale devices", "tailnet status", "vpn peers", "online devices tailscale"]

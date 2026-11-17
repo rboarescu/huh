@@ -1,0 +1,4 @@
+name = "ollama ps"
+description = "Show which Ollama AI models are loaded in memory right now"
+template = "ollama ps"
+keywords = ["loaded models", "running models", "models in vram", "models in memory"]

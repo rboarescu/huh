@@ -1,0 +1,36 @@
+name = "omarchy default"
+description = "Set the default browser, text editor, or terminal application in Omarchy"
+template = "omarchy default {kind} {app}"
+platform = "omarchy"
+keywords = ["default app", "default browser", "default editor", "default terminal", "default agent", "default coding agent", "change browser", "change editor", "change terminal", "change agent", "set default", "preferred application"]
+
+[[slots]]
+id = "kind"
+kind = "choice"
+question = "Which kind of default application does the user want to set?"
+
+[[slots.options]]
+name = "agent"
+value = "agent"
+description = "Default AI coding agent (claude, codex, opencode, pi, cursor-agent)"
+
+[[slots.options]]
+name = "browser"
+value = "browser"
+description = "Default web browser (chromium, chrome, brave, firefox, zen)"
+
+[[slots.options]]
+name = "editor"
+value = "editor"
+description = "Default text editor (code, cursor, zed, helix, vim, nvim, emacs)"
+
+[[slots.options]]
+name = "terminal"
+value = "terminal"
+description = "Default terminal emulator (alacritty, foot, ghostty, kitty)"
+
+[[slots]]
+id = "app"
+kind = "text"
+what = "the application name"
+default = ""

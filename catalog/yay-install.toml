@@ -1,0 +1,10 @@
+name = "yay install"
+description = "Install a program from the AUR, the Arch community repository"
+template = "yay -S {package}"
+platform = "arch"
+keywords = ["install aur package", "aur app", "yay -S", "community package"]
+
+[[slots]]
+id = "package"
+kind = "text"
+what = "the program to install"

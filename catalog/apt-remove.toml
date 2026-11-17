@@ -1,0 +1,10 @@
+name = "apt remove"
+description = "Uninstall a program or package"
+template = "sudo apt remove {package}"
+platform = "debian"
+keywords = ["uninstall program", "remove app", "delete package", "uninstall software"]
+
+[[slots]]
+id = "package"
+kind = "text"
+what = "the program to uninstall"

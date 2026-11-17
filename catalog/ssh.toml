@@ -1,0 +1,9 @@
+name = "ssh"
+description = "Log in to another computer over the network"
+template = "ssh {host}"
+keywords = ["remote login", "connect to server", "remote shell", "ssh into"]
+
+[[slots]]
+id = "host"
+kind = "text"
+what = "the computer to log in to"

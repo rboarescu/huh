@@ -1,0 +1,4 @@
+name = "mise upgrade"
+description = "Update the developer tools managed by mise to their latest versions"
+template = "mise upgrade"
+keywords = ["update dev tools", "upgrade mise", "update runtimes", "mise tools"]

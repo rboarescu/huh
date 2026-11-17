@@ -1,0 +1,25 @@
+name = "ls"
+description = "List the files and folders inside a folder"
+template = "ls {long} {all} {by_time} {target}"
+keywords = ["list files", "show files", "folder contents", "directory listing", "hidden files", "dotfiles", "file sizes", "modified dates", "permissions", "recently changed", "files in folder", "everything in folder"]
+
+[[flags]]
+id = "long"
+value = "-l"
+question = "Does the user want details for each entry, such as size, owner, permissions or date?"
+
+[[flags]]
+id = "all"
+value = "-a"
+question = "Does the user want hidden files included?"
+
+[[flags]]
+id = "by_time"
+value = "-t"
+question = "Does the user want the most recently changed entries listed first?"
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the folder to list"
+default = ""

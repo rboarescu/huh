@@ -1,0 +1,14 @@
+name = "kill"
+description = "Stop a running program, given its process ID number"
+template = "kill {force} {pid}"
+keywords = ["kill pid", "stop process id", "kill process number", "terminate pid", "force kill pid", "sigkill"]
+
+[[flags]]
+id = "force"
+value = "-9"
+question = "Does the user say the program is frozen or refuses to stop?"
+
+[[slots]]
+id = "pid"
+kind = "text"
+what = "the process ID number of the program to stop"

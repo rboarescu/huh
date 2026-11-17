@@ -1,0 +1,30 @@
+name = "grep"
+description = "Search inside files for lines that contain a word or phrase"
+template = "grep {ignore_case} {recursive} {line_numbers} {pattern} {where}"
+keywords = ["search inside file", "find text in files", "search string", "matching lines", "lines mentioning", "lines containing", "text search", "case insensitive", "recursive search", "search folder for text"]
+
+[[flags]]
+id = "ignore_case"
+value = "-i"
+question = "Does the user want upper and lower case treated as the same?"
+
+[[flags]]
+id = "recursive"
+value = "-r"
+question = "Does the user want every file inside a folder searched?"
+
+[[flags]]
+id = "line_numbers"
+value = "-n"
+question = "Does the user want to see the line number of each match?"
+
+[[slots]]
+id = "pattern"
+kind = "text"
+what = "the word or phrase to search for"
+
+[[slots]]
+id = "where"
+kind = "path"
+what = "the file or folder to search in"
+default = ""

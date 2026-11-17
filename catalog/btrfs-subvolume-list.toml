@@ -1,0 +1,4 @@
+name = "btrfs subvolume list"
+description = "List the subvolumes of the btrfs filesystem"
+template = "sudo btrfs subvolume list /"
+keywords = ["btrfs subvolumes", "list subvolumes", "btrfs layout"]

@@ -1,0 +1,9 @@
+name = "ollama stop"
+description = "Unload an Ollama AI model from memory"
+template = "ollama stop {model}"
+keywords = ["unload model", "stop llm", "free model memory"]
+
+[[slots]]
+id = "model"
+kind = "text"
+what = "the AI model to unload"

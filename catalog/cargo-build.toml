@@ -1,0 +1,9 @@
+name = "cargo build"
+description = "Compile a Rust project"
+template = "cargo build {release}"
+keywords = ["build rust", "compile rust", "release build", "debug build"]
+
+[[flags]]
+id = "release"
+value = "--release"
+question = "Does the user want an optimised release build?"

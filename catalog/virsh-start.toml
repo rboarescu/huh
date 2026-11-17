@@ -1,0 +1,10 @@
+name = "virsh start"
+description = "Start (boot) a virtual machine"
+template = "virsh start {vm}"
+package = "libvirt"
+keywords = ["boot vm", "start virtual machine", "power on vm"]
+
+[[slots]]
+id = "vm"
+kind = "text"
+what = "the virtual machine to start"

@@ -1,0 +1,10 @@
+name = "pacman install file"
+description = "Install a package file I already downloaded (a .pkg.tar.zst file)"
+template = "sudo pacman -U {file}"
+platform = "arch"
+keywords = ["install local package", "pkg.tar.zst", "downloaded package file", "pacman -U"]
+
+[[slots]]
+id = "file"
+kind = "path"
+what = "the downloaded package file"

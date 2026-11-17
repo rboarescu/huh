@@ -1,0 +1,296 @@
+# Failed commands for `huh eval-errors`.
+# mention: words the explanation must contain ("a|b" accepts either).
+# fix:     text the `Try:` command must contain ("a|b" accepts either).
+# The match is a first pass only: read the printed answers before trusting a score.
+
+[[case]]
+command = "cat /etc/shadow"
+exit = 1
+output = "cat: /etc/shadow: Permission denied"
+mention = ["permission|root|privilege"]
+fix = "sudo"
+
+[[case]]
+command = "htpo"
+exit = 127
+output = "bash: htpo: command not found"
+mention = ["not found|typo|misspell|not installed"]
+fix = "htop"
+
+[[case]]
+command = "jq . data.json"
+exit = 127
+output = "bash: jq: command not found"
+mention = ["not installed|not found"]
+fix = "pacman -S jq|yay -S jq"
+
+[[case]]
+command = "cd projcts"
+exit = 1
+output = "bash: cd: projcts: No such file or directory"
+mention = ["no such|not exist|doesn't exist"]
+fix = "ls"
+
+[[case]]
+command = "python3 -m http.server 8000"
+exit = 1
+output = '''
+Traceback (most recent call last):
+  File "/usr/lib/python3.14/http/server.py", line 1412, in <module>
+    test(
+  File "/usr/lib/python3.14/socketserver.py", line 478, in server_bind
+    self.socket.bind(self.server_address)
+OSError: [Errno 98] Address already in use
+'''
+mention = ["in use|already|another"]
+fix = "ss |lsof|fuser|8001"
+
+[[case]]
+command = "cp backup.tar.gz /mnt/data/"
+exit = 1
+output = "cp: error writing '/mnt/data/backup.tar.gz': No space left on device"
+mention = ["space|full"]
+fix = "df|du "
+
+[[case]]
+command = "sudo systemctl start nginx"
+exit = 1
+output = '''
+Job for nginx.service failed because the control process exited with error code.
+See "systemctl status nginx.service" and "journalctl -xeu nginx.service" for details.
+'''
+mention = ["nginx"]
+fix = "systemctl status nginx|journalctl"
+
+[[case]]
+command = "git push"
+exit = 1
+output = '''
+To github.com:example/project.git
+ ! [rejected]        main -> main (fetch first)
+error: failed to push some refs to 'github.com:example/project.git'
+hint: Updates were rejected because the remote contains work that you do not
+hint: have locally. This is usually caused by another repository pushing to
+hint: the same ref. If you want to integrate the remote changes, use
+hint: 'git pull' before pushing again.
+'''
+mention = ["remote"]
+fix = "git pull"
+
+[[case]]
+command = "git push"
+exit = 128
+output = '''
+fatal: The current branch feature-x has no upstream branch.
+To push the current branch and set the remote as upstream, use
+
+    git push --set-upstream origin feature-x
+'''
+mention = ["upstream"]
+fix = "git push --set-upstream origin feature-x|git push -u origin feature-x"
+
+[[case]]
+command = "cargo build"
+exit = 101
+output = '''
+   Compiling demo v0.1.0 (/home/user/demo)
+error[E0382]: borrow of moved value: `names`
+ --> src/main.rs:5:20
+  |
+3 |     let names = vec![String::from("a")];
+  |         ----- move occurs because `names` has type `Vec<String>`, which does not implement the `Copy` trait
+4 |     consume(names);
+  |             ----- value moved here
+5 |     println!("{}", names.len());
+  |                    ^^^^^ value borrowed here after move
+  |
+help: consider cloning the value if the performance cost is acceptable
+  |
+4 |     consume(names.clone());
+  |                  ++++++++
+
+error: could not compile `demo` (bin "demo") due to 1 previous error
+'''
+mention = ["moved|move", "names"]
+fix = "nothing"
+
+[[case]]
+command = "cargo run"
+exit = 101
+output = "error: could not find `Cargo.toml` in `/home/user/Downloads` or any parent directory"
+mention = ["Cargo.toml"]
+fix = "cd |cargo init|cargo new|ls|find"
+
+[[case]]
+command = "python app.py"
+exit = 1
+output = '''
+Traceback (most recent call last):
+  File "/home/user/app/app.py", line 1, in <module>
+    import requests
+ModuleNotFoundError: No module named 'requests'
+'''
+mention = ["requests", "module|installed"]
+fix = "requests"
+
+[[case]]
+command = "sudo pacman -Syu"
+exit = 1
+output = '''
+:: Synchronizing package databases...
+error: failed to synchronize all databases (unable to lock database)
+error: failed to init transaction (unable to lock database)
+error: could not lock database: File exists
+  if you're sure a package manager is not already
+  running, you can remove /var/lib/pacman/db.lck
+'''
+mention = ["lock"]
+fix = "db.lck|pgrep|ps "
+
+[[case]]
+command = "sudo pacman -S firefox"
+exit = 1
+output = '''
+resolving dependencies...
+looking for conflicting packages...
+Packages (1) firefox-145.0-1
+error: failed retrieving file 'firefox-145.0-1-x86_64.pkg.tar.zst' from mirror.example.org : The requested URL returned error: 404
+warning: failed to retrieve some files
+error: failed to commit transaction (failed to retrieve some files)
+Errors occurred, no packages were upgraded.
+'''
+mention = ["404|mirror|out of date|outdated|database"]
+fix = "-Sy"
+
+[[case]]
+command = "docker ps"
+exit = 1
+output = "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?"
+mention = ["daemon|not running|service"]
+fix = "systemctl start docker|systemctl status docker|systemctl enable"
+
+[[case]]
+command = "docker ps"
+exit = 1
+output = '''permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock: Get "http://%2Fvar%2Frun%2Fdocker.sock/v1.51/containers/json": dial unix /var/run/docker.sock: connect: permission denied'''
+mention = ["permission|group"]
+fix = "usermod|sudo docker|newgrp|gpasswd"
+
+[[case]]
+command = "ping archlinux.org"
+exit = 2
+output = "ping: archlinux.org: Temporary failure in name resolution"
+mention = ["DNS|name resolution|resolve"]
+fix = "ping -c|ping 1.1.1.1|ping 8.8.8.8|resolvectl|nmcli|resolv.conf|ip "
+
+[[case]]
+command = "ssh admin@192.168.0.50"
+exit = 255
+output = "admin@192.168.0.50: Permission denied (publickey)."
+mention = ["key"]
+fix = "ssh-copy-id|ssh -v|ssh-add|ssh -i"
+
+[[case]]
+command = "ssh nas"
+exit = 255
+output = "ssh: connect to host nas port 22: Connection refused"
+mention = ["refused|not running|not listening|port 22"]
+fix = "ping|systemctl|nc |ssh -v|nmap"
+
+[[case]]
+command = "./deploy.sh"
+exit = 126
+output = "bash: ./deploy.sh: Permission denied"
+mention = ["execut|permission"]
+fix = "chmod +x|chmod u+x|bash ./deploy.sh|bash deploy.sh|sh ./deploy.sh"
+
+[[case]]
+command = "tar -xzf photos.tar"
+exit = 2
+output = '''
+gzip: stdin: not in gzip format
+tar: Child returned status 1
+tar: Error is not recoverable: exiting now
+'''
+mention = ["gzip"]
+fix = "tar -xf photos.tar|tar xf photos.tar|file photos.tar"
+
+[[case]]
+command = "sudo mount /dev/sdb1 /mnt/usb"
+exit = 32
+output = "mount: /mnt/usb: mount point does not exist.\n       dmesg(1) may have more information after failed mount system call."
+mention = ["mount point|/mnt/usb", "exist"]
+fix = "mkdir"
+
+[[case]]
+command = "curl https://localhost:8443/health"
+exit = 60
+output = '''
+curl: (60) SSL certificate problem: self-signed certificate
+More details here: https://curl.se/docs/sslcerts.html
+
+curl failed to verify the legitimacy of the server and therefore could not
+establish a secure connection to it. To learn more about this situation and
+how to fix it, please visit the webpage mentioned above.
+'''
+mention = ["certificate", "self-signed|self signed|verify|trust"]
+fix = "-k|--insecure|--cacert"
+
+[[case]]
+command = "npm install"
+exit = 254
+output = '''
+npm error code ENOENT
+npm error syscall open
+npm error path /home/user/site/package.json
+npm error errno -2
+npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '/home/user/site/package.json'
+npm error enoent This is related to npm not being able to find a file.
+'''
+mention = ["package.json"]
+fix = "npm init|cd |ls"
+
+[[case]]
+command = "kill 4242"
+exit = 1
+output = "bash: kill: (4242) - No such process"
+mention = ["no such process|not exist|doesn't exist|no process|already"]
+fix = "ps |pgrep|nothing"
+
+[[case]]
+command = "rm -r build"
+exit = 1
+output = "rm: cannot remove 'build/cache/index': Read-only file system"
+mention = ["read-only|read only"]
+fix = "mount|findmnt|dmesg"
+
+[[case]]
+command = "ping archlinux.org"
+exit = 130
+output = "PING archlinux.org (95.217.163.246) 56(84) bytes of data."
+mention = ["interrupt|ctrl+c|130"]
+fix = "nothing"
+
+[[case]]
+command = "mkdir -p build"
+exit = 0
+output = ""
+mention = ["succeed|0|no error"]
+fix = "nothing"
+
+[[case]]
+command = "ls --nonexistent-flag"
+exit = 2
+output = '''
+ls: unrecognized option '--nonexistent-flag'
+Try 'ls --help' for more information.
+'''
+mention = ["usage|option|flag|syntax"]
+fix = "ls --help"
+
+[[case]]
+command = "touch /etc/test.conf"
+exit = 1
+output = "touch: cannot touch '/etc/test.conf': Permission denied"
+mention = ["permission|root|privilege"]
+fix = "sudo touch /etc/test.conf"

@@ -1,0 +1,10 @@
+name = "virsh console"
+description = "Connect to the text console of a virtual machine"
+template = "virsh console {vm}"
+package = "libvirt"
+keywords = ["vm serial console", "connect to vm console", "text console vm"]
+
+[[slots]]
+id = "vm"
+kind = "text"
+what = "the virtual machine to connect to"

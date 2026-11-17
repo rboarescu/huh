@@ -1,0 +1,9 @@
+name = "sha256sum"
+description = "Calculate the checksum of a file, to verify that a download is intact"
+template = "sha256sum {target}"
+keywords = ["checksum", "sha256", "verify download", "file hash", "integrity check", "hash of iso"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file to checksum"

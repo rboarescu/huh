@@ -1,0 +1,9 @@
+name = "gio trash"
+description = "Move a file or folder to the desktop trash safely instead of permanently deleting it"
+template = "gio trash {target}"
+keywords = ["move to trash", "put in trash", "trash file", "trash folder", "safe delete", "recycle bin", "discard file"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file or folder to move to the trash"

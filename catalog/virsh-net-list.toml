@@ -1,0 +1,5 @@
+name = "virsh net-list"
+description = "List the virtual networks used by virtual machines"
+template = "virsh net-list --all"
+package = "libvirt"
+keywords = ["virtual networks", "libvirt networks", "vm networks"]

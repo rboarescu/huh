@@ -1,0 +1,4 @@
+name = "ollama list"
+description = "List the AI models that have been downloaded for Ollama"
+template = "ollama list"
+keywords = ["installed models", "downloaded llm models", "ollama models"]

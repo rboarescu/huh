@@ -1,0 +1,4 @@
+name = "ps"
+description = "List the programs (processes) that are running right now"
+template = "ps aux"
+keywords = ["running programs", "running processes", "list processes", "active processes", "process list"]

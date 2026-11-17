@@ -1,0 +1,44 @@
+name = "systemctl"
+description = "Start, stop, restart or check a background service"
+template = "sudo systemctl {action} {service}"
+keywords = ["start service", "stop service", "restart service", "service status", "enable at boot", "disable at boot", "systemd daemon", "background service"]
+
+[[slots]]
+id = "action"
+kind = "choice"
+question = "What does the user want to do with the service?"
+
+[[slots.options]]
+name = "start"
+value = "start"
+description = "Start a service that is not running"
+
+[[slots.options]]
+name = "stop"
+value = "stop"
+description = "Stop a running service"
+
+[[slots.options]]
+name = "restart"
+value = "restart"
+description = "Stop the service and start it again"
+
+[[slots.options]]
+name = "status"
+value = "status"
+description = "See whether the service is running and whether it reported errors"
+
+[[slots.options]]
+name = "enable"
+value = "enable"
+description = "Make the service start by itself every time the computer boots"
+
+[[slots.options]]
+name = "disable"
+value = "disable"
+description = "Stop the service from starting by itself at boot"
+
+[[slots]]
+id = "service"
+kind = "text"
+what = "the service"

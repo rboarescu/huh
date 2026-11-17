@@ -1,0 +1,4 @@
+name = "lsblk"
+description = "List the disks and partitions attached to this computer"
+template = "lsblk"
+keywords = ["disks", "partitions", "drives", "block devices", "storage devices", "ssd", "hard drives", "mount points"]

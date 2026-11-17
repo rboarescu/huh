@@ -1,0 +1,4 @@
+name = "git status"
+description = "See which files have changed in a git repository"
+template = "git status"
+keywords = ["changed files", "modified files", "working tree status", "staged files", "repo status"]

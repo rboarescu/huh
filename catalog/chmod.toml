@@ -1,0 +1,39 @@
+name = "chmod"
+description = "Change who is allowed to read, write or run a file or folder"
+template = "chmod {recursive} {mode} {target}"
+keywords = ["permissions", "make executable", "make runnable", "script executable", "file permissions", "read only", "private file", "protect file", "allow running", "chmod +x", "prevent editing", "write protect"]
+
+[[flags]]
+id = "recursive"
+value = "-R"
+question = "Does the user want the change applied to everything inside a folder?"
+
+[[slots]]
+id = "mode"
+kind = "choice"
+question = "Which permission change does the user want?"
+
+[[slots.options]]
+name = "make_executable"
+value = "+x"
+description = "The file should be runnable as a program or script"
+
+[[slots.options]]
+name = "private_to_owner"
+value = "600"
+description = "Only the owner may read and write it; nobody else can open it"
+
+[[slots.options]]
+name = "read_only"
+value = "a-w"
+description = "Nobody should be able to change it"
+
+[[slots.options]]
+name = "readable_by_everyone"
+value = "644"
+description = "The owner can change it and everyone else can read it"
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file or folder whose permissions should change"

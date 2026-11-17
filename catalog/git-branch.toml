@@ -1,0 +1,4 @@
+name = "git branch"
+description = "List the git branches of a repository"
+template = "git branch"
+keywords = ["list branches", "show git branches", "local branches"]

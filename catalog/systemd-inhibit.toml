@@ -1,0 +1,9 @@
+name = "systemd-inhibit"
+description = "Keep the computer from going to sleep until one command I start has finished"
+template = "systemd-inhibit {command}"
+keywords = ["prevent sleep while running", "keep awake during command", "stop sleep until done", "inhibit idle"]
+
+[[slots]]
+id = "command"
+kind = "text"
+what = "the command to run"

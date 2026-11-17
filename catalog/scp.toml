@@ -1,0 +1,14 @@
+name = "scp"
+description = "Copy a file to or from another computer over the network"
+template = "scp {source} {dest}"
+keywords = ["copy over ssh", "send file to server", "download from server", "remote file copy"]
+
+[[slots]]
+id = "source"
+kind = "text"
+what = "the file to copy"
+
+[[slots]]
+id = "dest"
+kind = "text"
+what = "where the copy should go"

@@ -1,0 +1,5 @@
+name = "virsh list"
+description = "List the virtual machines"
+template = "virsh list --all"
+package = "libvirt"
+keywords = ["list vms", "virtual machines", "running vms", "all vms"]

@@ -1,0 +1,5 @@
+name = "omarchy update"
+description = "Update Omarchy itself together with the system packages"
+template = "omarchy update"
+platform = "omarchy"
+keywords = ["update omarchy", "update system", "upgrade omarchy", "system update"]

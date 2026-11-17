@@ -1,0 +1,5 @@
+name = "omarchy snapshot create"
+description = "Take a snapshot of the system that can be restored if something breaks"
+template = "omarchy snapshot create"
+platform = "omarchy"
+keywords = ["create snapshot", "backup system", "take snapshot", "restore point"]

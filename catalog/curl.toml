@@ -1,0 +1,14 @@
+name = "curl"
+description = "Download a file from a web address, or show what a web address returns"
+template = "curl -L {save} {url}"
+keywords = ["download url", "fetch webpage", "http request", "get url", "save file from url", "api request"]
+
+[[flags]]
+id = "save"
+value = "-O"
+question = "Does the user want the result saved as a file?"
+
+[[slots]]
+id = "url"
+kind = "text"
+what = "the web address"

@@ -1,0 +1,10 @@
+name = "du"
+description = "Show how much disk space a folder or file takes up"
+template = "du -sh {target}"
+keywords = ["folder size", "directory size", "how big is folder", "disk usage", "space taken by folder", "storage used"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the folder or file to measure"
+default = "."

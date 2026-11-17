@@ -1,0 +1,10 @@
+name = "virsh destroy"
+description = "Force a virtual machine off immediately, like pulling its power cord"
+template = "virsh destroy {vm}"
+package = "libvirt"
+keywords = ["force off vm", "kill hung vm", "hard power off vm", "pull power cord vm"]
+
+[[slots]]
+id = "vm"
+kind = "text"
+what = "the virtual machine to force off"

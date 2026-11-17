@@ -1,0 +1,14 @@
+name = "docker logs"
+description = "Show the output (logs) of a Docker container"
+template = "docker logs {follow} {container}"
+keywords = ["container logs", "container output", "follow container logs", "stdout container"]
+
+[[flags]]
+id = "follow"
+value = "-f"
+question = "Does the user want to keep watching new output as it appears?"
+
+[[slots]]
+id = "container"
+kind = "text"
+what = "the container whose logs to show"

@@ -1,0 +1,9 @@
+name = "nmcli wifi connect"
+description = "Connect to a Wi-Fi network"
+template = "nmcli --ask device wifi connect {ssid}"
+keywords = ["join wifi", "connect to wireless", "switch wifi network", "wifi password"]
+
+[[slots]]
+id = "ssid"
+kind = "text"
+what = "the name of the Wi-Fi network"

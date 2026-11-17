@@ -1,0 +1,9 @@
+name = "docker pull"
+description = "Download a Docker image"
+template = "docker pull {image}"
+keywords = ["download image", "fetch container image", "pull docker image"]
+
+[[slots]]
+id = "image"
+kind = "text"
+what = "the image to download"

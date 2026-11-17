@@ -1,0 +1,9 @@
+name = "top"
+description = "Watch live which programs are using the most processor or memory"
+template = "top {by_memory}"
+keywords = ["cpu usage", "memory usage", "eating cpu", "eating ram", "resource usage", "task manager", "system monitor", "live processes"]
+
+[[flags]]
+id = "by_memory"
+value = "-o %MEM"
+question = "Is the user asking about memory use?"

@@ -1,0 +1,4 @@
+name = "passwd"
+description = "Change my login password"
+template = "passwd"
+keywords = ["change password", "update password", "reset my password", "login password", "user password"]

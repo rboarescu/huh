@@ -1,0 +1,114 @@
+# Held-out failures for `huh eval-errors`: never adjust the prompt on these.
+
+[[case]]
+command = "rg TODO src"
+exit = 127
+output = "bash: rg: command not found"
+mention = ["not installed|not found"]
+fix = "pacman -S ripgrep|pacman -S rg|yay -S"
+
+[[case]]
+command = "systemctl restart sshd"
+exit = 1
+output = '''
+Failed to restart sshd.service: Access denied
+See system logs and 'systemctl status sshd.service' for details.
+'''
+mention = ["access|permission|root|privilege"]
+fix = "sudo systemctl restart sshd"
+
+[[case]]
+command = "git commit -m 'first'"
+exit = 128
+output = '''
+Author identity unknown
+
+*** Please tell me who you are.
+
+Run
+
+  git config --global user.email "you@example.com"
+  git config --global user.name "Your Name"
+
+to set your account's default identity.
+fatal: unable to auto-detect email address (got 'user@laptop.(none)')
+'''
+mention = ["identity|email|name"]
+fix = "git config"
+
+[[case]]
+command = "git checkout main"
+exit = 1
+output = '''
+error: Your local changes to the following files would be overwritten by checkout:
+	src/main.rs
+Please commit your changes or stash them before you switch branches.
+Aborting
+'''
+mention = ["local changes|uncommitted|overwritten"]
+fix = "git stash|git commit|git status|git diff"
+
+[[case]]
+command = "sudo umount /mnt/usb"
+exit = 32
+output = "umount: /mnt/usb: target is busy."
+mention = ["busy|in use|using"]
+fix = "lsof|fuser|umount -l"
+
+[[case]]
+command = "docker run -p 8080:80 nginx"
+exit = 125
+output = "docker: Error response from daemon: failed to set up container networking: driver failed programming external connectivity on endpoint: failed to bind host port 0.0.0.0:8080/tcp: address already in use"
+mention = ["8080", "in use|already"]
+fix = "ss |lsof|docker ps|8081|fuser"
+
+[[case]]
+command = "unzip photos.zip"
+exit = 9
+output = "unzip:  cannot find or open photos.zip, photos.zip.zip or photos.zip.ZIP."
+mention = ["find|exist|open"]
+fix = "ls"
+
+[[case]]
+command = "ollama run granite"
+exit = 1
+output = "Error: could not connect to ollama server, run 'ollama serve' to start it"
+mention = ["server|not running|serve"]
+fix = "ollama serve|systemctl start ollama|systemctl status ollama"
+
+[[case]]
+command = "tailscale up"
+exit = 1
+output = "failed to connect to local tailscaled; it doesn't appear to be running (sudo systemctl start tailscaled ?)"
+mention = ["tailscaled"]
+fix = "systemctl start tailscaled|systemctl enable"
+
+[[case]]
+command = "wget https://example.org/file.iso"
+exit = 3
+output = '''
+--2026-11-17 10:02:11--  https://example.org/file.iso
+Resolving example.org (example.org)... 93.184.216.34
+Connecting to example.org (example.org)|93.184.216.34|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 2147483648 (2.0G) [application/octet-stream]
+file.iso: Permission denied
+
+Cannot write to 'file.iso' (Permission denied).
+'''
+mention = ["write|permission"]
+fix = "ls -l|cd |-O |-P |sudo"
+
+[[case]]
+command = "tail -f /var/log/pacman.log"
+exit = 130
+output = "[2026-11-17T09:10:00] [PACMAN] Running 'pacman -Syu'"
+mention = ["interrupt|ctrl+c|130"]
+fix = "nothing"
+
+[[case]]
+command = "cp notes.txt backup.txt"
+exit = 0
+output = ""
+mention = ["succeed|0|no error"]
+fix = "nothing"

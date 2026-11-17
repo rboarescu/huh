@@ -1,0 +1,5 @@
+name = "omarchy font list"
+description = "List the monospace fonts available in Omarchy"
+template = "omarchy font list"
+platform = "omarchy"
+keywords = ["available fonts", "list fonts", "monospace fonts", "terminal fonts"]

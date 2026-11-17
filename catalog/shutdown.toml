@@ -1,0 +1,4 @@
+name = "shutdown"
+description = "Turn the computer off"
+template = "shutdown now"
+keywords = ["power off", "turn off computer", "shut down pc", "halt system", "power down"]

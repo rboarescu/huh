@@ -1,0 +1,9 @@
+name = "docker exec"
+description = "Open a shell inside a Docker container that is already running"
+template = "docker exec -it {container} sh"
+keywords = ["shell inside container", "bash in container", "enter running container", "run command in container"]
+
+[[slots]]
+id = "container"
+kind = "text"
+what = "the container to get into"

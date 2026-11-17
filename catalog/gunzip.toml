@@ -1,0 +1,9 @@
+name = "gunzip"
+description = "Decompress a single .gz file"
+template = "gunzip {target}"
+keywords = ["decompress .gz", "unpack gz", "extract .gz", "uncompress gz"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the .gz file to decompress"

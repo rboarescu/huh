@@ -1,0 +1,10 @@
+name = "pacman remove"
+description = "Uninstall a program or package"
+template = "sudo pacman -Rs {package}"
+platform = "arch"
+keywords = ["uninstall program", "remove app", "delete package", "uninstall software", "pacman -R"]
+
+[[slots]]
+id = "package"
+kind = "text"
+what = "the program to uninstall"

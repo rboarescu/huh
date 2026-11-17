@@ -1,0 +1,20 @@
+name = "omarchy toggle idle"
+description = "Keep the computer awake so it does not lock or sleep by itself, or let it idle normally again"
+template = "omarchy toggle idle {mode}"
+platform = "omarchy"
+keywords = ["stay awake", "prevent sleep", "keep screen on", "disable auto lock", "caffeine", "allow idle", "allow sleep"]
+
+[[slots]]
+id = "mode"
+kind = "choice"
+question = "What does the user want?"
+
+[[slots.options]]
+name = "stay_awake"
+value = "stay-awake"
+description = "The computer should stay awake and not lock or sleep"
+
+[[slots.options]]
+name = "allow_idle"
+value = "allow-idle"
+description = "The computer may lock and sleep normally again"

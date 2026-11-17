@@ -1,0 +1,4 @@
+name = "wifi band"
+description = "Show which Wi-Fi network, channel and frequency band (2.4, 5 or 6 GHz) I am connected on"
+template = "iw dev"
+keywords = ["wifi band", "2.4 or 5 ghz", "6 ghz", "wifi channel", "wireless frequency", "connected wifi info"]

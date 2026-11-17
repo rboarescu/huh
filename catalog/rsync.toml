@@ -1,0 +1,14 @@
+name = "rsync"
+description = "Make one folder match another, copying only the files that changed"
+template = "rsync -av {source} {dest}"
+keywords = ["sync folders", "mirror folder", "incremental copy", "backup folder", "copy changed files"]
+
+[[slots]]
+id = "source"
+kind = "path"
+what = "the folder to copy from"
+
+[[slots]]
+id = "dest"
+kind = "path"
+what = "the destination that receives the files"

@@ -1,0 +1,4 @@
+name = "history"
+description = "Show the commands I typed earlier"
+template = "history"
+keywords = ["command history", "previous commands", "past commands", "what did i type", "last commands", "recent commands"]

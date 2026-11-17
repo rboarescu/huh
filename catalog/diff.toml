@@ -1,0 +1,14 @@
+name = "diff"
+description = "Compare two files and show the lines that differ"
+template = "diff {first} {second}"
+keywords = ["compare files", "file differences", "what changed between files", "line differences", "side by side diff"]
+
+[[slots]]
+id = "first"
+kind = "path"
+what = "the first of the two files to compare"
+
+[[slots]]
+id = "second"
+kind = "path"
+what = "the second of the two files to compare"

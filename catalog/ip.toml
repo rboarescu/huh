@@ -1,0 +1,5 @@
+name = "ip"
+description = "Show this computer's IP addresses and network connections"
+template = "ip -br addr"
+package = "iproute2"
+keywords = ["ip address", "my ip", "local ip", "network interfaces", "network adapters", "ip addr"]

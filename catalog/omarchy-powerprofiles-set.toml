@@ -1,0 +1,25 @@
+name = "omarchy powerprofiles set"
+description = "Choose between saving battery and maximum performance"
+template = "omarchy powerprofiles set autodetect {profile}"
+platform = "omarchy"
+keywords = ["power mode", "power saver", "battery saver", "balanced mode", "performance mode", "power profile"]
+
+[[slots]]
+id = "profile"
+kind = "choice"
+question = "Which power profile does the user want?"
+
+[[slots.options]]
+name = "power_saver"
+value = "power-saver"
+description = "Use as little power as possible so the battery lasts longer"
+
+[[slots.options]]
+name = "balanced"
+value = "balanced"
+description = "A middle ground between speed and battery life"
+
+[[slots.options]]
+name = "performance"
+value = "performance"
+description = "Maximum speed, without regard for power use"

@@ -1,0 +1,4 @@
+name = "uptime"
+description = "Show how long the computer has been running since it was switched on"
+template = "uptime"
+keywords = ["how long running", "system uptime", "boot time", "load average", "since reboot"]

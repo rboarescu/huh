@@ -1,0 +1,4 @@
+name = "cargo test"
+description = "Run the tests of a Rust project"
+template = "cargo test"
+keywords = ["test rust", "run unit tests", "rust test suite"]

@@ -1,0 +1,19 @@
+name = "docker run"
+description = "Create and start a new Docker container from an image"
+template = "docker run {detached} {interactive} {image}"
+keywords = ["start new container", "launch image", "run container", "detached", "interactive shell"]
+
+[[flags]]
+id = "detached"
+value = "-d"
+question = "Does the user want the container to keep running in the background?"
+
+[[flags]]
+id = "interactive"
+value = "-it"
+question = "Does the user want an interactive shell or session in the new container?"
+
+[[slots]]
+id = "image"
+kind = "text"
+what = "the image to run"

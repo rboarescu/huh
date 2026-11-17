@@ -1,0 +1,4 @@
+name = "cargo run"
+description = "Compile and run a Rust project"
+template = "cargo run"
+keywords = ["run rust project", "execute rust binary", "compile and run rust"]

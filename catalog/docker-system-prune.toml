@@ -1,0 +1,5 @@
+name = "docker system prune"
+description = "Free disk space by deleting unused Docker containers, images and networks"
+template = "docker system prune"
+destructive = true
+keywords = ["clean up docker", "free docker space", "prune unused containers", "remove unused images"]

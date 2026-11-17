@@ -1,0 +1,4 @@
+name = "nmcli wifi list"
+description = "List the Wi-Fi networks in range"
+template = "nmcli device wifi list"
+keywords = ["scan wifi", "nearby wifi", "available wifi networks", "wireless networks", "ssid list"]

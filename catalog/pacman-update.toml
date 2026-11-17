@@ -1,0 +1,5 @@
+name = "pacman update"
+description = "Update the system and all installed programs to their latest versions"
+template = "sudo pacman -Syu"
+platform = "arch"
+keywords = ["update packages", "upgrade arch", "update system", "system upgrade", "pacman -Syu"]

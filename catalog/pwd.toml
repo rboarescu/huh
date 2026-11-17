@@ -1,0 +1,4 @@
+name = "pwd"
+description = "Show which folder I am in right now"
+template = "pwd"
+keywords = ["current directory", "working directory", "where am i", "current folder", "which folder am i in", "present working directory"]

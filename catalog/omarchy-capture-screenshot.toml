@@ -1,0 +1,45 @@
+name = "omarchy capture screenshot"
+description = "Take a screenshot"
+template = "omarchy capture screenshot {area} {output}"
+platform = "omarchy"
+keywords = ["take screenshot", "screen capture", "snip screen", "copy screenshot to clipboard", "save screenshot", "screenshot window", "fullscreen screenshot"]
+
+[[slots]]
+id = "area"
+kind = "choice"
+question = "What does the user want in the screenshot?"
+
+[[slots.options]]
+name = "region"
+value = "region"
+description = "A part of the screen that the user selects"
+
+[[slots.options]]
+name = "window"
+value = "windows"
+description = "One window"
+
+[[slots.options]]
+name = "fullscreen"
+value = "fullscreen"
+description = "The entire screen"
+
+[[slots.options]]
+name = "unspecified"
+value = "smart"
+description = "The user does not say what area"
+
+[[slots]]
+id = "output"
+kind = "choice"
+question = "What should happen with the screenshot?"
+
+[[slots.options]]
+name = "copy_to_clipboard"
+value = "copy"
+description = "Put it on the clipboard so it can be pasted"
+
+[[slots.options]]
+name = "save_as_file"
+value = "save"
+description = "Save it as an image file, or the user does not say"

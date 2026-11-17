@@ -1,0 +1,10 @@
+name = "git add"
+description = "Stage changed files so they are included in the next git commit"
+template = "git add {target}"
+keywords = ["stage files", "stage changes", "add to staging", "prepare commit"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file or folder to stage"
+default = "."

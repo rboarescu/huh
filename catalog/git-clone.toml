@@ -1,0 +1,9 @@
+name = "git clone"
+description = "Download a copy of a git repository from a web address"
+template = "git clone {url}"
+keywords = ["download git repo", "clone repository", "checkout remote repo"]
+
+[[slots]]
+id = "url"
+kind = "text"
+what = "the address of the repository"

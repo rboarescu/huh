@@ -1,0 +1,10 @@
+name = "pacman search"
+description = "Search for a program that is available to install"
+template = "pacman -Ss {term}"
+platform = "arch"
+keywords = ["find package", "search software", "is there a package", "pacman -Ss"]
+
+[[slots]]
+id = "term"
+kind = "text"
+what = "the program or keyword to search for"

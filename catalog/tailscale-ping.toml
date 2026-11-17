@@ -1,0 +1,9 @@
+name = "tailscale ping"
+description = "Check whether another device on my Tailscale VPN can be reached"
+template = "tailscale ping {host}"
+keywords = ["ping tailscale peer", "reach tailscale device", "test tailscale connection"]
+
+[[slots]]
+id = "host"
+kind = "text"
+what = "the Tailscale device to check"

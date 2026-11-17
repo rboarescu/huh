@@ -1,0 +1,9 @@
+name = "cargo add"
+description = "Add a dependency (crate) to a Rust project"
+template = "cargo add {crate}"
+keywords = ["add rust dependency", "install crate", "add crate to Cargo.toml"]
+
+[[slots]]
+id = "crate"
+kind = "text"
+what = "the crate to add"

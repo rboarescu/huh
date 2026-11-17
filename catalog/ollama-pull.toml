@@ -1,0 +1,9 @@
+name = "ollama pull"
+description = "Download an AI model for Ollama"
+template = "ollama pull {model}"
+keywords = ["download model", "pull llm", "fetch ollama model"]
+
+[[slots]]
+id = "model"
+kind = "text"
+what = "the AI model to download"

@@ -1,0 +1,10 @@
+name = "omarchy theme set"
+description = "Change the desktop theme, the colours and look of the whole Omarchy desktop"
+template = "omarchy theme set {theme}"
+platform = "omarchy"
+keywords = ["change theme", "switch theme", "set desktop theme", "desktop colors"]
+
+[[slots]]
+id = "theme"
+kind = "text"
+what = "the theme to apply"

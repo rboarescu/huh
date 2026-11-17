@@ -1,0 +1,4 @@
+name = "docker compose up"
+description = "Start the services defined in a Docker Compose file"
+template = "docker compose up -d"
+keywords = ["start compose", "bring up stack", "launch docker compose", "start compose services"]

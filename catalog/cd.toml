@@ -1,0 +1,9 @@
+name = "cd"
+description = "Go to another folder"
+template = "cd {target}"
+keywords = ["change directory", "go to folder", "enter folder", "open directory", "navigate to folder", "switch directory"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the folder to go to"

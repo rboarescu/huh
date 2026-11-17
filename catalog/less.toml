@@ -1,0 +1,9 @@
+name = "less"
+description = "Read a long text file one screen at a time, scrolling up and down"
+template = "less {target}"
+keywords = ["scroll through file", "pager", "read long file", "view huge log", "page by page"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file to read"

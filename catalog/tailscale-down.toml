@@ -1,0 +1,4 @@
+name = "tailscale down"
+description = "Disconnect this computer from the Tailscale VPN"
+template = "sudo tailscale down"
+keywords = ["disconnect tailscale", "stop tailscale", "disable vpn", "leave tailnet"]

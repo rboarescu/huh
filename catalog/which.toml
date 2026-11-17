@@ -1,0 +1,9 @@
+name = "which"
+description = "Find out where a program is installed, or whether it is installed at all"
+template = "which {name}"
+keywords = ["where is program", "executable location", "binary path", "is program installed", "command location", "find executable"]
+
+[[slots]]
+id = "name"
+kind = "text"
+what = "the program to look up"

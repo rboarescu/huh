@@ -1,0 +1,14 @@
+name = "mv"
+description = "Move a file or folder to another place, or rename it"
+template = "mv {source} {dest}"
+keywords = ["move file", "move folder", "rename file", "rename folder", "relocate"]
+
+[[slots]]
+id = "source"
+kind = "path"
+what = "the existing file or folder to move or rename"
+
+[[slots]]
+id = "dest"
+kind = "path"
+what = "the new place or new name"

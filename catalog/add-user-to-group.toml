@@ -1,0 +1,9 @@
+name = "add user to group"
+description = "Add my user to a group, for example to use docker without sudo"
+template = "sudo usermod -aG {group} $USER"
+keywords = ["join group", "usermod", "docker group", "group permissions", "add myself to group", "without sudo"]
+
+[[slots]]
+id = "group"
+kind = "text"
+what = "the group to join"

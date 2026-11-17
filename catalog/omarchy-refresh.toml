@@ -1,0 +1,40 @@
+name = "omarchy refresh"
+description = "Reset a broken Omarchy, Hyprland, shell bar, tmux, or pacman configuration back to defaults with a backup"
+template = "omarchy refresh {part}"
+platform = "omarchy"
+keywords = ["reset config", "restore default config", "fix broken config", "omarchy reset", "reset hyprland", "reset top bar", "reset shell", "reset tmux", "reset pacman", "reset hyprsunset", "reset chromium", "default configuration"]
+
+[[slots]]
+id = "part"
+kind = "choice"
+question = "Which configuration should be reset to Omarchy defaults?"
+
+[[slots.options]]
+name = "shell"
+value = "shell"
+description = "The Omarchy shell and top bar configuration (shell.json)"
+
+[[slots.options]]
+name = "hyprland"
+value = "hyprland"
+description = "The Hyprland window manager configuration in ~/.config/hypr"
+
+[[slots.options]]
+name = "tmux"
+value = "tmux"
+description = "The tmux terminal multiplexer configuration"
+
+[[slots.options]]
+name = "pacman"
+value = "pacman"
+description = "The /etc/pacman package manager and mirror configuration"
+
+[[slots.options]]
+name = "hyprsunset"
+value = "hyprsunset"
+description = "The hyprsunset night light / blue light filter configuration"
+
+[[slots.options]]
+name = "chromium"
+value = "chromium"
+description = "The Chromium browser flags configuration (~/.config/chromium-flags.conf)"

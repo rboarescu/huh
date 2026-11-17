@@ -1,0 +1,10 @@
+name = "yay search"
+description = "Search for a program in the AUR as well as the official repositories"
+template = "yay -Ss {term}"
+platform = "arch"
+keywords = ["search aur", "find aur package", "yay -Ss"]
+
+[[slots]]
+id = "term"
+kind = "text"
+what = "the program or keyword to search for"

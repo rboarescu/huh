@@ -1,0 +1,28 @@
+name = "journalctl"
+description = "Read the system log, or the log of one background service"
+template = "journalctl {boot} {follow} {unit} {lines}"
+keywords = ["service logs", "systemd logs", "system log", "journal", "follow logs", "boot logs", "last log lines", "daemon logs"]
+
+[[flags]]
+id = "boot"
+value = "-b"
+question = "Does the user only want messages since the computer was last started?"
+
+[[flags]]
+id = "follow"
+value = "-f"
+question = "Does the user want to keep watching for new messages as they appear?"
+
+[[slots]]
+id = "unit"
+kind = "text"
+what = "the service whose log to read"
+default = ""
+format = "-u {}"
+
+[[slots]]
+id = "lines"
+kind = "text"
+what = "the number of most recent log lines to show"
+format = "-n {} --no-pager"
+default = ""

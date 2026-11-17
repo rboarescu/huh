@@ -1,0 +1,10 @@
+name = "smartctl"
+description = "Check the health of a disk (its SMART data)"
+template = "sudo smartctl -a {disk}"
+package = "smartmontools"
+keywords = ["disk health", "ssd health", "drive health", "smart status", "hard drive failing", "nvme health", "bad sectors"]
+
+[[slots]]
+id = "disk"
+kind = "text"
+what = "the disk device to check"

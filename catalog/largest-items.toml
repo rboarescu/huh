@@ -1,0 +1,11 @@
+name = "largest items"
+description = "See which files and folders take the most space inside a folder, smallest to largest"
+template = "du -sh {where} | sort -h"
+keywords = ["largest files", "biggest folders", "taking up most space", "disk hog", "what uses space", "sort by size"]
+
+[[slots]]
+id = "where"
+kind = "path"
+what = "the folder to look inside"
+default = "*"
+format = "{}/*"

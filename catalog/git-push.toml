@@ -1,0 +1,4 @@
+name = "git push"
+description = "Upload my git commits to the remote server"
+template = "git push"
+keywords = ["upload commits", "push to origin", "push branch", "send commits"]

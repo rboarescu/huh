@@ -1,0 +1,11 @@
+name = "virsh undefine"
+description = "Delete a virtual machine's definition from the host"
+template = "virsh undefine {vm}"
+destructive = true
+package = "libvirt"
+keywords = ["delete vm", "remove vm definition", "erase virtual machine"]
+
+[[slots]]
+id = "vm"
+kind = "text"
+what = "the virtual machine to delete"

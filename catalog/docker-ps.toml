@@ -1,0 +1,9 @@
+name = "docker ps"
+description = "List Docker containers"
+template = "docker ps {all}"
+keywords = ["running containers", "list containers", "stopped containers", "all containers"]
+
+[[flags]]
+id = "all"
+value = "-a"
+question = "Does the user want stopped containers included?"

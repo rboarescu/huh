@@ -1,0 +1,4 @@
+name = "reboot"
+description = "Restart the computer"
+template = "reboot"
+keywords = ["restart computer", "reboot machine", "restart pc", "reboot system"]

@@ -1,0 +1,4 @@
+name = "df"
+description = "Show how much free space is left on each disk"
+template = "df -h"
+keywords = ["disk space", "free space", "available storage", "storage left", "disk full", "filesystem space", "how much space left"]

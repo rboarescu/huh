@@ -1,0 +1,10 @@
+name = "virsh domifaddr"
+description = "Find the IP address of a virtual machine"
+template = "virsh domifaddr {vm}"
+package = "libvirt"
+keywords = ["vm ip address", "find vm ip", "guest ip"]
+
+[[slots]]
+id = "vm"
+kind = "text"
+what = "the virtual machine whose address to find"

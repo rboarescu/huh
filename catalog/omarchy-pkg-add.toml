@@ -1,0 +1,10 @@
+name = "omarchy pkg add"
+description = "Install a program using Omarchy's package helper, which skips it if it is already installed"
+template = "omarchy pkg add {package}"
+platform = "omarchy"
+keywords = ["install program", "install package", "add app", "omarchy install"]
+
+[[slots]]
+id = "package"
+kind = "text"
+what = "the program to install"

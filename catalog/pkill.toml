@@ -1,0 +1,14 @@
+name = "pkill"
+description = "Stop a running program, given its name"
+template = "pkill {force} {name}"
+keywords = ["kill frozen app", "frozen program", "force close", "kill by name", "kill process by name", "stop frozen program", "end unresponsive program", "close stuck app"]
+
+[[flags]]
+id = "force"
+value = "-9"
+question = "Does the user say the program is frozen or refuses to stop?"
+
+[[slots]]
+id = "name"
+kind = "text"
+what = "the name of the program to stop"

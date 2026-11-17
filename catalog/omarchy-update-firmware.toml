@@ -1,0 +1,5 @@
+name = "omarchy update firmware"
+description = "Update the computer's firmware (BIOS, UEFI and device firmware)"
+template = "omarchy update firmware"
+platform = "omarchy"
+keywords = ["update bios", "update uefi", "firmware update", "fwupd"]

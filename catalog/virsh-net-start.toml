@@ -1,0 +1,10 @@
+name = "virsh net-start"
+description = "Start a virtual network used by virtual machines"
+template = "virsh net-start {network}"
+package = "libvirt"
+keywords = ["start virtual network", "start libvirt network", "start default network"]
+
+[[slots]]
+id = "network"
+kind = "text"
+what = "the virtual network to start"

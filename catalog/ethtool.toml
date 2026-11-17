@@ -1,0 +1,9 @@
+name = "ethtool"
+description = "Show the link speed of a wired network card"
+template = "sudo ethtool {interface} | grep -i speed"
+keywords = ["ethernet speed", "link speed", "wired network speed", "nic speed", "gigabit link", "network card speed"]
+
+[[slots]]
+id = "interface"
+kind = "text"
+what = "the network card"

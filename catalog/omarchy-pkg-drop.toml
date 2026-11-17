@@ -1,0 +1,10 @@
+name = "omarchy pkg drop"
+description = "Uninstall a program using Omarchy's package helper"
+template = "omarchy pkg drop {package}"
+platform = "omarchy"
+keywords = ["uninstall program", "remove package", "drop app", "omarchy uninstall"]
+
+[[slots]]
+id = "package"
+kind = "text"
+what = "the program to uninstall"

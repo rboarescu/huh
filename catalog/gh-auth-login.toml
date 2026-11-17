@@ -1,0 +1,4 @@
+name = "gh auth login"
+description = "Log in to GitHub from the terminal"
+template = "gh auth login"
+keywords = ["github login", "authenticate github", "gh cli login", "sign in to github"]

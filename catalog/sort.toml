@@ -1,0 +1,19 @@
+name = "sort"
+description = "Put the lines of a file in alphabetical or numerical order"
+template = "sort {numeric} {reverse} {target}"
+keywords = ["sort lines", "alphabetical order", "numerical order", "sort numbers", "biggest to smallest", "reverse sort", "descending order"]
+
+[[flags]]
+id = "numeric"
+value = "-n"
+question = "Does the user want the lines ordered as numbers?"
+
+[[flags]]
+id = "reverse"
+value = "-r"
+question = "Does the user want the order reversed, largest or last first?"
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file whose lines to sort"

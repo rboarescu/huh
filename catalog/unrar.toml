@@ -1,0 +1,9 @@
+name = "unrar"
+description = "Unpack a .rar archive"
+template = "unrar x {archive}"
+keywords = ["extract rar", "unpack rar", "open rar archive", "decompress rar"]
+
+[[slots]]
+id = "archive"
+kind = "path"
+what = "the .rar file to unpack"

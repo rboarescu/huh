@@ -1,0 +1,4 @@
+name = "nmcli connection show"
+description = "List the network connections this computer has saved"
+template = "nmcli connection show"
+keywords = ["saved wifi", "saved networks", "network profiles", "known connections"]

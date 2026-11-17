@@ -1,0 +1,14 @@
+name = "cat"
+description = "Print the whole contents of a text file in the terminal"
+template = "cat {numbers} {target}"
+keywords = ["print file", "show file contents", "read file", "display file", "line numbers", "dump text file", "inside file", "contents of file"]
+
+[[flags]]
+id = "numbers"
+value = "-n"
+question = "Does the user want line numbers shown?"
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file to show"

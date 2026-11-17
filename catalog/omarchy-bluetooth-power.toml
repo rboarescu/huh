@@ -1,0 +1,20 @@
+name = "omarchy bluetooth power"
+description = "Turn Bluetooth on or off"
+template = "omarchy bluetooth power {state}"
+platform = "omarchy"
+keywords = ["turn bluetooth on", "turn bluetooth off", "enable bluetooth", "disable bluetooth"]
+
+[[slots]]
+id = "state"
+kind = "choice"
+question = "Should Bluetooth be on or off?"
+
+[[slots.options]]
+name = "on"
+value = "on"
+description = "Bluetooth should be switched on"
+
+[[slots.options]]
+name = "off"
+value = "off"
+description = "Bluetooth should be switched off"

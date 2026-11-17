@@ -1,0 +1,50 @@
+name = "omarchy restart"
+description = "Fix a misbehaving part of the desktop by restarting it: Wi-Fi, sound, Bluetooth, the top bar, terminal, Hyprland, trackpad or night light"
+template = "omarchy restart {part}"
+platform = "omarchy"
+keywords = ["restart wifi", "restart audio", "fix sound", "restart bluetooth", "restart shell", "restart top bar", "reload hyprland", "restart trackpad", "restart touchpad", "restart terminal", "restart hyprsunset", "fix misbehaving"]
+
+[[slots]]
+id = "part"
+kind = "choice"
+question = "Which part is misbehaving?"
+
+[[slots.options]]
+name = "wifi"
+value = "wifi"
+description = "Wi-Fi or the wireless connection"
+
+[[slots.options]]
+name = "audio"
+value = "audio"
+description = "Sound, speakers, headphones or microphone"
+
+[[slots.options]]
+name = "bluetooth"
+value = "bluetooth"
+description = "Bluetooth or a Bluetooth device"
+
+[[slots.options]]
+name = "shell"
+value = "shell"
+description = "The top bar, menus or desktop shell"
+
+[[slots.options]]
+name = "terminal"
+value = "terminal"
+description = "Terminal emulator configuration or reload terminal settings"
+
+[[slots.options]]
+name = "hyprctl"
+value = "hyprctl"
+description = "Hyprland window manager configuration"
+
+[[slots.options]]
+name = "trackpad"
+value = "trackpad"
+description = "Laptop trackpad or touchpad driver when unresponsive"
+
+[[slots.options]]
+name = "hyprsunset"
+value = "hyprsunset"
+description = "Night light / blue light filter (hyprsunset) service"

@@ -1,0 +1,16 @@
+name = "omarchy reminder"
+description = "Set a reminder that pops up as a desktop notification after some minutes"
+template = "omarchy reminder {minutes} {message}"
+platform = "omarchy"
+keywords = ["set reminder", "notify me in minutes", "timer notification", "remind me"]
+
+[[slots]]
+id = "minutes"
+kind = "text"
+what = "the number of minutes until the reminder"
+
+[[slots]]
+id = "message"
+kind = "text"
+what = "the text of the reminder"
+default = ""

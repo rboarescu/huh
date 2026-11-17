@@ -1,0 +1,10 @@
+name = "virsh reboot"
+description = "Restart a virtual machine"
+template = "virsh reboot {vm}"
+package = "libvirt"
+keywords = ["restart vm", "reboot virtual machine"]
+
+[[slots]]
+id = "vm"
+kind = "text"
+what = "the virtual machine to restart"

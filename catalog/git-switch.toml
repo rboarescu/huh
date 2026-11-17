@@ -1,0 +1,14 @@
+name = "git switch"
+description = "Switch to another git branch, or create a new one"
+template = "git switch {create} {branch}"
+keywords = ["change branch", "checkout branch", "new branch", "create branch", "switch git branch"]
+
+[[flags]]
+id = "create"
+value = "-c"
+question = "Does the user want a new branch created?"
+
+[[slots]]
+id = "branch"
+kind = "text"
+what = "the branch"

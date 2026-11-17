@@ -1,0 +1,5 @@
+name = "omarchy version"
+description = "Show which version of Omarchy is installed"
+template = "omarchy version"
+platform = "omarchy"
+keywords = ["omarchy version", "which version of omarchy", "check omarchy version"]

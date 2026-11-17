@@ -1,0 +1,15 @@
+name = "rm"
+description = "Delete a file or folder permanently"
+template = "rm {recursive} {target}"
+destructive = true
+keywords = ["delete file", "delete folder", "remove file", "remove folder", "erase", "get rid of", "wipe folder", "permanent delete"]
+
+[[flags]]
+id = "recursive"
+value = "-r"
+question = "Is the thing being deleted a folder?"
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file or folder to delete"

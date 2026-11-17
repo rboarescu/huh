@@ -1,0 +1,4 @@
+name = "date"
+description = "Show the current date and time"
+template = "date"
+keywords = ["current date", "current time", "what time is it", "today's date", "system clock"]

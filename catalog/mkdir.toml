@@ -1,0 +1,14 @@
+name = "mkdir"
+description = "Create a new, empty folder"
+template = "mkdir {parents} {target}"
+keywords = ["make directory", "create folder", "new folder", "new directory", "nested folders", "parent folders"]
+
+[[flags]]
+id = "parents"
+value = "-p"
+question = "Does the user want a folder created inside other folders that may not exist yet?"
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the new folder to create"

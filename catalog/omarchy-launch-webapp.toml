@@ -1,0 +1,10 @@
+name = "omarchy launch webapp"
+description = "Open a website in its own window, like a separate app"
+template = "omarchy launch webapp {url}"
+platform = "omarchy"
+keywords = ["open web app", "launch website as app", "standalone browser window", "pwa"]
+
+[[slots]]
+id = "url"
+kind = "text"
+what = "the address of the website"

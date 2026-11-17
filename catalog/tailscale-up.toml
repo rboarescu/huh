@@ -1,0 +1,4 @@
+name = "tailscale up"
+description = "Connect this computer to the Tailscale VPN"
+template = "sudo tailscale up"
+keywords = ["connect tailscale", "start tailscale", "enable vpn", "join tailnet"]

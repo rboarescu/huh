@@ -1,0 +1,14 @@
+name = "zip"
+description = "Pack files or folders into a .zip archive"
+template = "zip -r {archive} {inputs}"
+keywords = ["create zip", "zip folder", "compress to zip", "pack into zip", "archive zip"]
+
+[[slots]]
+id = "archive"
+kind = "path"
+what = "the .zip file to create"
+
+[[slots]]
+id = "inputs"
+kind = "path"
+what = "the file or folder to put into the archive"

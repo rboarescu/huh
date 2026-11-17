@@ -1,0 +1,5 @@
+name = "omarchy system lock"
+description = "Lock the screen so a password is needed to get back in"
+template = "omarchy system lock"
+platform = "omarchy"
+keywords = ["lock screen", "lock computer", "screen lock"]

@@ -1,0 +1,10 @@
+name = "virsh shutdown"
+description = "Shut a virtual machine down cleanly"
+template = "virsh shutdown {vm}"
+package = "libvirt"
+keywords = ["shut down vm", "graceful shutdown vm", "stop vm cleanly", "power off vm"]
+
+[[slots]]
+id = "vm"
+kind = "text"
+what = "the virtual machine to shut down"

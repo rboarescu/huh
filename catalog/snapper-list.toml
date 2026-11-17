@@ -1,0 +1,4 @@
+name = "snapper list"
+description = "List the system snapshots that exist"
+template = "sudo snapper list"
+keywords = ["btrfs snapshots", "list snapshots", "system restore points", "snapper snapshots"]

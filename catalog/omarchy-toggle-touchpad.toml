@@ -1,0 +1,20 @@
+name = "omarchy toggle touchpad"
+description = "Turn the laptop touchpad on or off"
+template = "omarchy toggle touchpad {state}"
+platform = "omarchy"
+keywords = ["enable touchpad", "disable touchpad", "turn off trackpad", "turn on trackpad", "touchpad toggle"]
+
+[[slots]]
+id = "state"
+kind = "choice"
+question = "Should the touchpad be on or off?"
+
+[[slots.options]]
+name = "on"
+value = "on"
+description = "The touchpad should work"
+
+[[slots.options]]
+name = "off"
+value = "off"
+description = "The touchpad should be disabled"

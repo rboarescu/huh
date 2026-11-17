@@ -1,0 +1,4 @@
+name = "whoami"
+description = "Show which user I am logged in as"
+template = "whoami"
+keywords = ["current user", "username", "logged in user", "who am i", "active user"]

@@ -1,0 +1,4 @@
+name = "uname"
+description = "Show the kernel version and what kind of system this is"
+template = "uname -a"
+keywords = ["kernel version", "os architecture", "system info", "linux kernel", "uname"]

@@ -1,0 +1,9 @@
+name = "tmux kill-session"
+description = "End a tmux terminal session"
+template = "tmux kill-session -t {name}"
+keywords = ["kill tmux session", "close tmux session", "end session"]
+
+[[slots]]
+id = "name"
+kind = "text"
+what = "the session to end"

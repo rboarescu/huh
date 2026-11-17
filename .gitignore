@@ -1,0 +1,4 @@
+target/
+.env
+evals/nl2bash.toml
+\*\*\*Terminal Assistant\*\*\*.md

@@ -1,0 +1,20 @@
+name = "tail"
+description = "Show only the last lines of a file, or keep watching a file as it grows"
+template = "tail {follow} -n {count} {target}"
+keywords = ["last lines", "end of file", "bottom of file", "watch log live", "follow log", "follow file", "stream log", "new lines"]
+
+[[flags]]
+id = "follow"
+value = "-f"
+question = "Does the user want to keep watching the file for new lines as they are written?"
+
+[[slots]]
+id = "count"
+kind = "text"
+what = "the number of lines to show"
+default = "10"
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file to show"

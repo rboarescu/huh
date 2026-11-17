@@ -1,0 +1,19 @@
+name = "uniq"
+description = "Remove repeated lines from a file, or count how often each line occurs"
+template = "sort {target} | uniq {count} {ranked}"
+keywords = ["remove duplicates", "deduplicate", "unique lines", "count occurrences", "most common lines", "frequency count", "repeated lines"]
+
+[[flags]]
+id = "count"
+value = "-c"
+question = "Does the user want to know how many times each line occurs?"
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file with the repeated lines"
+
+[[flags]]
+id = "ranked"
+value = "| sort -nr"
+question = "Does the user want the most frequent lines listed first?"

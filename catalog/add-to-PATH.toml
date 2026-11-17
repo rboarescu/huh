@@ -1,0 +1,10 @@
+name = "add to PATH"
+description = "Add a folder to my PATH permanently, so programs in it can be run by name"
+template = "echo 'export PATH=\"$PATH:{folder}\"' >> {shell_rc}"
+keywords = ["add to path", "executable path", "search path", "bin folder", "environment path"]
+
+[[slots]]
+id = "folder"
+kind = "path"
+what = "the folder to add to PATH"
+raw = true

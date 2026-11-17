@@ -1,0 +1,5 @@
+name = "ss"
+description = "Show which network ports are open and which programs are listening on them"
+template = "ss -tulpn"
+package = "iproute2"
+keywords = ["open ports", "listening ports", "which port", "active connections", "network sockets", "what is using port"]

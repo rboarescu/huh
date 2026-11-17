@@ -1,0 +1,4 @@
+name = "lsusb"
+description = "List the USB devices that are plugged in"
+template = "lsusb"
+keywords = ["usb devices", "plugged in usb", "connected usb", "usb list"]

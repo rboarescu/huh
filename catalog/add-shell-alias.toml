@@ -1,0 +1,16 @@
+name = "add shell alias"
+description = "Create a permanent short name (alias) for a long command"
+template = "echo \"alias {name}='{command}'\" >> {shell_rc}"
+keywords = ["alias", "shortcut command", "abbreviate command", "custom command", "command alias", "bashrc alias", "zshrc alias"]
+
+[[slots]]
+id = "name"
+kind = "text"
+what = "the short name for the alias"
+raw = true
+
+[[slots]]
+id = "command"
+kind = "text"
+what = "the command the alias should run"
+raw = true

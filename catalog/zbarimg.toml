@@ -1,0 +1,10 @@
+name = "zbarimg"
+description = "Read the QR code or barcode in an image file"
+template = "zbarimg {image}"
+package = "zbar"
+keywords = ["scan qr code", "decode qr code", "read barcode", "qr code in image", "extract qr url"]
+
+[[slots]]
+id = "image"
+kind = "path"
+what = "the image file"

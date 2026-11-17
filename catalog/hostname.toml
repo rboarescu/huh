@@ -1,0 +1,4 @@
+name = "hostname"
+description = "Show this computer's name"
+template = "hostname"
+keywords = ["computer name", "machine name", "host name", "what is this computer called"]

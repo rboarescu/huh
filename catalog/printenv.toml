@@ -1,0 +1,10 @@
+name = "printenv"
+description = "Show environment variables and their values"
+template = "printenv {name}"
+keywords = ["environment variable", "env var", "show path variable", "value of variable", "env", "shell variable value"]
+
+[[slots]]
+id = "name"
+kind = "text"
+what = "the environment variable to show"
+default = ""

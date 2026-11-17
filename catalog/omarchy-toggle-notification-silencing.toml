@@ -1,0 +1,5 @@
+name = "omarchy toggle notification silencing"
+description = "Turn do-not-disturb on or off, so notifications stop popping up"
+template = "omarchy toggle notification silencing"
+platform = "omarchy"
+keywords = ["do not disturb", "mute notifications", "silence notifications", "dnd", "stop popups"]

@@ -1,0 +1,10 @@
+name = "omarchy pkg aur add"
+description = "Install a package from the AUR (Arch User Repository) using Omarchy's helper"
+template = "omarchy pkg aur add {package}"
+platform = "omarchy"
+keywords = ["install aur package", "install from aur", "aur helper", "omarchy aur", "add aur app", "arch user repository"]
+
+[[slots]]
+id = "package"
+kind = "text"
+what = "the AUR package to install"

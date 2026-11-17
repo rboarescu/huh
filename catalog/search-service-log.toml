@@ -1,0 +1,14 @@
+name = "search service log"
+description = "Search the log of a background service for a word or phrase"
+template = "journalctl -u {unit} | grep -i {word}"
+keywords = ["grep journalctl", "search service log", "find error in service log", "filter service logs", "logs containing"]
+
+[[slots]]
+id = "unit"
+kind = "text"
+what = "the service whose log to search"
+
+[[slots]]
+id = "word"
+kind = "text"
+what = "the word or phrase to look for"

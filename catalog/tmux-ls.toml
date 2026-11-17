@@ -1,0 +1,4 @@
+name = "tmux ls"
+description = "List the tmux terminal sessions that are running"
+template = "tmux ls"
+keywords = ["list tmux sessions", "running tmux sessions", "active sessions"]

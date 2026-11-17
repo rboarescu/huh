@@ -1,0 +1,19 @@
+name = "cp"
+description = "Make a copy of a file or folder, keeping the original"
+template = "cp {recursive} {source} {dest}"
+keywords = ["copy file", "copy folder", "duplicate file", "duplicate folder", "make a copy", "clone file"]
+
+[[flags]]
+id = "recursive"
+value = "-r"
+question = "Is the thing being copied a folder?"
+
+[[slots]]
+id = "source"
+kind = "path"
+what = "the existing file or folder to copy"
+
+[[slots]]
+id = "dest"
+kind = "path"
+what = "the place or new name the copy should go to"

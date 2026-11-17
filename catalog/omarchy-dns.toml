@@ -1,0 +1,25 @@
+name = "omarchy dns"
+description = "Choose which DNS provider the computer uses to look up website names"
+template = "omarchy dns {provider}"
+platform = "omarchy"
+keywords = ["change dns", "cloudflare dns", "google dns", "1.1.1.1", "8.8.8.8", "dhcp dns", "dns server"]
+
+[[slots]]
+id = "provider"
+kind = "choice"
+question = "Which DNS provider does the user want?"
+
+[[slots.options]]
+name = "cloudflare"
+value = "Cloudflare"
+description = "Cloudflare, also known as 1.1.1.1"
+
+[[slots.options]]
+name = "google"
+value = "Google"
+description = "Google, also known as 8.8.8.8"
+
+[[slots.options]]
+name = "from_router"
+value = "DHCP"
+description = "Whatever the router or network hands out automatically"

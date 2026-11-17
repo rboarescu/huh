@@ -1,0 +1,15 @@
+name = "head"
+description = "Show only the first lines of a file"
+template = "head -n {count} {target}"
+keywords = ["first lines", "top lines", "beginning of file", "start of file", "preview file"]
+
+[[slots]]
+id = "count"
+kind = "text"
+what = "the number of lines to show"
+default = "10"
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file to show"

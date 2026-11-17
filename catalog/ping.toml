@@ -1,0 +1,10 @@
+name = "ping"
+description = "Check whether a website or another computer can be reached over the network"
+template = "ping -c 4 {host}"
+keywords = ["reachable", "test connection", "check host", "latency", "packet loss", "is website up", "is server online", "connected to internet", "check internet", "internet connection"]
+
+[[slots]]
+id = "host"
+kind = "text"
+what = "the website or computer to check"
+default = "1.1.1.1"

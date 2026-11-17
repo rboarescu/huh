@@ -1,0 +1,9 @@
+name = "nano"
+description = "Open a text file in an editor to change it"
+template = "nano {target}"
+keywords = ["edit file", "text editor", "modify file", "open in editor", "change text file"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file to edit"

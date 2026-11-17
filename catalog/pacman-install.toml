@@ -1,0 +1,10 @@
+name = "pacman install"
+description = "Install a program or package"
+template = "sudo pacman -S {package}"
+platform = "arch"
+keywords = ["install program", "install app", "install software", "add package", "pacman -S"]
+
+[[slots]]
+id = "package"
+kind = "text"
+what = "the program to install"

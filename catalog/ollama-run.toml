@@ -1,0 +1,14 @@
+name = "ollama run"
+description = "Chat with a local AI model using Ollama"
+template = "ollama run {model} {verbose}"
+keywords = ["chat with model", "run llm locally", "tokens per second", "prompt model"]
+
+[[slots]]
+id = "model"
+kind = "text"
+what = "the AI model to chat with"
+
+[[flags]]
+id = "verbose"
+value = "--verbose"
+question = "Does the user want speed statistics, such as tokens per second?"

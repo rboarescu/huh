@@ -1,0 +1,4 @@
+name = "git log"
+description = "Show the history of git commits"
+template = "git log --oneline"
+keywords = ["commit history", "recent commits", "git history", "past commits"]

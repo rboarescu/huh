@@ -1,0 +1,5 @@
+name = "omarchy theme list"
+description = "List the desktop themes available in Omarchy"
+template = "omarchy theme list"
+platform = "omarchy"
+keywords = ["available themes", "list themes", "desktop themes", "color schemes"]

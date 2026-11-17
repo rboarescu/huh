@@ -1,0 +1,14 @@
+name = "ln"
+description = "Create a shortcut (symbolic link) that points to another file or folder"
+template = "ln -s {source} {link}"
+keywords = ["symlink", "symbolic link", "shortcut", "link file", "soft link", "alias file"]
+
+[[slots]]
+id = "source"
+kind = "path"
+what = "the existing file or folder the link should point to"
+
+[[slots]]
+id = "link"
+kind = "path"
+what = "the name of the new link"

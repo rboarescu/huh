@@ -1,0 +1,15 @@
+name = "append to system file"
+description = "Add a line to a configuration file that only root may change"
+template = "echo '{line}' | sudo tee -a {file}"
+keywords = ["add line to root file", "write protected file", "etc config", "sudo append", "tee -a", "modify system file"]
+
+[[slots]]
+id = "line"
+kind = "text"
+what = "the line of text to add"
+raw = true
+
+[[slots]]
+id = "file"
+kind = "path"
+what = "the system file to add the line to"

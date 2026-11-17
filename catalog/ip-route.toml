@@ -1,0 +1,5 @@
+name = "ip route"
+description = "Show the default gateway and how network traffic is routed"
+template = "ip route"
+package = "iproute2"
+keywords = ["default gateway", "routing table", "network routes", "gateway ip"]

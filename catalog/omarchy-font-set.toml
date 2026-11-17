@@ -1,0 +1,10 @@
+name = "omarchy font set"
+description = "Change the monospace font used by the terminal and desktop"
+template = "omarchy font set {font}"
+platform = "omarchy"
+keywords = ["change font", "set terminal font", "monospace font", "desktop font"]
+
+[[slots]]
+id = "font"
+kind = "text"
+what = "the font to use"

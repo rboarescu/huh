@@ -1,0 +1,2879 @@
+//! Zero-network, zero-LLM deterministic matcher implementing `crate::backend::Backend`.
+//!
+//! Uses multi-field BM25F (with a precomputed inverted postings index) over
+//! normalized stems and canonical Linux/desktop concepts, structural intent
+//! disambiguators, domain-coherence fit checks, and syntactic slot-role binding.
+
+use crate::backend::{Answer, Answers, Backend, Question, Questions};
+use crate::candidates::number_word;
+use crate::catalog::{Command, Flag, Slot, SlotKind, installed};
+use crate::questions::COMMAND;
+use anyhow::Result;
+use serde_json::Value;
+use std::borrow::Cow;
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+const FIELD_COUNT: usize = 6;
+const FIELD_WEIGHTS: [f64; FIELD_COUNT] = [
+    3.0, // name
+    2.5, // description
+    2.2, // keywords (hook for cataloger's Command.keywords)
+    1.4, // slots (what + choice options)
+    1.2, // flags (question + id)
+    1.0, // template literals
+];
+const FIELD_B: [f64; FIELD_COUNT] = [0.5, 0.6, 0.5, 0.5, 0.5, 0.4];
+const BM25_K1: f64 = 1.2;
+
+const STOPWORDS: &[&str] = &[
+    "a", "an", "the", "i", "me", "my", "we", "you", "your", "it", "its", "this", "that",
+    "these", "those", "is", "are", "was", "were", "be", "been", "being", "do", "does", "did",
+    "can", "could", "would", "should", "will", "shall", "may", "might", "want", "need", "like",
+    "please", "to", "of", "in", "on", "at", "for", "from", "with", "and", "or", "as", "by",
+    "so", "there", "have", "has", "had", "some", "just", "am", "what", "which", "where", "how",
+    "who", "when", "why", "if", "then", "than", "into", "about", "get", "give", "let", "tell",
+];
+
+/// Returns the catalog keywords for a command.
+fn command_keywords(command: &Command) -> &[String] {
+    &command.keywords
+}
+
+#[derive(Clone, Debug)]
+struct IndexedCommand {
+    command: Command,
+    installed: bool,
+    name_lower: String,
+    name_words: Vec<String>,
+    fields: [HashMap<String, f64>; FIELD_COUNT],
+    field_lens: [f64; FIELD_COUNT],
+    all_terms: HashSet<String>,
+    flag_terms: HashMap<String, HashMap<String, f64>>,
+    choice_opt_terms: HashMap<(String, String), HashMap<String, f64>>,
+}
+
+pub struct LocalMatcher {
+    entries: Vec<IndexedCommand>,
+    by_name: BTreeMap<String, usize>,
+    vocab: HashMap<String, usize>,
+    postings: Vec<Vec<(usize, f64)>>,
+}
+
+impl LocalMatcher {
+    pub fn new(catalog: &[Command]) -> Self {
+        Self::build(catalog, &[])
+    }
+
+    /// Builds an index with optional per-command keyword slices (for tests).
+    #[cfg(test)]
+    pub fn with_keywords(catalog: &[Command], extra_keywords: &[Vec<String>]) -> Self {
+        Self::build(catalog, extra_keywords)
+    }
+
+    fn build(catalog: &[Command], extra_keywords: &[Vec<String>]) -> Self {
+        let mut entries = Vec::with_capacity(catalog.len());
+        let mut by_name = BTreeMap::new();
+        let mut df: HashMap<String, usize> = HashMap::new();
+        let mut total_lens = [0.0f64; FIELD_COUNT];
+
+        for (idx, cmd) in catalog.iter().enumerate() {
+            let kw: &[String] = if !command_keywords(cmd).is_empty() {
+                command_keywords(cmd)
+            } else {
+                extra_keywords.get(idx).map(Vec::as_slice).unwrap_or(&[])
+            };
+
+            let indexed = index_command(cmd, kw);
+            let mut seen = HashSet::new();
+            for (f_idx, field) in indexed.fields.iter().enumerate() {
+                total_lens[f_idx] += indexed.field_lens[f_idx];
+                for term in field.keys() {
+                    if seen.insert(term.clone()) {
+                        *df.entry(term.clone()).or_insert(0) += 1;
+                    }
+                }
+            }
+            by_name.insert(cmd.name.clone(), idx);
+            entries.push(indexed);
+        }
+
+        let n = catalog.len().max(1) as f64;
+        let mut avg_field_lens = [1.0f64; FIELD_COUNT];
+        for i in 0..FIELD_COUNT {
+            avg_field_lens[i] = (total_lens[i] / n).max(1.0);
+        }
+
+        let mut vocab: HashMap<String, usize> = HashMap::with_capacity(df.len());
+        let mut postings: Vec<Vec<(usize, f64)>> = Vec::with_capacity(df.len());
+
+        for (term, count) in df {
+            let idf = (((n - count as f64 + 0.5) / (count as f64 + 0.5) + 1.0).ln()).max(0.1);
+            let tid = postings.len();
+            vocab.insert(term.clone(), tid);
+            let mut list = Vec::with_capacity(count);
+
+            for (cmd_idx, entry) in entries.iter().enumerate() {
+                let mut tf_comb = 0.0f64;
+                for f_idx in 0..FIELD_COUNT {
+                    if let Some(&tf) = entry.fields[f_idx].get(&term) {
+                        let norm = 1.0 - FIELD_B[f_idx]
+                            + FIELD_B[f_idx] * (entry.field_lens[f_idx] / avg_field_lens[f_idx]);
+                        tf_comb += FIELD_WEIGHTS[f_idx] * (tf / norm);
+                    }
+                }
+                if tf_comb > 0.0 {
+                    let sat = (tf_comb * (BM25_K1 + 1.0)) / (tf_comb + BM25_K1);
+                    list.push((cmd_idx, idf * sat));
+                }
+            }
+            postings.push(list);
+        }
+
+        Self { entries, by_name, vocab, postings }
+    }
+
+    fn answer_command(&self, request: &str, criteria: &BTreeMap<String, Option<String>>) -> Answer {
+        let q_unquoted = strip_quoted_for_ranking(request);
+        let q_terms = extract_weighted_terms(&q_unquoted);
+        let q_norm = normalize_text(&q_unquoted);
+        let q_words = raw_lower_words(&q_norm);
+        let q_ctx = QueryContext::new(request, &q_norm, &q_words, &q_terms);
+
+        // Precompute BM25F scores across all indexed commands in one fast pass.
+        let mut bm25_scores = vec![0.0f64; self.entries.len()];
+        for (term, &q_weight) in &q_terms {
+            if let Some(&tid) = self.vocab.get(term) {
+                for &(cmd_idx, contrib) in &self.postings[tid] {
+                    bm25_scores[cmd_idx] += contrib * q_weight * 0.55;
+                }
+            }
+        }
+
+        let mut scored: Vec<(String, f64)> = Vec::with_capacity(criteria.len());
+        for (name, fallback_desc) in criteria {
+            let score = if let Some(&idx) = self.by_name.get(name) {
+                let entry = &self.entries[idx];
+                let intent_bonus = command_intent_bonus(
+                    &entry.command,
+                    entry.name_lower.as_str(),
+                    &entry.name_words,
+                    &q_ctx,
+                );
+                let tie_break = if entry.installed { 0.12 } else { 0.0 };
+                bm25_scores[idx] + intent_bonus + tie_break
+            } else {
+                let desc = fallback_desc.as_deref().unwrap_or("");
+                let words = raw_lower_words(&normalize_text(desc));
+                let hits = q_ctx.words.iter().filter(|w| words.contains(w)).count();
+                hits as f64
+            };
+            scored.push((name.clone(), score));
+        }
+
+        scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+        let top_k = scored.len().min(12);
+        let temperature = 2.6;
+        let max_s = scored.first().map_or(0.0, |(_, s)| *s);
+
+        let mut exp_scores = Vec::with_capacity(top_k);
+        let mut sum_exp = 0.0f64;
+        for (_, s) in scored.iter().take(top_k) {
+            let e = ((*s - max_s) / temperature).exp();
+            sum_exp += e;
+            exp_scores.push(e);
+        }
+
+        let tail_count = scored.len().saturating_sub(top_k);
+        let tail_mass = if tail_count > 0 { 0.005 } else { 0.0 };
+        let head_scale = (1.0 - tail_mass) / sum_exp.max(1e-9);
+        let tail_prob = if tail_count > 0 { tail_mass / tail_count as f64 } else { 0.0 };
+
+        let mut probabilities = BTreeMap::new();
+        for (i, (name, _)) in scored.iter().enumerate() {
+            let p = if i < top_k { exp_scores[i] * head_scale } else { tail_prob };
+            probabilities.insert(name.clone(), p);
+        }
+
+        let choice = scored.first().map(|(n, _)| n.clone()).unwrap_or_default();
+        Answer::Choice { choice, probabilities }
+    }
+
+    fn answer_details(&self, request: &str, questions: &Questions) -> Answers {
+        let q_norm = normalize_text(request);
+        let q_words = raw_lower_words(&q_norm);
+        let q_terms = extract_weighted_terms(request);
+        let q = QueryContext::new(request, &q_norm, &q_words, &q_terms);
+
+        struct Group<'a> {
+            fit_key: Option<String>,
+            fit_inst: Option<&'a str>,
+            flags: Vec<(String, String, &'a str)>,
+            choices: Vec<(String, String, &'a BTreeMap<String, Option<String>>, &'a str)>,
+            named: HashMap<String, String>,
+            slot_picks: HashMap<String, &'a BTreeMap<String, Option<String>>>,
+        }
+
+        let mut groups: BTreeMap<String, Group<'_>> = BTreeMap::new();
+        for (q_id, question) in questions {
+            let (cmd_name, suffix) = self.split_question_id(q_id);
+            let group = groups.entry(cmd_name.to_string()).or_insert_with(|| Group {
+                fit_key: None,
+                fit_inst: None,
+                flags: vec![],
+                choices: vec![],
+                named: HashMap::new(),
+                slot_picks: HashMap::new(),
+            });
+            match (suffix, question) {
+                ("fit", Question::Noul { instructions }) => {
+                    group.fit_key = Some(q_id.clone());
+                    group.fit_inst = Some(instructions.as_str());
+                }
+                (s, Question::Noul { .. }) if s.ends_with('?') => {
+                    let slot_id = s.trim_end_matches('?').to_string();
+                    group.named.insert(slot_id, q_id.clone());
+                }
+                (s, Question::Noul { instructions }) => {
+                    group.flags.push((q_id.clone(), s.to_string(), instructions.as_str()));
+                }
+                (s, Question::Choice { instructions, criteria }) => {
+                    if let Some(&idx) = self.by_name.get(cmd_name) {
+                        let cmd = &self.entries[idx].command;
+                        if cmd.slots.iter().any(|sl| sl.id == s && sl.kind == SlotKind::Choice) {
+                            group.choices.push((q_id.clone(), s.to_string(), criteria, instructions.as_str()));
+                        } else {
+                            group.slot_picks.insert(s.to_string(), criteria);
+                        }
+                    } else if criteria.values().any(Option::is_some) {
+                        group.choices.push((q_id.clone(), s.to_string(), criteria, instructions.as_str()));
+                    } else {
+                        group.slot_picks.insert(s.to_string(), criteria);
+                    }
+                }
+            }
+        }
+
+        let mut out = Answers::new();
+        for (cmd_name, group) in groups {
+            let entry_idx = self.by_name.get(&cmd_name).copied();
+            let entry = entry_idx.map(|idx| &self.entries[idx]);
+
+            if let Some(fit_key) = group.fit_key {
+                let p = match (entry_idx, entry) {
+                    (Some(idx), Some(e)) => self.score_fit(idx, e, &q),
+                    _ => fallback_fit(group.fit_inst.unwrap_or(""), &q),
+                };
+                out.insert(fit_key, Answer::Noul { noul: p });
+            }
+
+            for (q_id, flag_id, inst) in group.flags {
+                let flag_opt = entry.and_then(|e| e.command.flags.iter().find(|f| f.id == flag_id));
+                let pre_terms = entry.and_then(|e| e.flag_terms.get(&flag_id));
+                let p = score_flag(&cmd_name, &flag_id, flag_opt, pre_terms, inst, &q);
+                out.insert(q_id, Answer::Noul { noul: p });
+            }
+
+            let mut choice_picks: HashMap<String, String> = HashMap::new();
+            for (q_id, slot_id, criteria, _inst) in group.choices {
+                let slot_opt = entry.and_then(|e| e.command.slots.iter().find(|sl| sl.id == slot_id));
+                let ans = score_choice_slot(&cmd_name, &slot_id, slot_opt, entry, criteria, &q);
+                if let Answer::Choice { ref choice, .. } = ans {
+                    choice_picks.insert(slot_id, choice.clone());
+                }
+                out.insert(q_id, ans);
+            }
+
+            if !group.slot_picks.is_empty() || !group.named.is_empty() {
+                let cmd_opt = entry.map(|e| &e.command);
+                let bound = bind_slots(&cmd_name, cmd_opt, &group.slot_picks, &choice_picks, &q);
+                for (slot_id, criteria) in &group.slot_picks {
+                    let pick_id = format!("{cmd_name}.{slot_id}");
+                    if let Some((named_prob, picked)) = bound.get(slot_id) {
+                        if let Some(named_qid) = group.named.get(slot_id) {
+                            out.insert(named_qid.clone(), Answer::Noul { noul: *named_prob });
+                        }
+                        let mut probs = BTreeMap::new();
+                        let fallback_key = criteria.keys().next().cloned().unwrap_or_default();
+                        let chosen = if criteria.contains_key(picked) {
+                            picked.clone()
+                        } else {
+                            fallback_key
+                        };
+                        for k in criteria.keys() {
+                            probs.insert(k.clone(), if k == &chosen { 0.92 } else { 0.01 });
+                        }
+                        out.insert(pick_id, Answer::Choice { choice: chosen, probabilities: probs });
+                    } else if let Some(named_qid) = group.named.get(slot_id) {
+                        out.insert(named_qid.clone(), Answer::Noul { noul: 0.05 });
+                        let chosen = criteria.keys().next().cloned().unwrap_or_default();
+                        let probs = criteria
+                            .keys()
+                            .map(|k| (k.clone(), if k == &chosen { 0.5 } else { 0.01 }))
+                            .collect();
+                        out.insert(pick_id, Answer::Choice { choice: chosen, probabilities: probs });
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    fn split_question_id<'a>(&self, q_id: &'a str) -> (&'a str, &'a str) {
+        let mut best: Option<(&'a str, &'a str)> = None;
+        for (idx, part) in q_id.match_indices('.') {
+            let prefix = &q_id[..idx];
+            if self.by_name.contains_key(prefix) {
+                best = Some((prefix, &q_id[idx + part.len()..]));
+            }
+        }
+        best.unwrap_or_else(|| q_id.rsplit_once('.').unwrap_or((q_id, "")))
+    }
+
+    fn score_fit(&self, idx: usize, entry: &IndexedCommand, q: &QueryContext<'_>) -> f64 {
+        if is_off_topic_unmodeled(&entry.command, q) {
+            return 0.08;
+        }
+        if !passes_domain_coherence(&entry.command, q) {
+            return 0.14;
+        }
+
+        let mut matched_terms = 0usize;
+        let mut bm25 = 0.0f64;
+        for (term, &q_weight) in q.term_weights {
+            if entry.all_terms.contains(term) {
+                matched_terms += 1;
+            }
+            if let Some(&tid) = self.vocab.get(term)
+                && let Some(&contrib) = self.postings[tid].iter().find(|(ci, _)| *ci == idx).map(|(_, c)| c)
+            {
+                bm25 += contrib * q_weight * 0.55;
+            }
+        }
+        let bonus = command_intent_bonus(&entry.command, &entry.name_lower, &entry.name_words, q);
+        let raw_score = bm25 + bonus + if entry.installed { 0.12 } else { 0.0 };
+
+        if raw_score >= 5.5 {
+            0.95
+        } else if raw_score >= 2.8 && matched_terms >= 1 {
+            0.92
+        } else if raw_score >= 1.5 && matched_terms >= 1 {
+            0.84
+        } else if raw_score >= 0.9 && matched_terms >= 1 {
+            0.65
+        } else {
+            0.15
+        }
+    }
+}
+
+impl Backend for LocalMatcher {
+    fn ask(&self, state: &Value, questions: &Questions) -> Result<Answers> {
+        let request = state.get("request").and_then(Value::as_str).unwrap_or_default();
+        if let Some(Question::Choice { criteria, .. }) = questions.get(COMMAND) {
+            let mut answers = Answers::new();
+            answers.insert(COMMAND.to_string(), self.answer_command(request, criteria));
+            return Ok(answers);
+        }
+        Ok(self.answer_details(request, questions))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Query Analysis & Normalization
+// ---------------------------------------------------------------------------
+
+struct QueryContext<'a> {
+    raw: &'a str,
+    norm: &'a str,
+    words: &'a [String],
+    word_set: HashSet<&'a str>,
+    stem_set: HashSet<String>,
+    term_weights: &'a HashMap<String, f64>,
+    content_terms: Vec<String>,
+    raw_tokens: Vec<RawToken>,
+}
+
+#[derive(Clone, Debug)]
+struct RawToken {
+    text: String,
+    lower: String,
+    quoted: bool,
+    word_pos: usize,
+    prev_word: String,
+    next_word: String,
+}
+
+impl<'a> QueryContext<'a> {
+    fn new(
+        raw: &'a str,
+        norm: &'a str,
+        words: &'a [String],
+        term_weights: &'a HashMap<String, f64>,
+    ) -> Self {
+        let mut word_set = HashSet::with_capacity(words.len());
+        let mut stem_set = HashSet::with_capacity(words.len());
+        let mut content_terms = Vec::new();
+        for w in words {
+            word_set.insert(w.as_str());
+            let st = stem(w);
+            if !STOPWORDS.contains(&w.as_str()) && w.len() >= 2 && !is_generic_filler(w) && !content_terms.contains(&st) {
+                content_terms.push(st.clone());
+            }
+            stem_set.insert(st);
+        }
+        let raw_tokens = parse_raw_tokens(raw);
+        Self { raw, norm, words, word_set, stem_set, term_weights, content_terms, raw_tokens }
+    }
+
+    fn has_exact_word(&self, w: &str) -> bool {
+        self.word_set.contains(w)
+    }
+
+    fn has_word(&self, w: &str) -> bool {
+        self.word_set.contains(w)
+            || self.term_weights.contains_key(w)
+            || self.stem_set.contains(&stem(w))
+    }
+
+    fn has_phrase(&self, phrase: &str) -> bool {
+        if !phrase.contains(' ') {
+            return self.has_word(phrase);
+        }
+        contains_word_phrase(self.norm, phrase)
+    }
+
+    fn has_any(&self, list: &[&str]) -> bool {
+        list.iter().any(|item| self.has_phrase(item))
+    }
+
+    fn has_log_file(&self) -> bool {
+        self.raw_tokens.iter().any(|t| t.lower.ends_with(".log"))
+    }
+
+    fn has_remote_scp(&self) -> bool {
+        self.raw_tokens.iter().any(|t| t.text.contains('@') && t.text.contains(':'))
+    }
+
+    fn has_url(&self) -> bool {
+        self.raw.contains("http://") || self.raw.contains("https://")
+    }
+
+    fn has_domain_token(&self) -> bool {
+        self.raw_tokens.iter().any(|t| {
+            !t.text.contains('@')
+                && (t.lower.ends_with(".com")
+                    || t.lower.ends_with(".org")
+                    || t.lower.ends_with(".net")
+                    || t.lower.ends_with(".io")
+                    || t.lower.ends_with(".dev")
+                    || t.lower.contains(".com/")
+                    || t.lower.contains(".org/"))
+        })
+    }
+}
+
+fn strip_quoted_for_ranking(request: &str) -> String {
+    let lower = request.to_lowercase();
+    let keep_quoted = !contains_word_phrase(&lower, "alias")
+        && !contains_word_phrase(&lower, "shortcut")
+        && !contains_word_phrase(&lower, "message");
+    if keep_quoted || !request.contains(['"', '\'', '`']) {
+        return request.to_string();
+    }
+    let mut out = String::with_capacity(request.len());
+    let mut quote: Option<char> = None;
+    for c in request.chars() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None if matches!(c, '"' | '\'' | '`') => quote = Some(c),
+            None => out.push(c),
+        }
+    }
+    out
+}
+
+fn contains_word_phrase(haystack: &str, needle: &str) -> bool {
+    let mut start = 0usize;
+    while let Some(pos) = haystack[start..].find(needle) {
+        let abs = start + pos;
+        let before_ok = abs == 0
+            || !haystack[..abs].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_');
+        let after_idx = abs + needle.len();
+        let after_ok = after_idx == haystack.len()
+            || !haystack[after_idx..].chars().next().is_some_and(|c| c.is_alphanumeric() || c == '_');
+        if before_ok && after_ok {
+            return true;
+        }
+        start = abs + needle.len().max(1);
+    }
+    false
+}
+
+fn is_generic_filler(w: &str) -> bool {
+    matches!(
+        w,
+        "thing" | "things" | "stuff" | "something" | "anything" | "one" | "way" | "right" | "now"
+    )
+}
+
+fn parse_raw_tokens(request: &str) -> Vec<RawToken> {
+    let mut items: Vec<(String, bool)> = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+
+    for c in request.chars() {
+        match quote {
+            Some(q) if c == q => {
+                let t = current.trim().to_string();
+                if !t.is_empty() {
+                    items.push((t, true));
+                }
+                current.clear();
+                quote = None;
+            }
+            Some(_) => current.push(c),
+            None if matches!(c, '"' | '\'' | '`') && current.is_empty() => quote = Some(c),
+            None if c.is_whitespace() => {
+                let t = current.trim_matches([',', ';', ':', '!', '?', '(', ')']).trim_end_matches('.');
+                if !t.is_empty() {
+                    items.push((t.to_string(), false));
+                }
+                current.clear();
+            }
+            None => current.push(c),
+        }
+    }
+    let t = current.trim_matches([',', ';', ':', '!', '?', '(', ')']).trim_end_matches('.');
+    if !t.is_empty() {
+        items.push((t.to_string(), false));
+    }
+
+    let mut out = Vec::with_capacity(items.len());
+    for (idx, (text, quoted)) in items.iter().enumerate() {
+        let mut prev_idx = idx;
+        let mut prev_word = String::new();
+        while prev_idx > 0 {
+            prev_idx -= 1;
+            let cand = items[prev_idx].0.to_lowercase();
+            if !matches!(cand.as_str(), "the" | "a" | "an" | "my") {
+                prev_word = cand;
+                break;
+            }
+        }
+        let next_word = items.get(idx + 1).map(|(s, _)| s.to_lowercase()).unwrap_or_default();
+        let lower = text.to_lowercase();
+        out.push(RawToken {
+            text: text.clone(),
+            lower: lower.clone(),
+            quoted: *quoted,
+            word_pos: idx,
+            prev_word: prev_word.clone(),
+            next_word: next_word.clone(),
+        });
+        if !*quoted
+            && let Some(num) = number_word(&lower)
+        {
+            out.push(RawToken {
+                text: num.clone(),
+                lower: num,
+                quoted: false,
+                word_pos: idx,
+                prev_word,
+                next_word,
+            });
+        }
+    }
+    out
+}
+
+fn normalize_text(input: &str) -> Cow<'_, str> {
+    let mut s = input.to_lowercase();
+    if !s.contains(['\'', '-', '.']) && !s.contains("wi fi") && !s.contains("screen ")
+        && !s.contains("record ") && !s.contains("nightlight") && !s.contains("readonly")
+        && !s.contains("case ") && !s.contains("ghz")
+    {
+        return Cow::Owned(s);
+    }
+    if s.contains('\'') {
+        for (from, to) in [
+            ("what's", "what is"),
+            ("don't", "do not"),
+            ("doesn't", "does not"),
+            ("isn't", "is not"),
+            ("aren't", "are not"),
+            ("can't", "cannot"),
+            ("won't", "will not"),
+            ("it's", "it is"),
+            ("i'm", "i am"),
+            ("let's", "let us"),
+            ("today's", "today"),
+        ] {
+            if s.contains(from) {
+                s = s.replace(from, to);
+            }
+        }
+    }
+    if s.contains('-') || s.contains("wi fi") {
+        for (from, to) in [
+            ("wi-fi", "wifi"),
+            ("wi fi", "wifi"),
+            ("do-not-disturb", "do not disturb"),
+            ("night-light", "night light"),
+            ("read-only", "readonly"),
+            ("case-insensitive", "case insensitive"),
+            ("screen-shot", "screenshot"),
+            ("docker-compose", "docker compose"),
+        ] {
+            if s.contains(from) {
+                s = s.replace(from, to);
+            }
+        }
+    }
+    for (from, to) in [
+        ("nightlight", "night light"),
+        ("night-time", "night"),
+        ("readonly", "read only"),
+        ("case insensitive", "ignore case"),
+        ("screen recording", "screenrecording"),
+        ("record video", "screenrecording"),
+        ("record my screen", "screenrecording"),
+        ("record screen", "screenrecording"),
+        ("tar.gz", "targz"),
+        ("pkg.tar.zst", "pkgtarzst"),
+        ("2.4", "ghz"),
+        ("5 ghz", "ghz"),
+        ("6 ghz", "ghz"),
+    ] {
+        if s.contains(from) {
+            s = s.replace(from, to);
+        }
+    }
+    Cow::Owned(s)
+}
+
+fn raw_lower_words(norm: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    for token in norm.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != '/' && c != '.') {
+        if token.contains('/') {
+            continue;
+        }
+        let t = token.trim_matches(['-', '.']);
+        if t.is_empty() || (t.contains('.') && !t.starts_with('.')) {
+            continue;
+        }
+        words.push(t.to_string());
+        if t.contains('-') {
+            for part in t.split('-').filter(|p| !p.is_empty()) {
+                words.push(part.to_string());
+            }
+        }
+    }
+    words
+}
+
+fn stem(word: &str) -> String {
+    let w = word.to_lowercase();
+    if let Some(irr) = match w.as_str() {
+        "running" => Some("run"),
+        "stopping" | "stopped" => Some("stop"),
+        "frozen" | "hung" => Some("freeze"),
+        "written" => Some("write"),
+        "made" | "making" => Some("make"),
+        "taken" | "taking" => Some("take"),
+        "found" => Some("find"),
+        "gone" | "going" => Some("go"),
+        "directories" => Some("directory"),
+        "entries" => Some("entry"),
+        "copies" | "copied" | "copying" => Some("copy"),
+        "dependencies" => Some("dependency"),
+        "repositories" => Some("repository"),
+        "processes" => Some("process"),
+        "aliases" => Some("alias"),
+        "addresses" => Some("address"),
+        "branches" => Some("branch"),
+        "switches" | "switching" | "switched" => Some("switch"),
+        "watches" | "watching" | "watched" => Some("watch"),
+        "searches" | "searching" | "searched" => Some("search"),
+        "fixes" | "fixing" | "fixed" => Some("fix"),
+        "pushes" | "pushing" | "pushed" => Some("push"),
+        "creating" | "created" => Some("create"),
+        "deleting" | "deleted" => Some("delete"),
+        "removing" | "removed" => Some("remove"),
+        "changing" | "changed" => Some("change"),
+        "moving" | "moved" => Some("move"),
+        "saving" | "saved" => Some("save"),
+        "using" | "used" => Some("use"),
+        "closing" | "closed" => Some("close"),
+        "archiving" | "archived" => Some("archive"),
+        "comparing" | "compared" => Some("compare"),
+        "updating" | "updated" => Some("update"),
+        "naming" | "named" => Some("name"),
+        "renaming" | "renamed" => Some("rename"),
+        "resizing" | "resized" => Some("resize"),
+        "configuring" | "configured" => Some("configure"),
+        "enabling" | "enabled" => Some("enable"),
+        "disabling" | "disabled" => Some("disable"),
+        "ignoring" | "ignored" => Some("ignore"),
+        "living" => Some("live"),
+        "cutting" => Some("cut"),
+        "zipping" | "zipped" => Some("zip"),
+        "unpacking" | "unpacked" => Some("unpack"),
+        "packing" | "packed" => Some("pack"),
+        "extracting" | "extracted" => Some("extract"),
+        "decompressing" | "decompressed" => Some("decompress"),
+        "compressing" | "compressed" => Some("compress"),
+        "listening" => Some("listen"),
+        "recording" | "recorded" => Some("record"),
+        "modified" | "modifying" => Some("modify"),
+        "alphabetically" => Some("alphabetical"),
+        "numerically" => Some("numerical"),
+        "recursively" => Some("recursive"),
+        "permanently" => Some("permanent"),
+        "automatically" => Some("automatic"),
+        "recently" => Some("recent"),
+        "locally" => Some("local"),
+        "cleanly" => Some("clean"),
+        "gracefully" => Some("graceful"),
+        _ => None,
+    } {
+        return irr.to_string();
+    }
+
+    if w.len() <= 3 {
+        return w;
+    }
+    if w.ends_with("ies") && w.len() > 4 {
+        return format!("{}y", &w[..w.len() - 3]);
+    }
+    if w.ends_with("ied") && w.len() > 4 {
+        return format!("{}y", &w[..w.len() - 3]);
+    }
+    if (w.ends_with("sses") || w.ends_with("shes") || w.ends_with("ches") || w.ends_with("xes") || w.ends_with("zes"))
+        && w.len() > 4
+    {
+        return w[..w.len() - 2].to_string();
+    }
+    if w.ends_with("ing") && w.len() >= 6 {
+        let base = &w[..w.len() - 3];
+        let bytes = base.as_bytes();
+        if bytes.len() >= 2 && bytes[bytes.len() - 1] == bytes[bytes.len() - 2]
+            && matches!(bytes[bytes.len() - 1], b'b' | b'g' | b'm' | b'n' | b'p' | b'r' | b't')
+        {
+            return base[..base.len() - 1].to_string();
+        }
+        return base.to_string();
+    }
+    if w.ends_with("ed") && w.len() >= 5 && !matches!(w.as_str(), "need" | "feed" | "seed" | "speed") {
+        let base = &w[..w.len() - 2];
+        let bytes = base.as_bytes();
+        if bytes.len() >= 2 && bytes[bytes.len() - 1] == bytes[bytes.len() - 2]
+            && (matches!(bytes[bytes.len() - 1], b'b' | b'g' | b'm' | b'n' | b'p' | b'r' | b't')
+                || (bytes[bytes.len() - 1] == b'd' && base != "add"))
+        {
+            return base[..base.len() - 1].to_string();
+        }
+        return base.to_string();
+    }
+    if w.ends_with("ly") && w.len() >= 5 {
+        return w[..w.len() - 2].to_string();
+    }
+    if w.ends_with('s')
+        && !w.ends_with("ss")
+        && !w.ends_with("us")
+        && !w.ends_with("is")
+        && !w.ends_with("os")
+        && !w.ends_with("as")
+    {
+        return w[..w.len() - 1].to_string();
+    }
+    w
+}
+
+/// Maps stems and multi-word phrases into canonical concept tags for matching.
+fn extract_weighted_terms(text: &str) -> HashMap<String, f64> {
+    let norm = normalize_text(text);
+    let words = raw_lower_words(&norm);
+    let mut map: HashMap<String, f64> = HashMap::new();
+
+    let mut add = |term: &str, weight: f64| {
+        let entry = map.entry(term.to_string()).or_insert(0.0);
+        if weight > *entry {
+            *entry = weight;
+        }
+    };
+
+    for w in &words {
+        if STOPWORDS.contains(&w.as_str()) {
+            continue;
+        }
+        let st = stem(w);
+        if st.len() >= 2 || matches!(st.as_str(), "r" | "x" | "n" | "f" | "a" | "l") {
+            add(&st, 1.0);
+        }
+        if let Some(concepts) = stem_concepts(&st) {
+            for &c in concepts {
+                add(c, 0.35);
+            }
+        }
+        if let Some(concepts) = stem_concepts(w) {
+            for &c in concepts {
+                add(c, 0.35);
+            }
+        }
+    }
+
+    for &(phrase, concept) in PHRASE_CONCEPTS {
+        let first_word = phrase.split(' ').next().unwrap_or(phrase);
+        if norm.contains(first_word) && contains_word_phrase(&norm, phrase) {
+            add(concept, 0.55);
+        }
+    }
+    if text.contains(".tar.gz") || text.contains(".tgz") || text.contains(".tar.") {
+        add("c_tar", 0.90);
+    }
+    if text.contains(".zip") && !text.contains("http://") && !text.contains("https://") {
+        add("c_zip", 0.90);
+    }
+    if text.contains(".rar") {
+        add("c_rar", 0.90);
+    }
+    if text.contains(".pkg.tar.zst") {
+        add("c_pkg_file", 0.95);
+    }
+    if text.contains(".csv") {
+        add("c_column", 0.60);
+    }
+    if text.contains('@') && text.contains(':') {
+        add("c_remote_copy", 0.90);
+    }
+    if text.contains("/dev/") {
+        add("c_disk_device", 0.85);
+    }
+    if text.contains("http://") || text.contains("https://") {
+        add("c_url", 0.70);
+    }
+    if contains_word_phrase(&norm, "log in")
+        || contains_word_phrase(&norm, "log into")
+        || contains_word_phrase(&norm, "log out")
+        || contains_word_phrase(&norm, "logged in")
+    {
+        // "log" in "log in / log into / log out / logged in" is authentication/session, not a system log file.
+        if words.iter().filter(|w| *w == "log" || *w == "logs").count() <= 1 {
+            map.remove("log");
+            map.remove("c_log");
+        }
+    }
+
+    map
+}
+
+const PHRASE_CONCEPTS: &[(&str, &str)] = &[
+    ("disk space", "c_storage"),
+    ("free space", "c_storage"),
+    ("space left", "c_storage"),
+    ("disk full", "c_storage"),
+    ("most space", "c_largest_items"),
+    ("taking up", "c_largest_items"),
+    ("get rid of", "c_delete"),
+    ("all in one go", "c_parents"),
+    ("do not disturb", "c_dnd"),
+    ("night light", "c_nightlight"),
+    ("stay awake", "c_awake"),
+    ("keep awake", "c_awake"),
+    ("power saver", "c_power_profile"),
+    ("power profile", "c_power_profile"),
+    ("top bar", "c_desktop_shell"),
+    ("qr code", "c_qr"),
+    ("line number", "c_line_numbers"),
+    ("ignore case", "c_ignore_case"),
+    ("ignoring case", "c_ignore_case"),
+    ("any capitalisation", "c_ignore_case"),
+    ("any capitalization", "c_ignore_case"),
+    ("upper and lower", "c_ignore_case"),
+    ("symbolic link", "c_symlink"),
+    ("points to", "c_symlink"),
+    ("last modified", "c_stat"),
+    ("last changed", "c_stat"),
+    ("link speed", "c_link_speed"),
+    ("kernel module", "c_kernel_module"),
+    ("virtual machine", "c_vm"),
+    ("virtual network", "c_vm_net"),
+    ("key login", "c_ssh_key"),
+    ("without password", "c_ssh_key"),
+    ("without typing a password", "c_ssh_key"),
+    ("passwordless ssh", "c_ssh_key"),
+    ("default gateway", "c_gateway"),
+    ("local network", "c_lan"),
+    ("open port", "c_port"),
+    ("environment variable", "c_env_var"),
+    ("startup file", "c_shell_rc"),
+    ("shell config", "c_shell_rc"),
+    ("tokens per second", "c_llm_speed"),
+    ("how fast", "c_speed"),
+    ("how often", "c_frequency"),
+    ("most common", "c_frequency"),
+    ("most frequent", "c_frequency"),
+    ("duplicate line", "c_uniq"),
+    ("repeated line", "c_uniq"),
+    ("web app", "c_webapp"),
+    ("hidden file", "c_hidden"),
+    ("user service", "c_user_service"),
+    ("own user service", "c_user_service"),
+    ("at boot", "c_boot"),
+    ("when the computer boots", "c_boot"),
+    ("how do i use", "c_manual"),
+    ("manual page", "c_manual"),
+    ("saved network connection", "c_saved_conn"),
+    ("system snapshot", "c_snapshot"),
+    ("force close", "c_force_kill"),
+    ("up to date", "c_update"),
+    ("plugged in", "c_usb"),
+    ("back up", "c_copy"),
+];
+
+fn stem_concepts(s: &str) -> Option<&'static [&'static str]> {
+    Some(match s {
+        "folder" | "directory" | "dir" | "subdir" | "subdirectory" => &["c_folder"],
+        "create" | "make" => &["c_create"],
+        "delete" | "remove" | "erase" | "rm" | "unlink" | "rid" | "wipe" | "purge" => &["c_delete"],
+        "unpack" | "extract" | "decompress" | "untar" | "uncompress" => &["c_unpack"],
+        "pack" | "compress" | "archive" | "bundle" | "tarball" => &["c_pack"],
+        "storage" | "space" | "capacity" => &["c_storage"],
+        "ram" | "memory" | "mem" => &["c_memory"],
+        "wallpaper" => &["c_wallpaper"],
+        "wifi" | "wireless" | "wlan" | "ssid" => &["c_wifi"],
+        "port" | "listen" | "socket" => &["c_port"],
+        "kill" | "terminate" | "stop" | "end" | "close" | "halt" => &["c_kill"],
+        "freeze" | "hung" | "stuck" | "unresponsive" => &["c_freeze"],
+        "search" | "find" | "look" | "grep" | "mention" | "contain" => &["c_search"],
+        "rename" | "move" | "mv" | "relocate" => &["c_move"],
+        "duplicate" => &["c_copy", "c_uniq"],
+        "copy" | "cp" | "clone" => &["c_copy"],
+        "runnable" | "executable" | "execute" | "chmod" => &["c_executable", "c_permission"],
+        "permission" | "protect" | "private" | "readonly" => &["c_permission"],
+        "snapshot" | "snapper" => &["c_snapshot"],
+        "screenrecording" | "screenrecord" => &["c_screenrecord"],
+        "screenshot" | "snip" => &["c_screenshot"],
+        "mute" | "unmute" | "silence" => &["c_mute"],
+        "volume" | "sound" | "audio" | "loud" | "louder" | "quiet" | "quieter" | "speaker" | "headphone" => &["c_volume"],
+        "brightness" | "dim" | "dimmer" | "bright" | "brighter" | "backlight" => &["c_brightness"],
+        "shortcut" | "symlink" | "link" => &["c_symlink"],
+        "checksum" | "hash" | "sha256" | "sha256sum" | "verify" | "intact" => &["c_checksum"],
+        "process" | "program" => &["c_process"],
+        "service" | "daemon" | "unit" | "systemd" => &["c_service"],
+        "journald" => &["c_log", "c_service"],
+        "log" | "logs" | "journal" | "journalctl" | "output" => &["c_log"],
+        "install" => &["c_install"],
+        "uninstall" => &["c_uninstall"],
+        "upgrade" | "update" => &["c_update"],
+        "aur" | "yay" => &["c_aur"],
+        "package" | "pkg" => &["c_package"],
+        "git" | "repo" | "repository" | "commit" | "branch" | "stage" => &["c_git"],
+        "docker" | "container" | "compose" => &["c_docker"],
+        "vm" | "virsh" | "libvirt" => &["c_vm"],
+        "tmux" | "reattach" | "attach" => &["c_tmux"],
+        "tailscale" | "vpn" | "tailnet" => &["c_tailscale"],
+        "ollama" | "llm" | "ai" => &["c_ollama"],
+        "chat" | "talk" => &["c_chat"],
+        "rust" | "cargo" | "crate" | "compile" | "dependency" => &["c_rust"],
+        "bashrc" | "zshrc" | "profile" | "reload" | "source" => &["c_shell_rc"],
+        "export" | "printenv" | "env" | "variable" => &["c_env_var"],
+        "alias" => &["c_alias"],
+        "dns" | "cloudflare" | "nameserver" => &["c_dns"],
+        "speedtest" | "bandwidth" => &["c_speedtest"],
+        "bluetooth" => &["c_bluetooth"],
+        "touchpad" | "trackpad" => &["c_touchpad"],
+        "awake" | "inhibit" | "idle" | "sleep" => &["c_awake"],
+        "reminder" | "remind" | "notification" => &["c_reminder"],
+        "webapp" => &["c_webapp"],
+        "lock" => &["c_lock"],
+        "logout" => &["c_logout"],
+        "firmware" | "bios" | "uefi" => &["c_firmware"],
+        "gateway" | "route" | "routing" => &["c_gateway"],
+        "neigh" | "neighbor" | "neighbour" => &["c_lan"],
+        "ping" | "reach" | "reachable" => &["c_ping"],
+        "tracepath" | "trace" | "traceroute" => &["c_trace"],
+        "download" | "fetch" | "curl" => &["c_download"],
+        "ssh" => &["c_ssh"],
+        "disk" | "drive" | "partition" | "nvme" | "ssd" | "lsblk" => &["c_disk"],
+        "healthy" | "health" | "smart" | "smartctl" => &["c_disk_health"],
+        "cpu" | "processor" | "core" | "lscpu" => &["c_cpu"],
+        "usb" | "lsusb" => &["c_usb"],
+        "kernel" | "dmesg" | "uname" | "driver" | "modprobe" => &["c_kernel"],
+        "battery" | "charge" | "upower" => &["c_battery"],
+        "calendar" | "cal" | "month" => &["c_calendar"],
+        "date" | "today" | "day" => &["c_date"],
+        "uptime" => &["c_uptime"],
+        "whoami" | "username" => &["c_user"],
+        "group" | "groups" | "usermod" => &["c_group"],
+        "hostname" => &["c_hostname"],
+        "pwd" => &["c_pwd"],
+        "history" | "previous" => &["c_history"],
+        "clear" => &["c_clear"],
+        "passwd" | "password" => &["c_passwd"],
+        "man" | "manual" => &["c_manual"],
+        "which" => &["c_which"],
+        "edit" | "nano" | "editor" => &["c_edit"],
+        "scroll" | "less" | "pager" => &["c_scroll"],
+        "diff" | "differ" | "different" | "difference" | "compare" => &["c_diff"],
+        "sort" | "order" | "alphabetical" | "numerical" => &["c_sort"],
+        "uniq" | "repeated" | "frequency" => &["c_uniq"],
+        "column" | "field" | "cut" | "delimiter" => &["c_column"],
+        "count" | "wc" => &["c_line_count"],
+        "first" | "beginning" | "head" => &["c_head"],
+        "last" | "tail" | "follow" | "grow" => &["c_tail"],
+        "owner" | "chown" => &["c_owner"],
+        "btrfs" | "subvolume" => &["c_btrfs"],
+        "ethtool" => &["c_link_speed"],
+        "ghz" | "band" | "channel" => &["c_wifi_band"],
+        "github" | "gh" => &["c_github"],
+        "mise" => &["c_mise"],
+        "qr" | "barcode" | "zbarimg" => &["c_qr"],
+        "theme" => &["c_theme"],
+        "font" | "monospace" => &["c_font"],
+        "open" | "viewer" => &["c_open_file"],
+        "reboot" | "restart" => &["c_restart"],
+        "shutdown" | "poweroff" => &["c_shutdown"],
+        "print" | "show" | "read" | "write" | "written" | "display" | "content" => &["c_view"],
+        "biggest" | "largest" => &["c_largest_items"],
+        _ => return None,
+    })
+}
+
+fn index_command(cmd: &Command, keywords: &[String]) -> IndexedCommand {
+    let mut fields: [HashMap<String, f64>; FIELD_COUNT] = Default::default();
+    let mut field_lens = [0.0f64; FIELD_COUNT];
+    let mut all_terms = HashSet::new();
+    let mut flag_terms = HashMap::new();
+    let mut choice_opt_terms = HashMap::new();
+
+    let add_text = |f_idx: usize, text: &str, fields: &mut [HashMap<String, f64>; FIELD_COUNT], lens: &mut [f64; FIELD_COUNT], all: &mut HashSet<String>| {
+        let map = extract_weighted_terms(text);
+        for (term, w) in map {
+            *fields[f_idx].entry(term.clone()).or_insert(0.0) += w;
+            lens[f_idx] += w;
+            all.insert(term);
+        }
+    };
+
+    add_text(0, &cmd.name, &mut fields, &mut field_lens, &mut all_terms);
+    add_text(1, &cmd.description, &mut fields, &mut field_lens, &mut all_terms);
+    for kw in keywords {
+        add_text(2, kw, &mut fields, &mut field_lens, &mut all_terms);
+    }
+    for slot in &cmd.slots {
+        if let Some(what) = &slot.what {
+            add_text(3, what, &mut fields, &mut field_lens, &mut all_terms);
+        }
+        if let Some(q) = &slot.question {
+            add_text(3, q, &mut fields, &mut field_lens, &mut all_terms);
+        }
+        for opt in &slot.options {
+            let opt_text = format!("{} {} {}", opt.name.replace('_', " "), opt.description, opt.value);
+            choice_opt_terms.insert((slot.id.clone(), opt.name.clone()), extract_weighted_terms(&opt_text));
+            add_text(3, &opt.name.replace('_', " "), &mut fields, &mut field_lens, &mut all_terms);
+            add_text(3, &opt.description, &mut fields, &mut field_lens, &mut all_terms);
+        }
+    }
+    for flag in &cmd.flags {
+        let flag_text = format!("{} {} {}", flag.question, flag.id.replace('_', " "), flag.value);
+        flag_terms.insert(flag.id.clone(), extract_weighted_terms(&flag_text));
+        add_text(4, &flag.id.replace('_', " "), &mut fields, &mut field_lens, &mut all_terms);
+        add_text(4, &flag.question, &mut fields, &mut field_lens, &mut all_terms);
+    }
+    let tmpl_clean: String = cmd
+        .template
+        .split_whitespace()
+        .filter(|w| !w.starts_with('{') && !w.contains('{'))
+        .collect::<Vec<_>>()
+        .join(" ");
+    add_text(5, &tmpl_clean, &mut fields, &mut field_lens, &mut all_terms);
+
+    let name_lower = cmd.name.to_lowercase();
+    let name_words = raw_lower_words(&normalize_text(&cmd.name));
+
+    IndexedCommand {
+        command: cmd.clone(),
+        installed: installed(cmd.program()),
+        name_lower,
+        name_words,
+        fields,
+        field_lens,
+        all_terms,
+        flag_terms,
+        choice_opt_terms,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Request A: Intent & Disambiguation Bonus
+// ---------------------------------------------------------------------------
+
+fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String], q: &QueryContext<'_>) -> f64 {
+    let mut bonus = 0.0f64;
+    let is_meta_man = q.has_any(&["how do i use", "manual page", "manual"]);
+    let is_meta_which = (q.has_phrase("where is") && q.has_word("installed"))
+        || q.has_phrase("path to")
+        || (q.has_word("installed") && q.has_word("where"));
+    let has_url = q.has_url() || q.has_domain_token();
+    let has_upper_env = q.raw_tokens.iter().any(|t| is_upper_env_name(&t.text));
+    let has_is_running = q.has_exact_word("is") && q.has_exact_word("running");
+
+    if !is_meta_man && !is_meta_which && !name_words.is_empty() {
+        let matched = name_words.iter().filter(|nw| q.has_exact_word(nw)).count();
+        if matched == name_words.len() && name_words.len() >= 2 {
+            bonus += 5.0;
+        } else if matched == 1 && name_words.len() == 1 && name_words[0].len() >= 3
+            && !(name_lower == "date" && q.has_any(&["dates", "up to date"]))
+        {
+            bonus += 3.0;
+        }
+    }
+
+    match name_lower {
+        "man" if is_meta_man => bonus += 9.5,
+        "which" if is_meta_which => bonus += 9.5,
+        "df" if (q.has_any(&["free", "out of", "left"]) && q.has_any(&["disk", "space", "storage", "full"])) || q.has_phrase("disk full") => bonus += 7.5,
+        "du" if q.has_any(&["how big", "space", "size"])
+            && q.has_any(&["folder", "directory", "file", "this folder"])
+            && !q.has_any(&["free", "most space", "taking up", "largest", "biggest", "out of", "permissions"]) => bonus += 7.0,
+        "largest items" if q.has_any(&["most space", "taking up", "largest", "biggest"])
+            && !q.has_any(&["biggest to smallest", "order", "sort"]) => bonus += 8.5,
+        "free" if q.has_word("ram") || (q.has_word("memory") && q.has_any(&["free", "much", "use"]) && !q.has_any(&["docker", "container", "vm", "virtual", "model", "ollama"])) => bonus += 7.0,
+        "smartctl" if q.raw.contains("/dev/") || (q.has_any(&["disk", "drive", "ssd", "nvme"]) && q.has_any(&["health", "healthy", "smart"])) => bonus += 7.5,
+        "lsblk" if q.has_any(&["disk", "disks", "partition", "partitions"]) && !q.has_any(&["health", "healthy", "free", "space"]) => bonus += 6.0,
+        "stat" if q.has_any(&["when was", "last modified", "last changed", "facts about", "metadata"])
+            || (q.has_word("size") && q.has_word("permissions") && q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text))) => bonus += 8.0,
+        "file" if q.has_any(&["what type of file", "what kind of file", "type of file", "kind of file"]) => bonus += 8.0,
+        "ls" if (q.has_any(&["list", "contents", "what is in", "what files are in", "files in", "hidden", "dotfile", "dotfiles", "sizes and dates", "changed most recently"])
+            || (q.has_word("show") && q.has_any(&["dotfiles", "hidden", "permissions"])))
+            && !q.has_any(&["container", "image", "branch", "snapshot", "subvolume", "tmux", "vm", "virtual", "theme", "font", "wifi", "disk", "partition", "usb", "ollama", "tar", "archive", "dump"])
+            && !q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text)) => bonus += 8.0,
+        "find" if q.has_any(&["find", "locate", "where is", "look for"])
+            && q.has_any(&["file", "files", "folder", "folders", "directory", "directories", "named", "bigger", "changed", "modified"])
+            && !is_meta_which && !q.has_any(&["inside", "mention", "contain", "search inside", "look through", "ignoring case", "install"]) && !q.raw.contains('"') => bonus += 6.0,
+        "grep" if (q.has_any(&["search", "which line", "which lines", "every line", "mention", "contain", "look through", "find the word"]) || q.raw.contains('"'))
+            && !q.has_any(&["service", "package", "aur", "alias", "shortcut", "commit"])
+            && (!q.has_any(&["log", "logs"]) || q.has_log_file()) => bonus += 9.5,
+        "search service log" if q.has_any(&["search", "look for", "grep"]) && q.has_any(&["log", "logs"]) && !q.has_log_file() => bonus += 9.5,
+        "journalctl" if q.has_any(&["log", "logs", "log lines", "journald", "journal"])
+            && !q.has_log_file()
+            && !q.has_any(&["search", "look for", "for failed", "in lines", "log in", "log into", "logged in"])
+            && !(q.has_word("container") && !q.has_any(&["journald", "journal", "systemd"])) => bonus += 8.5,
+        "docker logs" if q.has_any(&["log", "logs"]) && q.has_word("container") && !q.has_any(&["journald", "journal", "systemd"]) => bonus += 8.5,
+        "head" if q.has_any(&["first", "beginning", "top"]) && q.has_any(&["line", "lines", "of"]) => bonus += 7.5,
+        "tail" if (q.has_any(&["last", "keep watching", "as new lines", "growing", "follow"]) || q.has_log_file())
+            && !q.has_any(&["service", "sshd", "system log", "container", "journald", "journal", "docker", "grep", "search", "which line", "every line", "in lines"]) => bonus += 6.5,
+        "less" if q.has_any(&["scroll", "huge", "page through"]) => bonus += 7.0,
+        "cat" if (q.has_any(&["written in", "whole contents", "line numbers", "print", "dump"])
+            || (q.has_any(&["contents", "inside"]) && q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text))))
+            && !q.has_any(&["first", "last", "column", "scroll", "find", "search", "tar", "zip", "archive"]) => bonus += 9.0,
+        "nano" if (q.has_any(&["edit", "editor", "nano"]) || (q.has_word("change") && q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text))))
+            && !q.has_any(&["chmod", "modified", "stop", "prevent", "protect"]) && !has_upper_env => bonus += 6.5,
+        "wc" if q.has_any(&["how many", "count", "number of", "how long"]) && q.has_any(&["lines", "words", "characters"]) && !q.has_any(&["how often", "occurs", "each line"]) => bonus += 8.5,
+        "uniq" if q.has_any(&["duplicate", "repeated", "how often", "how many times", "occurs", "appear", "most common", "frequency"]) => bonus += 8.5,
+        "sort" if q.has_any(&["sort", "order", "alphabetical", "alphabetically", "numerical", "numerically", "biggest to smallest"]) && !q.has_any(&["duplicate", "repeated", "how often", "most space"]) => bonus += 8.0,
+        "cut" if q.has_any(&["column", "columns", "field", "fields", "delimiter"]) => bonus += 8.5,
+        "diff" if q.has_any(&["different", "difference", "diff", "compare"]) => bonus += 7.5,
+        "tar" if (q.raw.contains(".tar") || q.raw.contains(".tgz") || q.has_word("tarball")) && !q.has_remote_scp() => bonus += 9.0,
+        "unzip" if q.raw.contains(".zip") && !has_url && !q.has_remote_scp() && q.has_any(&["extract", "unpack", "unzip", "decompress", "open"]) => bonus += 9.5,
+        "zip" if !has_url && !q.has_remote_scp() && q.has_any(&["zip up", "into", "pack", "compress", "create", "make"]) && (q.raw.contains(".zip") || q.has_word("zip")) => bonus += 9.5,
+        "unrar" if q.raw.contains(".rar") => bonus += 9.5,
+        "gunzip" if q.raw.contains(".gz") && !q.raw.contains(".tar.gz") && !has_url && q.has_any(&["decompress", "unpack", "extract", "gunzip"]) => bonus += 9.5,
+        "gzip" if q.has_any(&["compress", "gzip"]) && !q.raw.contains(".zip") && !q.raw.contains(".tar") => bonus += 8.0,
+        "sha256sum" if q.has_any(&["checksum", "sha256", "hash", "verify", "intact"]) => bonus += 9.0,
+        "xdg-open" if q.has_any(&["open", "viewer", "default app"]) && !q.has_any(&["port", "shell", "web app", "webapp", "nobody", "change", "terminal", "every time"]) => bonus += 6.0,
+        "zbarimg" if q.has_any(&["qr", "barcode"]) => bonus += 9.5,
+        "chmod" if (q.has_any(&["executable", "runnable", "as a program", "permission", "permissions", "chmod", "nobody but me", "protect", "read only", "modified"])
+            || (q.has_any(&["stop", "prevent"]) && q.has_word("editing")))
+            && !q.has_any(&["rust", "docker", "container", "ollama", "frozen", "dotfiles"]) => bonus += 9.0,
+        "chown" if q.has_any(&["owner", "ownership", "chown"]) => bonus += 8.5,
+        "ln" if q.has_any(&["shortcut", "symlink", "symbolic link", "points to"]) && !q.has_word("alias") && !q.raw.contains('"') => bonus += 8.0,
+        "cp" if q.has_any(&["copy", "duplicate", "back up", "backup"]) && !q.has_any(&["clipboard", "screenshot", "remote", "server", "over the network", "snapshot"]) && !q.has_remote_scp() => bonus += 7.0,
+        "mv" if q.has_any(&["move", "rename", "put"]) && q.has_any(&["to", "into"]) && !q.has_any(&["branch", "theme", "new directory", "trash", "recycle bin"]) && !q.raw.contains(".zip") && !q.raw.contains(".tar") => bonus += 9.0,
+        "gio trash" if q.has_any(&["trash", "recycle bin", "discard"]) && !q.has_any(&["permanently", "permanent"]) => bonus += 9.5,
+        "rm" if q.has_any(&["delete", "remove", "erase", "get rid of"]) && !q.has_any(&["container", "image", "model", "duplicate", "uninstall", "package", "branch", "vm", "trash", "recycle bin"]) => bonus += 6.5,
+        "mkdir" if q.has_any(&["create", "make", "new"]) && q.has_any(&["folder", "folders", "directory", "directories"]) && !q.has_any(&["shortcut", "archive", "zip", "copy"]) => bonus += 8.0,
+        "touch" if q.has_any(&["empty file", "new file", "create an empty file"]) => bonus += 8.5,
+        "pwd" if q.has_any(&["which directory", "which folder", "where am i", "current directory", "current folder"]) || (q.has_word("what") && q.has_any(&["folder", "directory"]) && q.has_word("this")) => bonus += 9.0,
+        "cd" if q.has_any(&["go to", "change directory", "change into", "enter folder"]) => bonus += 8.5,
+        "ps" if q.has_any(&["programs are running", "running processes", "what programs"]) && !q.has_any(&["cpu", "memory", "live"]) => bonus += 7.0,
+        "top" if q.has_any(&["eating my cpu", "most processor", "most memory", "cpu right now"]) => bonus += 9.5,
+        "pgrep" if has_is_running && !q.has_any(&["service", "container", "tmux", "out of"]) => bonus += 7.5,
+        "kill" if q.has_any(&["kill", "stop", "terminate"]) && q.raw_tokens.iter().any(|t| is_digits(&t.text)) && !q.has_word("tmux") => bonus += 8.5,
+        "pkill" if q.has_any(&["frozen", "force close", "kill", "close", "refuses to stop"])
+            && !q.raw_tokens.iter().any(|t| is_digits(&t.text))
+            && !q.has_any(&["tmux", "container", "vm", "window"]) => bonus += 8.0,
+        "systemctl --user" if q.has_phrase("user service") || q.has_phrase("--user") => bonus += 9.5,
+        "systemctl" if (q.has_any(&["service", "boot", "enable", "disable"]) || has_is_running)
+            && !q.has_any(&["user service", "log", "logs", "vm", "virtual"]) => bonus += 7.0,
+        "systemd-inhibit" if q.has_any(&["until", "finishes", "command"]) && q.has_any(&["sleep", "awake"]) => bonus += 8.0,
+        "omarchy toggle idle" if q.has_any(&["awake", "idle", "sleep"]) && !q.has_any(&["until", "finishes"]) => bonus += 8.5,
+        "omarchy bluetooth power" if q.has_word("bluetooth") && q.has_any(&["turn", "on", "off", "power"]) && !q.has_word("boot") && !q.has_word("restart") => bonus += 8.5,
+        "omarchy restart" if q.has_any(&["restart", "acting up", "stopped working", "fix it", "misbehaving"])
+            && q.has_any(&["wifi", "sound", "audio", "bluetooth", "top bar", "shell", "bar", "terminal", "trackpad", "touchpad"])
+            && !q.has_word("service") => bonus += 7.5,
+        "omarchy theme bg next" if q.has_word("wallpaper") || (q.has_word("background") && !q.has_phrase("in the background") && !q.has_any(&["container", "image", "service"])) => bonus += 9.0,
+        "omarchy theme list" if q.has_word("theme") && q.has_any(&["which", "list", "choose", "available", "what"]) => bonus += 9.0,
+        "omarchy theme set" if q.has_word("theme") && q.has_any(&["switch", "change", "set", "use", "apply"]) => bonus += 8.5,
+        "omarchy font list" if q.has_word("font") && q.has_any(&["what", "which", "list", "available"]) => bonus += 9.0,
+        "omarchy font set" if q.has_word("font") && q.has_any(&["use", "set", "change", "switch"]) => bonus += 8.5,
+        "omarchy capture screenshot" if q.has_any(&["screenshot", "screen shot"]) => bonus += 9.5,
+        "omarchy capture screenrecording" if q.has_any(&["screenrecording", "screen record", "record my screen", "record screen"]) => bonus += 9.5,
+        "omarchy snapshot create" if q.has_word("snapshot") && q.has_any(&["take", "create", "make"]) => bonus += 9.0,
+        "snapper list" if q.has_any(&["snapshot", "snapshots"]) && q.has_any(&["what", "list", "exist"]) => bonus += 8.5,
+        "btrfs subvolume list" if q.has_any(&["btrfs", "subvolume", "subvolumes"]) => bonus += 9.5,
+        "omarchy update firmware" if q.has_any(&["firmware", "bios", "uefi"]) => bonus += 9.5,
+        "omarchy update" if q.has_word("omarchy") && q.has_any(&["update", "up to date"]) && !q.has_any(&["firmware", "bios"]) => bonus += 9.0,
+        "omarchy version" if q.has_word("omarchy") && q.has_word("version") => bonus += 9.5,
+        "omarchy network speedtest" if q.has_any(&["speedtest", "speed test", "bandwidth", "mbps", "how fast", "upload", "download speed"]) => bonus += 9.0,
+        "omarchy dns" if q.has_any(&["dns", "cloudflare", "1.1.1.1", "8.8.8.8"]) => bonus += 9.0,
+        "omarchy audio output volume" if q.has_any(&["volume", "louder", "quieter", "mute", "unmute"]) => bonus += 9.0,
+        "omarchy brightness display" if q.has_any(&["brightness", "dim", "dimmer", "brighter"]) => bonus += 9.0,
+        "omarchy powerprofiles set" if q.has_any(&["power saver", "power profile", "balanced", "performance mode"]) => bonus += 9.5,
+        "omarchy reminder" if q.has_any(&["remind", "reminder"]) => bonus += 9.5,
+        "omarchy launch webapp" if q.has_any(&["web app", "webapp"]) => bonus += 9.5,
+        "omarchy toggle nightlight" if q.has_phrase("night light") || q.has_word("nightlight") => bonus += 9.5,
+        "omarchy toggle notification silencing" if q.has_phrase("do not disturb") || q.has_word("notifications") => bonus += 9.5,
+        "omarchy toggle touchpad" if q.has_any(&["touchpad", "trackpad"]) => bonus += 9.5,
+        "omarchy system lock" if q.has_word("lock") && q.has_any(&["screen", "computer", "laptop", "pc"]) => bonus += 9.5,
+        "omarchy system logout" if q.has_any(&["log out", "logout", "log me out"]) => bonus += 9.5,
+        "omarchy pkg aur add" if q.has_word("omarchy") && q.has_word("aur") && q.has_any(&["install", "add", "get"]) => bonus += 12.0,
+        "omarchy pkg add" if q.has_word("omarchy") && q.has_any(&["install", "add", "get"]) && !q.has_word("aur") => bonus += 10.5,
+        "omarchy pkg drop" if q.has_word("omarchy") && q.has_any(&["uninstall", "remove", "drop"]) => bonus += 10.5,
+        "pacman install file" if q.raw.contains(".pkg.tar.zst") => bonus += 9.5,
+        "pacman install" | "apt install" | "dnf install" if q.has_word("install") && !q.has_any(&["aur", "omarchy", "where is", ".pkg.tar.zst", "look for", "is there"]) => bonus += 6.0,
+        "pacman remove" | "apt remove" | "dnf remove" if q.has_any(&["uninstall", "remove the package", "remove package"]) && !q.has_word("omarchy") => bonus += 7.5,
+        "pacman update" | "apt update" | "dnf update" if q.has_any(&["update all", "upgrade", "all my packages", "update system", "up to date"]) && !q.has_word("omarchy") => bonus += 8.0,
+        "pacman search" | "apt search" | "dnf search" if (q.has_any(&["is there a package", "package for", "available to install"]) || (q.has_any(&["look for", "search for"]) && q.has_any(&["package", "install", "reader", "program", "app"]))) && !q.has_word("aur") => bonus += 10.5,
+        "yay install" if q.has_word("aur") && q.has_any(&["install", "get", "add"]) && !q.has_word("omarchy") => bonus += 9.5,
+        "yay search" if q.has_word("aur") && q.has_any(&["search", "find", "look"]) => bonus += 9.5,
+        "add shell alias" if q.has_word("alias") || (q.has_word("shortcut") && q.raw.contains('"')) => bonus += 11.5,
+        "add to PATH" if q.has_any(&["to my path", "to path"]) || (q.raw.contains("PATH") && q.has_word("add")) => bonus += 9.5,
+        "set shell variable" if q.has_any(&["export", "permanently", "every time", "environment variable"])
+            || (q.has_any(&["set", "point"]) && has_upper_env) => bonus += 9.5,
+        "printenv" if q.has_any(&["value of", "environment variable", "environment variables"]) && !q.has_any(&["set", "export", "permanently", "point"]) => bonus += 8.0,
+        "reload shell config" if q.has_any(&["reload", "source"]) && q.has_any(&["bashrc", "zshrc", "shell", "config", "profile"]) => bonus += 9.5,
+        "add user to group" if q.has_word("group") && q.has_any(&["add", "join", "be in"]) => bonus += 9.5,
+        "groups" if q.has_any(&["which groups", "what groups", "groups am i"]) => bonus += 9.0,
+        "ssh-copy-id" if q.has_any(&["without typing a password", "without password", "passwordless", "key login", "ssh key"]) => bonus += 10.0,
+        "ssh" if (q.has_any(&["connect to the server", "log in", "log into", "ssh"]) || (q.raw.contains('@') && !q.has_remote_scp()))
+            && !q.has_any(&["without", "passwordless", "copy", "key", "service", "github"])
+            && !q.has_exact_word("logs")
+            && !q.has_log_file() => bonus += 10.0,
+        "scp" if q.has_remote_scp() && !q.has_any(&["sync", "rsync", "mirror", "incremental"]) => bonus += 12.0,
+        "rsync" if !is_meta_man && !is_meta_which && q.has_any(&["sync", "rsync", "mirror", "incremental"]) => bonus += 13.5,
+        "battery status" if q.has_word("battery") && !q.has_any(&["power saver", "save battery"]) => bonus += 9.0,
+        "wifi band" if q.has_any(&["ghz", "band", "channel"]) && q.has_word("wifi") => bonus += 9.5,
+        "ip neigh" if q.has_any(&["devices on my network", "local network", "arp", "neighbors"]) => bonus += 9.0,
+        "ip route get" if (q.raw_tokens.iter().any(|t| looks_like_ip(&t.text)) || q.has_any(&["which interface", "to reach"])) && q.has_any(&["route", "interface", "path"]) => bonus += 9.5,
+        "ip route" if q.has_any(&["gateway", "routed", "routes", "routing table", "network routes"]) && !q.raw_tokens.iter().any(|t| looks_like_ip(&t.text)) => bonus += 9.5,
+        "ip" if q.has_any(&["network interfaces", "ip address", "my ip"]) && !q.has_any(&["tailscale", "vm", "gateway", "route", "routes"]) => bonus += 7.5,
+        "ss" if q.has_any(&["open", "listening"]) && q.has_any(&["port", "ports"]) => bonus += 9.0,
+        "ethtool" if q.has_phrase("link speed") => bonus += 9.5,
+        "modprobe" if q.has_any(&["kernel module", "modprobe"]) => bonus += 9.5,
+        "mise upgrade" if q.has_word("mise") => bonus += 9.5,
+        "gh auth login" if (q.has_word("github") || q.has_word("gh")) && q.has_any(&["log in", "login", "auth", "authenticate"]) => bonus += 9.5,
+        "ping" if q.has_any(&["reachable", "ping", "connected to the internet", "internet connection", "am i online", "internet working"]) && !q.has_word("tailscale") => bonus += 8.0,
+        "tailscale ping" if q.has_word("tailscale") && q.has_any(&["reach", "ping"]) => bonus += 9.5,
+        "tailscale ip" if q.has_word("tailscale") && q.has_word("ip") => bonus += 9.5,
+        "tailscale up" if q.has_word("tailscale") && q.has_any(&["connect", "up", "start"]) => bonus += 9.0,
+        "tailscale down" if q.has_any(&["tailscale", "tailnet"]) && q.has_any(&["disconnect", "down", "stop", "off"]) => bonus += 9.5,
+        "tailscale status" if q.has_any(&["tailscale", "tailnet"]) && q.has_any(&["online", "devices", "status", "show", "network"]) => bonus += 9.0,
+        "nmcli wifi list" if q.has_any(&["wifi", "wireless"]) && q.has_any(&["nearby", "available", "list", "what", "scan"]) => bonus += 9.0,
+        "nmcli wifi connect" if q.has_any(&["wifi", "wireless"]) && q.has_any(&["connect", "join"]) => bonus += 9.0,
+        "nmcli connection show" if q.has_phrase("saved") && q.has_word("connection") => bonus += 9.5,
+        "git status" if q.has_any(&["what files did i change", "git status", "changed in this repo"]) => bonus += 8.0,
+        "git add" if q.has_exact_word("stage") => bonus += 10.0,
+        "git commit" if (q.has_exact_word("commit") || q.has_exact_word("staged")) && !q.has_exact_word("stage") && !q.has_any(&["push", "history", "log", "since", "merge"]) => bonus += 8.0,
+        "git push" if q.has_word("push") && q.has_any(&["commit", "commits", "git"]) => bonus += 8.5,
+        "git pull" if q.has_any(&["latest changes", "pull"]) && q.has_any(&["remote", "git", "pushed"]) => bonus += 9.0,
+        "git clone" if (q.has_word("clone") || q.has_word("repo")) && (has_url || q.has_word("repo")) => bonus += 9.0,
+        "git log" if q.has_any(&["commit history", "git log"]) => bonus += 9.0,
+        "git diff" if q.has_any(&["uncommitted", "git diff"]) => bonus += 8.5,
+        "git switch" if q.has_word("branch") && q.has_any(&["create", "new", "switch", "checkout"]) => bonus += 8.5,
+        "git branch" if q.has_any(&["list all branches", "branches", "list branches"]) => bonus += 8.5,
+        "docker ps" if q.has_any(&["container", "containers"]) && q.has_any(&["list", "running", "all", "stopped", "up"]) && !q.has_any(&["stats", "memory", "terminal", "shell", "open"]) => bonus += 8.5,
+        "docker images" if q.has_word("docker") && q.has_any(&["image", "images"]) && q.has_any(&["what", "list", "have"]) => bonus += 8.0,
+        "docker compose up" if (q.has_word("compose") || q.raw.contains("compose")) && q.has_any(&["up", "bring up", "start"]) => bonus += 10.5,
+        "docker compose down" if (q.has_word("compose") || q.raw.contains("compose")) && q.has_any(&["down", "tear down", "stop"]) => bonus += 10.5,
+        "docker exec" if q.has_word("container") && q.has_any(&["shell", "terminal"]) && q.has_any(&["inside", "exec", "running"]) => bonus += 9.5,
+        "docker system prune" if q.has_word("docker") && q.has_any(&["unused", "prune", "free space", "clean up"]) => bonus += 9.5,
+        "docker stats" if q.has_word("container") && q.has_any(&["memory", "cpu", "stats"]) => bonus += 9.0,
+        "docker run" if q.has_any(&["image", "container"]) && (q.has_exact_word("run") || q.has_any(&["launch", "start a new", "create a new"])) && !q.has_any(&["running container", "running containers", "in the running", "already running", "compose"]) && !q.raw.contains("compose") => bonus += 9.0,
+        "docker rmi" if q.has_word("image") && q.has_any(&["remove", "delete"]) => bonus += 8.5,
+        "docker rm" if q.has_word("container") && q.has_any(&["remove", "delete"]) => bonus += 8.5,
+        "docker pull" if q.has_word("image") && q.has_any(&["pull", "download", "fetch"]) => bonus += 9.0,
+        "docker start" if q.has_word("container") && q.has_word("start") && !q.has_word("restart") && !q.has_word("compose") && !q.raw.contains("compose") => bonus += 8.0,
+        "docker stop" if q.has_word("container") && q.has_any(&["stop", "halt"]) && !q.has_exact_word("stopped") => bonus += 8.5,
+        "docker restart" if q.has_word("container") && q.has_word("restart") => bonus += 8.5,
+        "virsh net-list" if q.has_any(&["virtual network", "virtual networks"]) && q.has_any(&["show", "list"]) => bonus += 9.5,
+        "virsh net-start" if q.has_any(&["virtual network", "virtual networks"]) && q.has_word("start") => bonus += 9.5,
+        "virsh list" if q.has_any(&["virtual machine", "virtual machines", "vm", "vms"]) && q.has_any(&["list", "show all"]) => bonus += 9.0,
+        "virsh domiflist" if q.has_any(&["network card", "network cards", "interfaces"]) && q.has_any(&["vm", "virtual machine"]) => bonus += 9.5,
+        "virsh domifaddr" if q.has_word("ip") && q.has_any(&["vm", "virtual machine"]) => bonus += 9.5,
+        "virsh dominfo" if q.has_any(&["memory", "cpu", "cpus", "details"]) && q.has_any(&["vm", "virtual machine"]) => bonus += 9.5,
+        "virsh autostart" if q.has_any(&["vm", "virtual machine"]) && (q.has_any(&["autostart", "host boots", "at boot"]) || q.has_exact_word("boots")) => bonus += 9.5,
+        "virsh destroy" if q.has_any(&["vm", "virtual machine"]) && q.has_any(&["force", "hard", "kill", "hung", "destroy", "pull"]) => bonus += 10.5,
+        "virsh undefine" if q.has_any(&["vm", "virtual machine"]) && q.has_any(&["delete", "undefine", "definition"]) => bonus += 9.5,
+        "virsh console" if q.has_any(&["vm", "virtual machine"]) && q.has_word("console") => bonus += 9.5,
+        "virsh shutdown" if q.has_any(&["vm", "virtual machine"]) && q.has_any(&["shut down", "shutdown", "gracefully", "turn off", "cleanly"]) && !q.has_any(&["force", "hard", "kill", "hung", "destroy"]) => bonus += 9.5,
+        "virsh reboot" if q.has_any(&["vm", "virtual machine"]) && q.has_word("reboot") => bonus += 9.5,
+        "virsh start" if q.has_any(&["vm", "virtual machine"]) && q.has_any(&["boot", "start", "power on"]) => bonus += 9.0,
+        "ollama run" if (q.has_any(&["ollama", "model", "chat", "talk"]) || q.has_phrase("tokens per second")) && q.has_any(&["chat", "talk", "run", "fast", "tokens per second"]) => bonus += 9.0,
+        "ollama stop" if q.has_any(&["unload", "stop", "free"]) && q.has_any(&["model", "memory", "ollama", "unload"]) => bonus += 9.0,
+        "ollama pull" if (q.has_word("ollama") || q.has_word("model")) && q.has_any(&["download", "pull", "fetch"]) => bonus += 9.0,
+        "ollama rm" if (q.has_word("ollama") || q.has_word("model")) && q.has_any(&["delete", "remove"]) => bonus += 8.5,
+        "ollama ps" if q.has_word("ollama") && q.has_any(&["loaded", "running", "right now"]) => bonus += 8.5,
+        "ollama list" if q.has_word("ollama") && q.has_any(&["which", "list", "have"]) => bonus += 8.0,
+        "ollama serve" if q.has_word("ollama") && q.has_any(&["server", "serve", "start"]) => bonus += 8.5,
+        "tmux new" if q.has_word("tmux") && q.has_any(&["new", "open", "start"]) && !q.has_any(&["running", "which", "list"]) => bonus += 8.5,
+        "tmux attach" if q.has_word("tmux") && q.has_any(&["attach", "reattach"]) => bonus += 9.0,
+        "tmux ls" if q.has_word("tmux") && q.has_any(&["list", "ls", "running", "which"]) && !q.has_any(&["new", "attach", "reattach", "kill", "end"]) => bonus += 9.0,
+        "tmux kill-session" if q.has_word("tmux") && q.has_any(&["kill", "end"]) => bonus += 9.0,
+        "cargo build" if q.has_any(&["rust", "cargo"]) && q.has_any(&["compile", "build"]) && !q.has_word("run") => bonus += 8.5,
+        "cargo run" if q.has_any(&["rust", "cargo"]) && q.has_word("run") && !q.has_word("test") => bonus += 8.0,
+        "cargo test" if q.has_any(&["rust", "cargo"]) && q.has_any(&["test", "tests"]) => bonus += 9.0,
+        "cargo new" if q.has_any(&["rust", "cargo"]) && q.has_any(&["new", "create"]) => bonus += 8.5,
+        "cargo add" if q.has_any(&["rust", "cargo", "dependency", "crate"]) && q.has_any(&["add", "crate", "dependency"]) => bonus += 9.0,
+        "curl" if (has_url || q.has_any(&["web address", "page at", "curl"])) && !q.has_any(&["clone", "git", "web app", "webapp", "model", "ollama", "is curl", "image"]) => bonus += 7.5,
+        "history" if q.has_any(&["previous commands", "command history", "typed earlier"]) => bonus += 8.5,
+        "clear" if q.has_any(&["clear", "clean up"]) && q.has_word("screen") && !q.has_any(&["lock", "screenshot"]) => bonus += 7.5,
+        "passwd" if q.has_word("password") && q.has_any(&["change", "my"]) && !q.has_any(&["without", "passwordless", "ssh", "find", "grep"]) => bonus += 8.0,
+        "hostname" if q.has_any(&["machine called", "computer called", "hostname", "computer's name"]) => bonus += 8.5,
+        "whoami" if q.has_any(&["logged in", "which user", "who am i", "whoami", "username"]) => bonus += 10.5,
+        "uptime" if q.has_any(&["uptime", "been on", "running since"]) || (q.has_phrase("how long") && q.has_any(&["reboot", "boot", "on", "running"])) => bonus += 9.0,
+        "date" if q.has_any(&["date", "today", "what day"]) && !q.has_any(&["dates", "sizes and dates", "update", "up to date"]) => bonus += 8.0,
+        "cal" if q.has_word("calendar") => bonus += 9.0,
+        "reboot" if q.has_any(&["restart my machine", "restart the computer", "reboot"]) && !q.has_any(&["vm", "virtual", "container", "service", "how long", "since"]) => bonus += 8.0,
+        "shutdown" if q.has_any(&["turn off the computer", "shut down the computer", "power off", "shutdown"]) && !q.has_any(&["vm", "virtual"]) => bonus += 8.0,
+        _ => {}
+    }
+    bonus
+}
+
+// ---------------------------------------------------------------------------
+// Request B: Fit Check
+// ---------------------------------------------------------------------------
+
+fn is_off_topic_unmodeled(_cmd: &Command, q: &QueryContext<'_>) -> bool {
+    let pure_offtopic = [
+        "weather", "forecast", "joke", "poem", "haiku", "story", "essay",
+        "summarize", "summary", "translate", "flight", "hotel", "recipe",
+        "who won", "world cup", "percent of", "capital of", "meaning of",
+    ];
+    if pure_offtopic.iter().any(|p| q.has_phrase(p)) {
+        return true;
+    }
+
+    if q.has_phrase("time in") || q.has_phrase("timezone") || q.has_phrase("what time is it in") {
+        return true;
+    }
+
+    if q.has_word("alarm") && !q.has_any(&["remind", "reminder"]) {
+        return true;
+    }
+
+    if q.has_word("play") && q.has_any(&["music", "song", "songs", "spotify", "mp3", "podcast", "radio"]) {
+        return true;
+    }
+
+    let unmodeled_checks: &[(&[&str], &[&str])] = &[
+        (&["resize", "crop", "rotate", "watermark", "blur"], &["image", "photo", "picture", "png", "jpg", "jpeg", "pixels", "wide"]),
+        (&["convert", "transcode"], &["video", "gif", "mp4", "mp3", "wav", "webp", "heic", "pdf", "audio"]),
+        (&["burn", "flash"], &["iso", "usb", "sd card", "drive"]),
+        (&["merge", "split", "combine"], &["pdf"]),
+        (&["send", "compose"], &["email", "mail", "tweet", "slack"]),
+    ];
+    for (verbs, nouns) in unmodeled_checks {
+        if verbs.iter().any(|v| q.has_word(v)) && nouns.iter().any(|n| q.has_phrase(n)) {
+            return true;
+        }
+    }
+
+    if q.has_any(&["homebrew", "brew", "winget", "chocolatey", "powershell", "regedit"]) {
+        return true;
+    }
+
+    false
+}
+
+fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
+    let name = cmd.name.as_str();
+    let has = |words: &[&str]| q.has_any(words);
+
+    if name.starts_with("git ") {
+        return has(&["git", "repo", "repository", "branch", "branches", "commit", "commits", "stage", "staged", "remote", "clone", "diff", "uncommitted", "push", "pull", "teammates"]);
+    }
+    if name.starts_with("docker ") {
+        return has(&["docker", "container", "containers", "compose", "stack"])
+            || (has(&["image", "images"]) && !has(&["photo", "jpg", "png", "qr", "barcode", "viewer", "resize", "iso"]));
+    }
+    if name.starts_with("virsh ") {
+        return has(&["vm", "vms", "virsh", "libvirt", "virtual machine", "virtual machines", "virtual network", "virtual networks"]);
+    }
+    if name.starts_with("cargo ") {
+        return has(&["cargo", "rust", "crate", "crates", "dependency", "dependencies"]);
+    }
+    if name.starts_with("ollama ") {
+        return match name {
+            "ollama run" => has(&["ollama", "llm", "model", "models", "chat", "talk", "tokens per second"]),
+            "ollama stop" => has(&["ollama", "llm", "model", "models", "unload"]),
+            _ => has(&["ollama", "llm", "ai model", "ai models", "local ai"])
+                || (has(&["model", "models"]) && has(&["download", "fetch", "loaded", "delete", "remove", "list"])),
+        };
+    }
+    if name.starts_with("tmux ") {
+        return has(&["tmux"]) || (has(&["session", "sessions"]) && has(&["reattach", "attach", "terminal", "kill", "new", "list"]));
+    }
+    if name.starts_with("tailscale ") {
+        return has(&["tailscale", "vpn", "tailnet"]);
+    }
+    if name.starts_with("nmcli ") {
+        return has(&["wifi", "wireless", "nmcli", "saved network connection", "network connections"]);
+    }
+    if name.starts_with("omarchy ") {
+        return match name {
+            "omarchy theme set" | "omarchy theme list" => has(&["theme", "themes", "colour", "color"]),
+            "omarchy theme bg next" => has(&["wallpaper"]) || (has(&["background"]) && !has(&["in the background"]) && !has(&["container", "image", "service"])),
+            "omarchy font set" | "omarchy font list" => has(&["font", "fonts", "monospace"]),
+            "omarchy capture screenshot" => has(&["screenshot", "capture"]),
+            "omarchy capture screenrecording" => has(&["screenrecording", "screen record", "record my screen", "record screen"]),
+            "omarchy audio output volume" => has(&["volume", "sound", "audio", "louder", "quieter", "mute", "unmute"]),
+            "omarchy brightness display" => has(&["brightness", "brighter", "dim", "dimmer"]),
+            "omarchy bluetooth power" => has(&["bluetooth"]),
+            "omarchy dns" => has(&["dns", "cloudflare", "1.1.1.1", "8.8.8.8"]),
+            "omarchy network speedtest" => has(&["speedtest", "speed test", "speed", "how fast", "bandwidth", "mbps", "upload", "download speed"]) && !has(&["model", "tokens per second"]),
+            "omarchy powerprofiles set" => has(&["power saver", "power profile", "balanced", "performance"]),
+            "omarchy reminder" => has(&["remind", "reminder"]),
+            "omarchy launch webapp" => has(&["webapp", "web app"]),
+            "omarchy toggle nightlight" => has(&["night light", "nightlight", "warm"]),
+            "omarchy toggle notification silencing" => has(&["do not disturb", "notification", "notifications", "silence"]),
+            "omarchy toggle touchpad" => has(&["touchpad", "trackpad"]),
+            "omarchy toggle idle" => has(&["awake", "idle", "sleep"]),
+            "omarchy system lock" => has(&["lock"]) && has(&["screen", "computer", "laptop", "pc"]),
+            "omarchy system logout" => has(&["logout", "log out", "log me out"]),
+            "omarchy snapshot create" => has(&["snapshot"]),
+            "omarchy update firmware" => has(&["firmware", "bios", "uefi"]),
+            "omarchy update" | "omarchy version" => has(&["omarchy", "up to date"]),
+            "omarchy restart" => has(&["restart", "acting up", "stopped working", "fix", "misbehaving"]),
+            "omarchy pkg add" | "omarchy pkg drop" => has(&["install", "uninstall", "remove", "package", "program", "omarchy"]),
+            "omarchy pkg aur add" => has(&["aur", "arch user repository"]) && has(&["install", "add", "get", "package", "omarchy"]),
+            _ => true,
+        };
+    }
+
+    match name {
+        "gio trash" => has(&["trash", "recycle bin", "discard"]),
+        "rm" => !has(&["trash", "recycle bin"]) || has(&["permanently", "permanent"]),
+        "ls" => !q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text))
+            || q.raw_tokens.iter().any(|t| t.text.ends_with('/') || std::path::Path::new(&t.text).is_dir()),
+        "battery status" => has(&["battery", "charge", "upower"]),
+        "reload shell config" => has(&["reload", "source", "re-read", "apply changes"]) && has(&["bashrc", "zshrc", "shell", "config", "profile", "startup"]),
+        "pacman install file" => q.raw.contains(".pkg.tar.zst") || (has(&["downloaded", "package file"]) && has(&["install"])),
+        "tar" => q.raw.contains(".tar") || q.raw.contains(".tgz") || has(&["tar", "tarball"])
+            || (has(&["archive"]) && !has(&["archive folder", "archive directory"])),
+        "zip" => q.raw.contains(".zip") || has(&["zip"]),
+        "unzip" => q.raw.contains(".zip") || has(&["unzip"]),
+        "find" => !has(&["look through", "search inside", "every line"]),
+        "largest items" => !has(&["biggest to smallest", "sort", "order", "lines"])
+            && has(&["space", "biggest", "largest", "taking up", "most"]),
+        "lscpu" => has(&["cpu", "processor", "core", "cores"]) && !has(&["eating", "right now", "most", "using the most"]),
+        "tail" => !has(&["journald", "journal", "systemd"]) && !(has(&["docker", "service"]) && !q.has_log_file()),
+        "docker logs" => !has(&["journald", "journal", "systemd"]),
+        "journalctl" | "search service log" => !q.has_log_file() && !has(&["log in", "log into", "logged in", "in lines"]),
+        "ip route get" => q.raw_tokens.iter().any(|t| looks_like_ip(&t.text) || looks_like_domain_host(&t.text))
+            || has(&["to reach", "reach an", "route to", "interface used"]),
+        "cd" => has(&["cd", "go to", "change directory", "change into", "enter folder"]),
+        "curl" => (q.has_url() || q.has_domain_token() || has(&["curl", "web", "website", "url", "web address", "page at"]))
+            && !has(&["image", "model", "ollama", "docker", "clone"]),
+        "ping" => has(&["ping", "reach", "reachable", "connected to the internet", "internet", "online", "latency"]),
+        "ssh" => has(&["ssh", "log in", "log into", "connect to the server", "server"]) || q.raw.contains('@'),
+        "btrfs subvolume list" => has(&["btrfs", "subvolume", "subvolumes"]),
+        "snapper list" => has(&["snapshot", "snapshots", "snapper"]),
+        "mise upgrade" => has(&["mise"]),
+        "modprobe" => has(&["kernel module", "modprobe", "driver"]),
+        "ethtool" => has(&["link speed", "ethtool", "ethernet"]),
+        "zbarimg" => has(&["qr", "barcode", "zbarimg"]),
+        "smartctl" => has(&["smart", "smartctl", "healthy", "health"]) && (q.raw.contains("/dev/") || has(&["disk", "drive", "ssd", "nvme"])),
+        "diff" => has(&["diff", "differ", "different", "difference", "compare"]),
+        "uniq" => has(&["uniq", "duplicate", "repeated", "how often", "how many times", "occurs", "appear", "most common", "frequency"]),
+        "cut" => has(&["cut", "column", "columns", "field", "fields", "delimiter"]),
+        "sort" => has(&["sort", "order", "alphabetical", "alphabetically", "numerical", "numerically"]),
+        "wc" => has(&["wc", "count", "how many", "number of", "how long"]) && has(&["line", "lines", "word", "words", "character", "characters"]),
+        "man" => has(&["man", "manual", "how do i use"]),
+        "which" => has(&["which", "where is", "where", "installed", "location"]),
+        "sha256sum" => has(&["checksum", "sha256", "sha256sum", "hash", "verify", "intact"]),
+        "chmod" => (has(&["chmod", "executable", "runnable", "as a program", "permission", "permissions", "read only", "nobody but me", "protect", "modified"])
+            || (has(&["stop", "prevent"]) && has(&["editing"])))
+            && !has(&["dotfiles"]),
+        "chown" => has(&["chown", "owner", "ownership"]),
+        "ln" => has(&["ln", "symlink", "symbolic link", "points to"]) || (has(&["shortcut"]) && !has(&["alias"]) && !q.raw.contains('"')),
+        "date" => has(&["date", "today", "what day", "time"]) && !q.has_exact_word("dates") && !has(&["up to date"]),
+        "cal" => has(&["cal", "calendar"]),
+        "uptime" => has(&["uptime", "been on", "running since"]) || (has(&["how long"]) && has(&["reboot", "boot", "on", "running"])),
+        "hostname" => has(&["hostname", "machine called", "computer called", "computer's name"]),
+        "whoami" => has(&["whoami", "which user", "logged in", "username", "who am i"]),
+        "passwd" => has(&["passwd", "password"]) && !has(&["passwordless"]),
+        "clear" => has(&["clear", "clean up"]) && has(&["screen", "terminal"]),
+        "history" => has(&["history", "previous command", "previous commands", "typed earlier"]),
+        "nano" => (has(&["nano", "edit", "editor"]) || (has(&["change"]) && q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text))))
+            && !has(&["stop", "prevent", "protect", "nobody", "modified"])
+            && !q.raw_tokens.iter().any(|t| is_upper_env_name(&t.text)),
+        "stat" => !has(&["dotfiles", "hidden"]),
+        "gh auth login" => has(&["gh", "github"]) && has(&["log in", "login", "auth", "authenticate"]),
+        "xdg-open" => has(&["open", "viewer", "xdg-open"]) && !has(&["resize", "convert", "port", "shell", "terminal", "every time", "change it"]),
+        "free" => has(&["ram", "memory"]) && !has(&["model", "ollama", "docker", "container"]),
+        _ => true,
+    }
+}
+
+fn fallback_fit(instructions: &str, q: &QueryContext<'_>) -> f64 {
+    let inst_terms = extract_weighted_terms(instructions);
+    let hits = q.content_terms.iter().filter(|t| inst_terms.contains_key(*t)).count();
+    if hits >= 2 { 0.85 } else if hits == 1 { 0.55 } else { 0.15 }
+}
+
+// ---------------------------------------------------------------------------
+// Request B: Flags & Choice Slots
+// ---------------------------------------------------------------------------
+
+fn score_flag(
+    cmd_name: &str,
+    flag_id: &str,
+    flag: Option<&Flag>,
+    pre_terms: Option<&HashMap<String, f64>>,
+    instructions: &str,
+    q: &QueryContext<'_>,
+) -> f64 {
+    let has = |terms: &[&str]| q.has_any(terms);
+    let has_path_slash = q.raw_tokens.iter().any(|t| t.text.contains('/'));
+
+    let explicit = match (cmd_name, flag_id) {
+        ("ls", "long") => Some(has(&["long", "detail", "details", "size", "sizes", "owner", "permission", "permissions", "date", "dates", "-l"])),
+        ("ls", "all") => Some(has(&["hidden", "dotfile", "dotfiles", "including hidden", "-a", "-la", "-al"])),
+        ("ls", "by_time") => Some(has(&["recent", "recently", "newest", "latest", "last modified", "-t"])),
+        ("chmod" | "chown", "recursive") => Some(has(&["everything in", "everything inside", "all files in", "all files inside", "recursively", "recursive", "inside", "-r"])),
+        ("cp" | "rm", "recursive") => {
+            if has(&["folder", "folders", "directory", "directories", "everything in", "recursively", "recursive", "completely", "-r"]) {
+                Some(true)
+            } else {
+                Some(false)
+            }
+        }
+        ("cat", "numbers") => Some(has(&["line number", "line numbers", "numbered", "with numbers", "-n"])),
+        ("curl", "save") => Some(has(&["save", "saved", "download", "-o", "into a file", "as a file"]) && !has(&["page at"])),
+        ("docker logs" | "journalctl" | "tail", "follow") => Some(has(&["follow", "watch", "watching", "live", "stream", "as new lines", "as they appear", "as it grows", "-f"])),
+        ("docker ps", "all") => Some(has(&["all", "stopped", "exited", "including stopped", "-a"])),
+        ("docker run", "detached") => Some(has(&["background", "detached", "daemon", "-d"])),
+        ("docker run", "interactive") => Some(has(&["interactive", "shell", "bash", "sh", "terminal", "-it"])),
+        ("git switch", "create") => Some(has(&["new", "create", "make", "-c", "-b"])),
+        ("grep", "ignore_case") => Some(has(&["ignore case", "ignoring case", "case insensitive", "any capitalisation", "any capitalization", "upper and lower", "-i"])),
+        ("grep", "recursive") => Some(has(&["all files", "every file", "everything under", "folder", "directory", "recursively", "recursive", "-r"])),
+        ("grep", "line_numbers") => Some(has(&["line number", "line numbers", "which line", "what line", "tell me which line", "-n"])),
+        ("journalctl", "boot") => Some(has(&["this boot", "current boot", "since boot", "last started", "since startup", "-b"])),
+        ("kill" | "pkill", "force") => Some(has(&["force", "frozen", "hung", "stuck", "refuses to stop", "unresponsive", "not responding", "-9", "sigkill"])),
+        ("mkdir", "parents") => Some(has(&["nested", "parent", "parents", "all in one go", "may not exist", "inside other", "-p"]) || has_path_slash),
+        ("ollama run", "verbose") => Some(has(&["speed", "tokens per second", "tok/s", "stats", "statistics", "verbose", "how fast", "--verbose"])),
+        ("omarchy capture screenrecording", "desktop_audio") => {
+            Some((has(&["desktop", "system", "computer", "internal", "own"]) && has(&["audio", "sound"]))
+                || has(&["speaker"])
+                || (has(&["audio", "sound"]) && !has(&["microphone", "mic", "voice"])))
+        }
+        ("omarchy capture screenrecording", "microphone") => Some(has(&["microphone", "mic", "voice", "narration"])),
+        ("sort", "numeric") => Some(has(&["number", "numbers", "numeric", "numerical", "numerically", "biggest", "smallest", "largest", "-n"])),
+        ("sort", "reverse") => Some(has(&["reverse", "reversed", "descending", "biggest to smallest", "largest first", "highest first", "last first", "-r"])),
+        ("top", "by_memory") => Some(has(&["memory", "ram", "mem"])),
+        ("uniq", "count") => Some(has(&["count", "how many", "how many times", "how often", "occurrences", "frequency", "times each", "-c"])),
+        ("uniq", "ranked") => Some(has(&["most common", "most frequent", "highest first", "descending", "ranked"])),
+        ("virsh autostart", "disable") => Some(has(&["disable", "off", "stop", "do not", "no longer", "prevent", "turn off", "--disable"])),
+        ("cargo build", "release") => Some(has(&["release", "optimised", "optimized", "production", "--release"])),
+        _ => None,
+    };
+
+    if let Some(wanted) = explicit {
+        return if wanted { 0.94 } else { 0.08 };
+    }
+
+    let owned;
+    let f_terms = if let Some(pre) = pre_terms {
+        pre
+    } else {
+        let mut flag_text = instructions.to_string();
+        if let Some(f) = flag {
+            flag_text.push(' ');
+            flag_text.push_str(&f.id.replace('_', " "));
+            flag_text.push(' ');
+            flag_text.push_str(&f.value);
+        }
+        owned = extract_weighted_terms(&flag_text);
+        &owned
+    };
+    let hits = q.content_terms.iter().filter(|t| f_terms.contains_key(*t)).count();
+    if hits >= 2 { 0.85 } else if hits == 1 { 0.50 } else { 0.12 }
+}
+
+fn score_choice_slot(
+    cmd_name: &str,
+    slot_id: &str,
+    slot: Option<&Slot>,
+    entry: Option<&IndexedCommand>,
+    criteria: &BTreeMap<String, Option<String>>,
+    q: &QueryContext<'_>,
+) -> Answer {
+    let has = |terms: &[&str]| q.has_any(terms);
+    let mut scores: Vec<(String, f64)> = Vec::with_capacity(criteria.len());
+
+    for (opt_name, opt_desc) in criteria {
+        let mut s = 0.0f64;
+
+        s += match (cmd_name, slot_id, opt_name.as_str()) {
+            ("chmod", "mode", "make_executable") => if has(&["executable", "runnable", "execute", "as a program", "+x"]) { 6.0 } else { 0.0 },
+            ("chmod", "mode", "private_to_owner") => if has(&["private", "only me", "nobody else", "nobody but me", "only the owner", "600"]) { 6.5 } else { 0.0 },
+            ("chmod", "mode", "read_only") => if has(&["read only", "protect", "modified", "nobody should be able to change", "a-w"]) || (has(&["stop", "prevent"]) && has(&["editing"])) { 6.5 } else { 0.0 },
+            ("chmod", "mode", "readable_by_everyone") => if has(&["everyone", "anyone", "world readable", "644"]) && !(has(&["stop", "prevent"]) && has(&["editing"])) { 6.0 } else { 0.0 },
+
+            ("cut", "delimiter", "comma") => if has(&["comma", "commas", "csv", "-d,"]) || q.raw.contains(".csv") { 6.0 } else { 0.0 },
+            ("cut", "delimiter", "colon") => if has(&["colon", "colons", "-d:"]) || q.raw.contains("/etc/passwd") || q.raw.contains("/etc/group") { 6.0 } else { 0.0 },
+            ("cut", "delimiter", "space") => if has(&["space", "spaces", "whitespace"]) { 5.5 } else { 0.0 },
+            ("cut", "delimiter", "tab_or_unknown") => 0.8,
+
+            ("find", "type", "folders") => {
+                let looking_for_folders = has(&["all folders", "folders named", "directories named", "directories called", "find folders", "find directories", "locate folders"])
+                    || (has(&["folder", "folders", "directory", "directories"]) && !has(&["file", "files"]) && !q.raw.contains("*."));
+                if looking_for_folders { 6.0 } else { 0.0 }
+            }
+            ("find", "type", "files") => if has(&["file", "files"]) || q.raw.contains("*.") { 5.0 } else { 0.0 },
+            ("find", "type", "either") => 0.8,
+
+            ("omarchy default", "kind", "agent") => if has(&["agent", "coding agent", "ai agent"]) { 6.5 } else { 0.0 },
+            ("omarchy default", "kind", "browser") => if has(&["browser", "web browser"]) { 6.5 } else { 0.0 },
+            ("omarchy default", "kind", "editor") => if has(&["editor", "text editor"]) { 6.5 } else { 0.0 },
+            ("omarchy default", "kind", "terminal") => if has(&["terminal", "terminal emulator"]) { 6.5 } else { 0.0 },
+
+            ("omarchy audio output volume", "change", "louder") => if has(&["up", "louder", "raise", "increase", "higher", "turn up"]) { 6.0 } else { 0.0 },
+            ("omarchy audio output volume", "change", "quieter") => if has(&["down", "quieter", "lower", "decrease", "softer", "turn down"]) { 6.0 } else { 0.0 },
+            ("omarchy audio output volume", "change", "mute") => if has(&["mute", "unmute", "silence"]) { 6.5 } else { 0.0 },
+
+            ("omarchy bluetooth power", "state", "on") => if has(&["on", "enable", "start", "activate"]) && !has(&["off", "disable"]) { 6.0 } else { 0.0 },
+            ("omarchy bluetooth power", "state", "off") => if has(&["off", "disable", "stop", "deactivate"]) { 6.0 } else { 0.0 },
+
+            ("omarchy brightness display", "change", "brighter") => if has(&["up", "brighter", "increase", "raise"]) { 6.0 } else { 0.0 },
+            ("omarchy brightness display", "change", "dimmer") => if has(&["down", "dim", "dimmer", "lower", "decrease", "darker"]) { 6.0 } else { 0.0 },
+
+            ("omarchy capture screenshot", "area", "region") => if has(&["region", "area", "selection", "select", "part of", "snip"]) { 6.0 } else { 0.0 },
+            ("omarchy capture screenshot", "area", "window") => if has(&["window", "windows"]) { 6.0 } else { 0.0 },
+            ("omarchy capture screenshot", "area", "fullscreen") => if has(&["fullscreen", "full screen", "whole screen", "entire screen"]) { 6.0 } else { 0.0 },
+            ("omarchy capture screenshot", "area", "unspecified") => 0.8,
+
+            ("omarchy capture screenshot", "output", "copy_to_clipboard") => if has(&["copy", "clipboard", "paste"]) { 6.5 } else { 0.0 },
+            ("omarchy capture screenshot", "output", "save_as_file") => if has(&["save", "file"]) { 5.0 } else { 0.8 },
+
+            ("omarchy dns", "provider", "cloudflare") => if has(&["cloudflare", "1.1.1.1"]) { 7.0 } else { 0.0 },
+            ("omarchy dns", "provider", "google") => if has(&["google", "8.8.8.8"]) { 7.0 } else { 0.0 },
+            ("omarchy dns", "provider", "from_router") => if has(&["dhcp", "router", "automatic", "default", "reset"]) { 6.0 } else { 0.5 },
+
+            ("omarchy network speedtest", "direction", "upload") => if has(&["upload", "sending"]) { 6.5 } else { 0.0 },
+            ("omarchy network speedtest", "direction", "download") => if has(&["download"]) { 6.0 } else { 0.8 },
+
+            ("omarchy powerprofiles set", "profile", "power_saver") => if has(&["power saver", "saver", "battery", "low power"]) { 6.5 } else { 0.0 },
+            ("omarchy powerprofiles set", "profile", "balanced") => if has(&["balanced", "middle", "normal"]) { 6.0 } else { 0.0 },
+            ("omarchy powerprofiles set", "profile", "performance") => if has(&["performance", "maximum", "max", "fast"]) { 6.0 } else { 0.0 },
+
+            ("omarchy restart", "part", "wifi") => if has(&["wifi", "wireless", "wlan"]) { 6.5 } else { 0.0 },
+            ("omarchy restart", "part", "audio") => if has(&["audio", "sound", "speaker", "speakers", "headphone", "microphone"]) { 6.5 } else { 0.0 },
+            ("omarchy restart", "part", "bluetooth") => if has(&["bluetooth"]) { 6.5 } else { 0.0 },
+            ("omarchy restart", "part", "shell") => if has(&["shell", "top bar", "bar", "waybar", "menu", "menus"]) { 6.5 } else { 0.0 },
+
+            ("omarchy toggle idle", "mode", "stay_awake") => if has(&["awake", "stay awake", "keep", "prevent", "off", "disable", "do not let"]) { 6.5 } else { 0.0 },
+            ("omarchy toggle idle", "mode", "allow_idle") => if has(&["allow idle", "normal", "normally", "sleep again", "enable idle"]) { 6.5 } else { 0.0 },
+
+            ("omarchy toggle touchpad", "state", "on") => if has(&["on", "enable", "activate"]) && !has(&["off", "disable"]) { 6.0 } else { 0.0 },
+            ("omarchy toggle touchpad", "state", "off") => if has(&["off", "disable", "deactivate"]) { 6.0 } else { 0.0 },
+
+            ("systemctl" | "systemctl --user", "action", "enable") => if has(&["enable", "boot", "automatically", "at login", "startup", "autostart"]) && !has(&["disable", "stop"]) { 7.0 } else { 0.0 },
+            ("systemctl" | "systemctl --user", "action", "disable") => if has(&["disable", "stop the service from starting", "stop starting", "don't start"]) { 7.0 } else { 0.0 },
+            ("systemctl" | "systemctl --user", "action", "restart") => if has(&["restart", "reload"]) { 7.0 } else { 0.0 },
+            ("systemctl" | "systemctl --user", "action", "stop") => if has(&["stop", "halt"]) && !has(&["restart", "disable"]) { 6.0 } else { 0.0 },
+            ("systemctl" | "systemctl --user", "action", "start") => if has(&["start"]) && !has(&["restart", "boot", "automatically", "enable", "disable"]) { 6.0 } else { 0.0 },
+            ("systemctl" | "systemctl --user", "action", "status") => if has(&["status", "running", "check", "error", "errors"]) { 5.5 } else { 0.6 },
+
+            ("tar", "action", "list_contents") => if has(&["without extracting", "without unpacking", "what is inside", "inside", "list", "contents", "peek", "-t"]) { 7.5 } else { 0.0 },
+            ("tar", "action", "create") => if has(&["pack", "create", "compress", "tar up", "bundle", "into", "-c"]) && !has(&["unpack", "extract", "without"]) { 6.5 } else { 0.0 },
+            ("tar", "action", "extract") => if has(&["unpack", "extract", "untar", "decompress", "-x"]) && !has(&["without extracting", "without unpacking"]) { 6.5 } else { 0.4 },
+
+            ("wc", "unit", "lines") => if has(&["line", "lines", "-l"]) { 6.5 } else { 0.5 },
+            ("wc", "unit", "words") => if has(&["word", "words", "-w"]) { 6.5 } else { 0.0 },
+            ("wc", "unit", "characters") => if has(&["character", "characters", "char", "chars", "byte", "-m"]) { 6.5 } else { 0.0 },
+
+            _ => 0.0,
+        };
+
+        if let Some(sl) = slot
+            && let Some(opt) = sl.options.iter().find(|o| o.name == *opt_name)
+            && (opt.description.to_lowercase().contains("does not say") || opt.name == "unspecified" || opt.name == "status")
+        {
+            s += 0.4;
+        }
+        let owned;
+        let opt_terms = if let Some(e) = entry
+            && let Some(pre) = e.choice_opt_terms.get(&(slot_id.to_string(), opt_name.clone()))
+        {
+            pre
+        } else {
+            let opt_text = format!("{} {}", opt_name.replace('_', " "), opt_desc.as_deref().unwrap_or(""));
+            owned = extract_weighted_terms(&opt_text);
+            &owned
+        };
+        for (t, w) in q.term_weights {
+            if let Some(&ow) = opt_terms.get(t) {
+                s += 0.8 * w * ow;
+            }
+        }
+
+        scores.push((opt_name.clone(), s));
+    }
+
+    scores.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let max_s = scores.first().map_or(0.0, |(_, s)| *s);
+    let mut sum_exp = 0.0f64;
+    let exps: Vec<f64> = scores
+        .iter()
+        .map(|(_, s)| {
+            let e = ((*s - max_s) / 1.5).exp();
+            sum_exp += e;
+            e
+        })
+        .collect();
+    let mut probabilities = BTreeMap::new();
+    for ((name, _), e) in scores.iter().zip(exps) {
+        probabilities.insert(name.clone(), e / sum_exp.max(1e-9));
+    }
+    let choice = scores.first().map(|(n, _)| n.clone()).unwrap_or_default();
+    Answer::Choice { choice, probabilities }
+}
+
+// ---------------------------------------------------------------------------
+// Request B: Path / Text Slot Role Disambiguation & Joint Binding
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SlotRole {
+    SourcePath,
+    DestPath,
+    LinkTarget,
+    LinkName,
+    FirstPath,
+    SecondPath,
+    ArchiveFile,
+    ArchiveInputs,
+    Pattern,
+    NamePattern,
+    FindWhere,
+    SearchWhere,
+    LineCount,
+    FieldNumber,
+    DaysNumber,
+    SizeSpec,
+    MinutesNumber,
+    PidNumber,
+    ServiceUnit,
+    Url,
+    HostOrIp,
+    PackageOrTerm,
+    ProgramName,
+    ContainerOrImage,
+    VmOrNetwork,
+    AiModel,
+    ThemeOrFont,
+    AppName,
+    EnvVarName,
+    EnvVarValue,
+    AliasName,
+    AliasCommand,
+    MessageText,
+    OwnerUser,
+    GroupName,
+    DiskDevice,
+    NetInterface,
+    KernelModule,
+    BranchName,
+    SessionName,
+    WifiSsid,
+    GenericPath,
+    GenericText,
+}
+
+fn infer_slot_role(cmd_name: &str, slot_id: &str, kind: SlotKind) -> SlotRole {
+    match (cmd_name, slot_id) {
+        ("cp" | "mv" | "scp" | "rsync", "source") => SlotRole::SourcePath,
+        ("cp" | "mv" | "scp" | "rsync", "dest") => SlotRole::DestPath,
+        ("ln", "source") => SlotRole::LinkTarget,
+        ("ln", "link") => SlotRole::LinkName,
+        ("diff", "first") => SlotRole::FirstPath,
+        ("diff", "second") => SlotRole::SecondPath,
+        ("tar" | "zip" | "unzip" | "unrar", "archive") => SlotRole::ArchiveFile,
+        ("tar" | "zip", "inputs") => SlotRole::ArchiveInputs,
+        ("grep", "pattern") | ("search service log", "word") => SlotRole::Pattern,
+        ("grep", "where") => SlotRole::SearchWhere,
+        ("find", "where") => SlotRole::FindWhere,
+        ("find", "name") => SlotRole::NamePattern,
+        ("find", "changed") => SlotRole::DaysNumber,
+        ("find", "size") => SlotRole::SizeSpec,
+        ("head" | "tail", "count") | ("journalctl", "lines") => SlotRole::LineCount,
+        ("cut", "field") => SlotRole::FieldNumber,
+        ("omarchy reminder", "minutes") => SlotRole::MinutesNumber,
+        ("omarchy reminder", "message") | ("git commit", "message") | ("append to system file", "line") => SlotRole::MessageText,
+        ("kill", "pid") => SlotRole::PidNumber,
+        ("systemctl" | "systemctl --user", "service") | ("journalctl" | "search service log", "unit") => SlotRole::ServiceUnit,
+        (_, "url") => SlotRole::Url,
+        (_, "host" | "address") => SlotRole::HostOrIp,
+        (_, "package" | "term" | "crate") => SlotRole::PackageOrTerm,
+        ("pkill" | "pgrep" | "which" | "man", "name") | ("systemd-inhibit", "command") => SlotRole::ProgramName,
+        (_, "container" | "image") if cmd_name.starts_with("docker ") => SlotRole::ContainerOrImage,
+        (_, "vm" | "network") if cmd_name.starts_with("virsh ") => SlotRole::VmOrNetwork,
+        (_, "model") if cmd_name.starts_with("ollama ") => SlotRole::AiModel,
+        (_, "theme" | "font") => SlotRole::ThemeOrFont,
+        ("omarchy default", "app") => SlotRole::AppName,
+        ("set shell variable" | "printenv", "name") => SlotRole::EnvVarName,
+        ("set shell variable", "value") => SlotRole::EnvVarValue,
+        ("add shell alias", "name") => SlotRole::AliasName,
+        ("add shell alias", "command") => SlotRole::AliasCommand,
+        ("chown", "owner") => SlotRole::OwnerUser,
+        ("add user to group", "group") => SlotRole::GroupName,
+        ("smartctl", "disk") => SlotRole::DiskDevice,
+        ("ethtool", "interface") => SlotRole::NetInterface,
+        ("modprobe", "module") => SlotRole::KernelModule,
+        ("git switch", "branch") => SlotRole::BranchName,
+        (_, "name") if cmd_name.starts_with("tmux ") => SlotRole::SessionName,
+        (_, "ssid") => SlotRole::WifiSsid,
+        _ => match kind {
+            SlotKind::Path => SlotRole::GenericPath,
+            SlotKind::Text | SlotKind::Choice => SlotRole::GenericText,
+        },
+    }
+}
+
+fn is_upper_env_name(s: &str) -> bool {
+    s.len() >= 2 && s.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+        && s.chars().any(|c| c.is_ascii_uppercase())
+}
+
+fn looks_like_path_or_file(s: &str) -> bool {
+    if s.contains('/') || s.starts_with('~') || s.contains('*') || s.contains('?') || (s.starts_with('.') && s.len() >= 2) {
+        return true;
+    }
+    if let Some((stem_part, ext)) = s.rsplit_once('.') {
+        return !stem_part.is_empty()
+            && !ext.is_empty()
+            && ext.len() <= 8
+            && ext.chars().all(|c| c.is_ascii_alphanumeric())
+            && !s.chars().all(|c| c.is_ascii_digit() || c == '.');
+    }
+    false
+}
+
+fn looks_like_url(s: &str) -> bool {
+    s.starts_with("http://") || s.starts_with("https://")
+}
+
+fn looks_like_domain_host(s: &str) -> bool {
+    let lower = s.to_lowercase();
+    !s.contains('@')
+        && !s.contains('/')
+        && (lower.ends_with(".com")
+            || lower.ends_with(".org")
+            || lower.ends_with(".net")
+            || lower.ends_with(".io")
+            || lower.ends_with(".dev")
+            || lower.ends_with(".edu")
+            || lower.ends_with(".gov")
+            || lower.ends_with(".local"))
+}
+
+fn looks_like_regular_file(s: &str) -> bool {
+    if s.ends_with('/') || looks_like_ip(s) || looks_like_url(s) || looks_like_domain_host(s) {
+        return false;
+    }
+    let path = std::path::Path::new(s);
+    if path.is_file() {
+        return true;
+    }
+    if path.is_dir() {
+        return false;
+    }
+    let basename = s.rsplit('/').next().unwrap_or(s);
+    if basename.starts_with('.') && basename.len() >= 2 && !basename.contains('/') {
+        return matches!(
+            basename.to_ascii_lowercase().as_str(),
+            ".bashrc" | ".zshrc" | ".profile" | ".gitignore" | ".env" | ".vimrc" | ".tmux.conf"
+        );
+    }
+    if let Some((stem_part, ext)) = basename.rsplit_once('.') {
+        return !stem_part.is_empty()
+            && !ext.is_empty()
+            && ext.len() <= 8
+            && ext.chars().all(|c| c.is_ascii_alphanumeric())
+            && !basename.chars().all(|c| c.is_ascii_digit() || c == '.');
+    }
+    false
+}
+
+fn is_size_spec(s: &str) -> bool {
+    let Some(unit) = s.chars().last() else { return false };
+    let num = &s[..s.len() - unit.len_utf8()];
+    !num.is_empty() && num.chars().all(|c| c.is_ascii_digit()) && matches!(unit, 'k' | 'M' | 'G')
+}
+
+fn looks_like_ip(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('.').collect();
+    parts.len() == 4 && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+fn is_digits(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
+}
+
+fn is_non_value_english_word(lower: &str) -> bool {
+    STOPWORDS.contains(&lower)
+        || matches!(
+            lower,
+            "make" | "list" | "show" | "get" | "set" | "add" | "remove" | "delete" | "erase"
+                | "start" | "stop" | "restart" | "follow" | "watch" | "close" | "run" | "open"
+                | "read" | "write" | "written" | "connect" | "disconnect" | "launch" | "halt"
+                | "scan" | "join" | "fetch" | "talk" | "chat" | "call" | "called" | "named"
+                | "create" | "build" | "compile" | "copy" | "duplicate" | "move" | "rename"
+                | "put" | "unpack" | "pack" | "extract" | "compress" | "decompress" | "check"
+                | "verify" | "find" | "locate" | "search" | "look" | "print" | "count" | "sort"
+                | "order" | "compare" | "edit" | "modify" | "modified" | "change" | "changed"
+                | "protect" | "enable" | "disable" | "turn" | "switch" | "apply" | "use" | "used"
+                | "install" | "uninstall" | "update" | "upgrade" | "unload" | "load" | "boot"
+                | "reboot" | "shutdown" | "power" | "lock" | "logout" | "remind" | "save"
+                | "download" | "upload" | "sync" | "kill" | "terminate" | "force" | "pull"
+                | "push" | "stage" | "commit" | "clone" | "attach" | "reattach" | "keep"
+                | "allow" | "prevent" | "take" | "bring" | "free" | "appear" | "occurs" | "mention"
+                | "contain" | "point" | "points" | "belong" | "leave" | "clear" | "clean"
+                | "file" | "files" | "folder" | "folders" | "directory" | "directories" | "dir"
+                | "contents" | "content" | "line" | "lines" | "word" | "words" | "character" | "characters"
+                | "program" | "programs" | "process" | "processes" | "service" | "services"
+                | "container" | "containers" | "image" | "images" | "vm" | "vms" | "virtual" | "machine"
+                | "archive" | "checksum" | "permissions" | "permission" | "executable" | "runnable"
+                | "frozen" | "hung" | "running" | "stopped" | "installed" | "available"
+                | "alphabetically" | "numerically" | "recursively" | "permanently" | "gracefully"
+                | "cleanly" | "automatically" | "completely" | "locally" | "live" | "fast"
+                | "hidden" | "recent" | "recently" | "most" | "biggest" | "smallest" | "largest"
+                | "command" | "commands" | "alias" | "variable" | "variables" | "value" | "column"
+                | "columns" | "field" | "fields" | "minute" | "minutes" | "day" | "days"
+                | "megabyte" | "megabytes" | "gigabyte" | "gigabytes" | "rust" | "crate"
+                | "project" | "branch" | "branches" | "session" | "sessions" | "theme" | "themes"
+                | "font" | "fonts" | "network" | "wifi" | "wireless" | "disk" | "disks"
+                | "healthy" | "health" | "speed" | "link" | "shortcut" | "owner" | "group"
+                | "groups" | "module" | "kernel" | "server" | "computer" | "laptop" | "terminal"
+                | "local" | "remote" | "uncommitted" | "changes" | "empty" | "new" | "old"
+                | "all" | "only" | "every" | "any" | "long" | "huge" | "much" | "many"
+                | "background" | "again" | "inside" | "outside" | "under" | "within"
+                | "console" | "definition" | "cards" | "card" | "manual" | "package" | "packages"
+                | "aur" | "tmux" | "ollama" | "docker" | "git" | "virsh" | "tailscale" | "tailnet"
+                | "past" | "last" | "first" | "top" | "bottom" | "beginning" | "end"
+                | "up" | "down" | "off" | "out" | "back" | "here" | "there" | "today"
+                | "time" | "date" | "everything" | "nothing" | "something" | "anything"
+                | "everyone" | "nobody" | "anyone" | "someone" | "sleep" | "awake"
+                | "dependency" | "memory" | "space" | "storage" | "cpu" | "ram"
+                | "model" | "models" | "logs" | "log" | "reader" | "teammates" | "export" | "shell"
+                | "route" | "routes" | "routing" | "table" | "gateway" | "internet" | "connected"
+                | "online" | "journald" | "browser" | "editor" | "application"
+                | "omarchy" | "using"
+        )
+}
+
+fn find_phrase_match<'a>(cand: &str, q: &'a QueryContext<'a>) -> Option<(usize, &'a str, &'a str)> {
+    let parts: Vec<String> = cand.split_whitespace().map(|p| p.to_lowercase()).collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    // Deduplicate raw_tokens entries that share the same word_pos (number_word duplicates).
+    let mut seq: Vec<&RawToken> = Vec::new();
+    for rt in &q.raw_tokens {
+        if seq.last().is_none_or(|prev| prev.word_pos != rt.word_pos) {
+            seq.push(rt);
+        }
+    }
+    for win in seq.windows(parts.len()) {
+        if win.iter().zip(&parts).all(|(rt, p)| rt.lower == *p) {
+            let first = win[0];
+            let last = win[win.len() - 1];
+            return Some((first.word_pos, first.prev_word.as_str(), last.next_word.as_str()));
+        }
+    }
+    None
+}
+
+fn indirect_file_match_score(cand: &str, q: &QueryContext<'_>) -> f64 {
+    if q.raw_tokens.iter().any(|rt| rt.text == cand || rt.lower == cand.to_lowercase()) {
+        return 0.0;
+    }
+    if find_phrase_match(cand, q).is_some() {
+        return 12.5;
+    }
+    let lower_cand = cand.to_lowercase();
+    let (stem_part, ext_part) = lower_cand.rsplit_once('.').unwrap_or((&lower_cand, ""));
+    let stem_words: Vec<&str> = stem_part.split(['-', '_', ' ']).filter(|p| !p.is_empty()).collect();
+
+    let mut score = 0.0f64;
+    for sw in &stem_words {
+        if sw.len() >= 2 && q.words.iter().any(|w| w == sw) {
+            score += 5.5;
+        }
+    }
+    if score == 0.0 {
+        return 0.0;
+    }
+
+    match ext_part {
+        "sh" | "bash" | "py" | "rb" | "pl" if q.has_any(&["script", "runnable", "executable"]) => score += 2.5,
+        "toml" | "yaml" | "yml" | "json" | "conf" | "ini" if q.has_any(&["config", "settings"]) => score += 2.0,
+        "log" if q.has_word("log") => score += 2.0,
+        "md" | "txt" if q.has_any(&["readme", "notes", "doc", "text", "file"]) => score += 1.5,
+        "" if q.has_any(&["folder", "directory", "dir"]) => score += 2.0,
+        _ => {}
+    }
+    score
+}
+
+fn find_raw_token<'a>(cand: &str, q: &'a QueryContext<'a>) -> Option<&'a RawToken> {
+    q.raw_tokens
+        .iter()
+        .find(|rt| rt.text == cand)
+        .or_else(|| q.raw_tokens.iter().find(|rt| rt.lower == cand.to_lowercase()))
+}
+
+fn bind_slots(
+    cmd_name: &str,
+    cmd_opt: Option<&Command>,
+    slot_picks: &HashMap<String, &BTreeMap<String, Option<String>>>,
+    choice_picks: &HashMap<String, String>,
+    q: &QueryContext<'_>,
+) -> HashMap<String, (f64, String)> {
+    let text_cands: Option<&BTreeMap<String, Option<String>>> = cmd_opt.and_then(|c| {
+        c.slots
+            .iter()
+            .find(|s| s.kind == SlotKind::Text)
+            .and_then(|s| slot_picks.get(&s.id).copied())
+    });
+
+    let ordered_slots: Vec<(String, SlotKind)> = if let Some(cmd) = cmd_opt {
+        cmd.slots
+            .iter()
+            .filter(|s| s.kind != SlotKind::Choice && slot_picks.contains_key(&s.id))
+            .map(|s| (s.id.clone(), s.kind))
+            .collect()
+    } else {
+        slot_picks.keys().map(|id| (id.clone(), SlotKind::Text)).collect()
+    };
+
+    let tar_skip_inputs = cmd_name == "tar" && choice_picks.get("action").is_some_and(|a| a != "create");
+
+    let mut slot_candidates: Vec<(String, Vec<(String, f64)>)> = Vec::new();
+    let to_split_pos = find_preposition_pos(q, &["to", "into", "as"]);
+
+    for (slot_id, kind) in &ordered_slots {
+        if tar_skip_inputs && slot_id == "inputs" {
+            slot_candidates.push((slot_id.clone(), vec![]));
+            continue;
+        }
+        let role = infer_slot_role(cmd_name, slot_id, *kind);
+        let criteria = slot_picks[slot_id];
+        let mut cands_scored = Vec::new();
+
+        for cand in criteria.keys() {
+            let is_from_files = *kind == SlotKind::Path
+                && text_cands.is_some_and(|tc| !tc.contains_key(cand));
+            let s = score_candidate_for_role(
+                cmd_name,
+                cand,
+                role,
+                *kind,
+                is_from_files,
+                to_split_pos,
+                q,
+            );
+            if s > 0.5 {
+                cands_scored.push((cand.clone(), s));
+            }
+        }
+        cands_scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        slot_candidates.push((slot_id.clone(), cands_scored));
+    }
+
+    let mut used: HashSet<String> = HashSet::new();
+    let mut result: HashMap<String, (f64, String)> = HashMap::new();
+
+    let mut order: Vec<usize> = (0..slot_candidates.len()).collect();
+    order.sort_by_key(|&i| {
+        let slot_id = &slot_candidates[i].0;
+        let kind = ordered_slots[i].1;
+        let role = infer_slot_role(cmd_name, slot_id, kind);
+        role_priority(role)
+    });
+
+    for idx in order {
+        let (slot_id, list) = &slot_candidates[idx];
+        let pick = list.iter().find(|(c, _)| !used.contains(c));
+        if let Some((cand, score)) = pick {
+            used.insert(cand.clone());
+            let named_prob = if *score >= 4.0 { 0.94 } else if *score >= 2.2 { 0.82 } else { 0.50 };
+            result.insert(slot_id.clone(), (named_prob, cand.clone()));
+        } else {
+            result.insert(slot_id.clone(), (0.05, String::new()));
+        }
+    }
+
+    result
+}
+
+fn role_priority(role: SlotRole) -> u8 {
+    match role {
+        SlotRole::ArchiveFile | SlotRole::Url | SlotRole::DiskDevice => 1,
+        SlotRole::PidNumber | SlotRole::FieldNumber | SlotRole::DaysNumber | SlotRole::SizeSpec | SlotRole::MinutesNumber | SlotRole::LineCount => 2,
+        SlotRole::NamePattern | SlotRole::EnvVarName | SlotRole::AliasName | SlotRole::LinkName | SlotRole::Pattern => 3,
+        SlotRole::ServiceUnit | SlotRole::OwnerUser | SlotRole::DestPath | SlotRole::LinkTarget => 4,
+        SlotRole::FindWhere | SlotRole::SearchWhere | SlotRole::SourcePath => 5,
+        _ => 6,
+    }
+}
+
+fn find_preposition_pos(q: &QueryContext<'_>, preps: &[&str]) -> Option<usize> {
+    for rt in &q.raw_tokens {
+        if !rt.quoted && preps.contains(&rt.lower.as_str()) {
+            if rt.lower == "to"
+                && matches!(rt.prev_word.as_str(), "want" | "need" | "like" | "how" | "going" | "used" | "trying" | "able" | "refuses" | "force")
+            {
+                continue;
+            }
+            return Some(rt.word_pos);
+        }
+    }
+    None
+}
+
+fn is_adjective_or_determiner(lower: &str) -> bool {
+    STOPWORDS.contains(&lower)
+        || matches!(
+            lower,
+            "new" | "empty" | "hidden" | "all" | "every" | "any" | "other" | "same"
+                | "current" | "most" | "first" | "last" | "biggest" | "largest" | "smallest"
+                | "huge" | "long" | "old" | "local" | "remote" | "virtual" | "whole" | "entire"
+        )
+}
+
+fn score_candidate_for_role(
+    cmd_name: &str,
+    cand: &str,
+    role: SlotRole,
+    kind: SlotKind,
+    is_from_files: bool,
+    to_split_pos: Option<usize>,
+    q: &QueryContext<'_>,
+) -> f64 {
+    let rt_opt = find_raw_token(cand, q);
+    let phrase_match = if rt_opt.is_none() && cand.contains(' ') {
+        find_phrase_match(cand, q)
+    } else {
+        None
+    };
+    let is_ext_glob_cand = role == SlotRole::NamePattern
+        && cand.starts_with("*.")
+        && q.raw_tokens.iter().any(|rt| rt.lower == cand.trim_start_matches('*').to_lowercase());
+    let is_size_cand = role == SlotRole::SizeSpec && is_size_spec(cand);
+    let indirect = if kind == SlotKind::Path { indirect_file_match_score(cand, q) } else { 0.0 };
+
+    if rt_opt.is_none() && phrase_match.is_none() && !is_ext_glob_cand && !is_size_cand && indirect == 0.0 {
+        return 0.0;
+    }
+
+    let lower = cand.to_lowercase();
+    let is_multi_phrase = cand.contains(' ');
+    let quoted = rt_opt.is_some_and(|r| r.quoted);
+    let pos = rt_opt
+        .map(|r| r.word_pos)
+        .or_else(|| phrase_match.map(|(p, _, _)| p))
+        .unwrap_or(usize::MAX / 2);
+    let prev = rt_opt
+        .map(|r| r.prev_word.as_str())
+        .or_else(|| phrase_match.map(|(_, pr, _)| pr))
+        .unwrap_or("");
+    let next = rt_opt
+        .map(|r| r.next_word.as_str())
+        .or_else(|| phrase_match.map(|(_, _, nx)| nx))
+        .unwrap_or("");
+
+    let is_named_dir_or_file = kind == SlotKind::Path
+        && matches!(next, "folder" | "directory" | "dir" | "file")
+        && (!is_adjective_or_determiner(&lower) || is_from_files);
+    let is_path = looks_like_path_or_file(cand) || indirect > 0.0 || is_from_files || is_named_dir_or_file;
+    let explicitly_labeled = matches!(prev, "called" | "named")
+        || matches!(next, "service" | "group" | "container" | "image" | "vm" | "network" | "model" | "branch" | "session")
+        || (role == SlotRole::ServiceUnit && matches!(next, "log" | "logs" | "unit" | "daemon"));
+
+    if !quoted && !is_path && !is_digits(cand) && !explicitly_labeled && is_non_value_english_word(&lower) {
+        if !is_multi_phrase
+            && !is_upper_env_name(cand)
+            && !(matches!(role, SlotRole::ServiceUnit | SlotRole::ProgramName) && prev == "for")
+        {
+            return 0.0;
+        }
+    }
+
+    match role {
+        SlotRole::PidNumber => {
+            if is_digits(cand) { 9.0 } else { 0.0 }
+        }
+        SlotRole::FieldNumber => {
+            if is_digits(cand) && (prev == "column" || prev == "field" || next == "column" || next == "field" || prev == "col") {
+                9.5
+            } else if is_digits(cand) {
+                7.0
+            } else {
+                0.0
+            }
+        }
+        SlotRole::DaysNumber => {
+            if is_digits(cand) && matches!(next, "day" | "days") { 9.5 } else { 0.0 }
+        }
+        SlotRole::SizeSpec => {
+            if is_size_spec(cand) { 9.5 } else { 0.0 }
+        }
+        SlotRole::MinutesNumber => {
+            if is_digits(cand) && matches!(next, "minute" | "minutes" | "min" | "mins") {
+                9.5
+            } else if is_digits(cand) {
+                7.0
+            } else {
+                0.0
+            }
+        }
+        SlotRole::LineCount => {
+            if is_digits(cand) && (matches!(next, "line" | "lines" | "log" | "most") || matches!(prev, "first" | "last" | "top" | "bottom")) {
+                9.5
+            } else {
+                0.0
+            }
+        }
+        SlotRole::Url => {
+            if looks_like_url(cand) {
+                9.5
+            } else if looks_like_path_or_file(cand) && cand.contains('.') {
+                6.0
+            } else {
+                0.0
+            }
+        }
+        SlotRole::DiskDevice => {
+            if cand.starts_with("/dev/") { 9.5 } else if lower.starts_with("nvme") || lower.starts_with("sd") { 6.0 } else { 0.0 }
+        }
+        SlotRole::ArchiveFile => {
+            if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") || lower.ends_with(".tar.bz2")
+                || lower.ends_with(".tar.xz") || lower.ends_with(".tar.zst") || lower.ends_with(".tar")
+                || lower.ends_with(".zip") || lower.ends_with(".rar")
+            {
+                9.5
+            } else if is_path
+                && matches!(prev, "into" | "to")
+                && cand.contains('.')
+                && !matches!(lower.as_str(), "zip" | "tar" | "rar" | "gz" | "archive" | "tarball" | "file" | "folder" | "directory")
+            {
+                5.0
+            } else {
+                0.0
+            }
+        }
+        SlotRole::ArchiveInputs => {
+            if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") || lower.ends_with(".zip") || lower.ends_with(".rar") {
+                return 0.0;
+            }
+            if is_path || indirect > 0.0 || matches!(next, "folder" | "directory" | "file" | "files") {
+                7.5 + indirect
+            } else if matches!(prev, "pack" | "zip" | "compress" | "archive" | "up") {
+                5.0
+            } else {
+                0.0
+            }
+        }
+        SlotRole::SourcePath => {
+            let mut s = if is_path { 6.0 } else if matches!(next, "folder" | "directory" | "file") { 5.0 } else { 2.0 };
+            s += indirect;
+            if let Some(split) = to_split_pos {
+                if pos < split || (indirect > 0.0 && !matches!(prev, "to" | "into" | "as")) {
+                    s += 3.5;
+                } else if pos > split {
+                    s -= 4.0;
+                }
+            }
+            s.max(0.0)
+        }
+        SlotRole::DestPath => {
+            if cand.contains('@') && cand.contains(':') {
+                return 9.5;
+            }
+            let mut s = if is_path || cand.contains('/') { 5.0 } else if !is_non_value_english_word(&lower) { 3.5 } else { 0.0 };
+            s += indirect;
+            if let Some(split) = to_split_pos {
+                if pos > split || matches!(prev, "to" | "into" | "as") {
+                    s += 4.5;
+                } else if pos < split && !is_multi_phrase {
+                    s -= 3.5;
+                }
+            }
+            s.max(0.0)
+        }
+        SlotRole::LinkName => {
+            if matches!(prev, "called" | "named") { 9.0 } else if let Some(split) = to_split_pos {
+                if pos < split && !is_non_value_english_word(&lower) { 4.5 } else { 0.0 }
+            } else { 0.0 }
+        }
+        SlotRole::LinkTarget => {
+            if prev == "to" { 9.0 } else if !matches!(prev, "called" | "named") && (is_path || !is_non_value_english_word(&lower)) { 4.5 } else { 0.0 }
+        }
+        SlotRole::FirstPath => {
+            if is_path { 8.0 - (pos as f64 * 0.1) } else { 0.0 }
+        }
+        SlotRole::SecondPath => {
+            if is_path { 6.0 + (pos as f64 * 0.1) } else { 0.0 }
+        }
+        SlotRole::NamePattern => {
+            if is_ext_glob_cand {
+                if q.raw_tokens.iter().any(|rt| {
+                    rt.lower == cand.trim_start_matches('*').to_lowercase()
+                        && matches!(rt.next_word.as_str(), "file" | "files")
+                }) {
+                    10.5
+                } else {
+                    9.5
+                }
+            } else if cand.contains('*') || cand.contains('?') {
+                9.5
+            } else if matches!(prev, "named" | "called" | "name") {
+                9.0
+            } else if is_path && !matches!(prev, "under" | "in" | "inside") {
+                if cand.starts_with('.') && matches!(next, "file" | "files") { 3.0 } else { 6.0 }
+            } else {
+                0.0
+            }
+        }
+        SlotRole::FindWhere => {
+            if (matches!(prev, "under" | "inside" | "within") || (prev == "in" && !matches!(next, "day" | "days" | "megabytes" | "gigabytes")))
+                && !is_digits(cand)
+                && !cand.contains('*')
+                && !matches!(prev, "named" | "called")
+                && !matches!(lower.as_str(), "past" | "last")
+            {
+                return 8.5 + indirect;
+            }
+            if indirect > 0.0 && !matches!(prev, "named" | "called") {
+                return 6.0 + indirect;
+            }
+            0.0
+        }
+        SlotRole::SearchWhere => {
+            if !quoted && (is_path || indirect > 0.0 || matches!(prev, "in" | "under" | "inside")) {
+                return 8.0 + indirect;
+            }
+            0.0
+        }
+        SlotRole::Pattern => {
+            if quoted {
+                9.5
+            } else if matches!(prev, "for" | "mention" | "containing" | "contain" | "matching" | "word" | "with") && !is_path {
+                9.0
+            } else if !is_path && !is_digits(cand) && !is_non_value_english_word(&lower) {
+                4.0
+            } else {
+                0.0
+            }
+        }
+        SlotRole::OwnerUser => {
+            if matches!(prev, "make" | "owner" | "by" | "to" | "user") && !is_path {
+                8.5
+            } else if !is_path && !is_non_value_english_word(&lower) {
+                4.5
+            } else {
+                0.0
+            }
+        }
+        SlotRole::ServiceUnit => {
+            if matches!(lower.as_str(), "system" | "boot" | "last" | "recent" | "log" | "logs" | "logged" | "tail" | "head" | "journald" | "journal" | "lines" | "status" | "running" | "since")
+                || is_digits(cand)
+            {
+                return 0.0;
+            }
+            if matches!(next, "service" | "log" | "logs" | "unit" | "daemon")
+                || (cmd_name != "search service log" && matches!(prev, "service" | "for" | "unit"))
+            {
+                return 9.0;
+            }
+            if !is_path && !is_non_value_english_word(&lower) && !matches!(lower.as_str(), "failed" | "error") {
+                5.0
+            } else {
+                0.0
+            }
+        }
+        SlotRole::HostOrIp => {
+            if cand.contains('@') || looks_like_ip(cand) || (cand.contains('.') && !cand.ends_with(".txt") && !cand.ends_with(".log")) {
+                9.5
+            } else if cmd_name == "ip route get" {
+                0.0
+            } else if matches!(prev, "to" | "into" | "at" | "over" | "reach" | "ping" | "for" | "on") && !is_non_value_english_word(&lower) {
+                7.5
+            } else if !is_non_value_english_word(&lower) && !is_digits(cand) {
+                4.5
+            } else {
+                0.0
+            }
+        }
+        SlotRole::PackageOrTerm => {
+            if cand.contains('.') && lower.ends_with(".pkg.tar.zst") {
+                return 0.0;
+            }
+            if matches!(prev, "install" | "uninstall" | "remove" | "for" | "add" | "drop" | "search" | "crate" | "package" | "get")
+                && !is_non_value_english_word(&lower)
+            {
+                9.0
+            } else if matches!(next, "as" | "from" | "crate" | "package") && !is_non_value_english_word(&lower) {
+                8.5
+            } else if !is_non_value_english_word(&lower) && !is_digits(cand) {
+                5.0
+            } else {
+                0.0
+            }
+        }
+        SlotRole::ProgramName => {
+            if quoted {
+                8.5
+            } else if matches!(prev, "for" | "is" | "about") && !is_non_value_english_word(&lower) {
+                9.0
+            } else if matches!(next, "installed" | "command" | "processes") && !is_non_value_english_word(&lower) {
+                9.0
+            } else if !is_non_value_english_word(&lower) && !is_digits(cand) {
+                7.0
+            } else {
+                0.0
+            }
+        }
+        SlotRole::GroupName => {
+            if matches!(next, "group") || matches!(prev, "group") {
+                9.0
+            } else if !is_non_value_english_word(&lower) && !is_digits(cand) {
+                5.0
+            } else {
+                0.0
+            }
+        }
+        SlotRole::ContainerOrImage | SlotRole::VmOrNetwork | SlotRole::AiModel | SlotRole::BranchName | SlotRole::NetInterface | SlotRole::KernelModule => {
+            if cand.contains(':') || cand.contains('-') || cand.chars().any(|c| c.is_ascii_digit()) {
+                if !is_digits(cand) && !is_non_value_english_word(&lower) {
+                    return 9.2;
+                }
+            }
+            if matches!(next, "container" | "image" | "vm" | "network" | "model" | "branch" | "locally")
+                && !is_non_value_english_word(&lower)
+            {
+                return 9.0;
+            }
+            if matches!(prev, "called" | "named" | "container" | "image" | "vm" | "network" | "model" | "branch" | "of" | "to" | "with" | "for" | "delete" | "stop" | "start" | "restart" | "pull" | "unload" | "load" | "boot" | "reboot" | "destroy" | "undefine" | "launch" | "halt" | "fetch" | "talk" | "in")
+                && !is_non_value_english_word(&lower)
+            {
+                return 8.5;
+            }
+            if !is_non_value_english_word(&lower) && !is_digits(cand) { 5.0 } else { 0.0 }
+        }
+        SlotRole::SessionName => {
+            if matches!(prev, "called" | "named") {
+                9.5
+            } else if matches!(next, "session") && !is_non_value_english_word(&lower) {
+                7.5
+            } else {
+                0.0
+            }
+        }
+        SlotRole::WifiSsid => {
+            if quoted || ((cand.chars().any(|c| c.is_uppercase()) || matches!(prev, "called" | "named" | "network" | "wifi" | "to")) && !is_non_value_english_word(&lower)) {
+                9.0
+            } else {
+                0.0
+            }
+        }
+        SlotRole::ThemeOrFont => {
+            if is_multi_phrase && (quoted || phrase_match.is_some()) {
+                10.5
+            } else if is_multi_phrase {
+                9.5
+            } else if quoted || (cand.chars().next().is_some_and(|c| c.is_uppercase()) && !is_non_value_english_word(&lower)) {
+                8.5
+            } else if matches!(prev, "to" | "use" | "apply") && !is_non_value_english_word(&lower) {
+                7.0
+            } else {
+                0.0
+            }
+        }
+        SlotRole::AppName => {
+            if is_digits(cand)
+                || is_non_value_english_word(&lower)
+                || matches!(lower.as_str(), "default" | "browser" | "editor" | "terminal" | "agent" | "coding" | "app" | "application" | "omarchy")
+            {
+                0.0
+            } else if matches!(prev, "to" | "as" | "browser" | "editor" | "terminal" | "agent") {
+                9.5
+            } else {
+                6.5
+            }
+        }
+        SlotRole::EnvVarName => {
+            if is_upper_env_name(cand) {
+                9.5
+            } else if matches!(prev, "of" | "variable" | "set" | "export" | "make") && !is_non_value_english_word(&lower) {
+                6.0
+            } else {
+                0.0
+            }
+        }
+        SlotRole::EnvVarValue => {
+            if is_upper_env_name(cand) {
+                0.0
+            } else if matches!(prev, "to" | "=") && !is_non_value_english_word(&lower) {
+                9.0
+            } else {
+                0.0
+            }
+        }
+        SlotRole::AliasName => {
+            if matches!(prev, "called" | "named" | "alias") && !quoted && !is_non_value_english_word(&lower) {
+                9.5
+            } else if matches!(next, "to" | "as") && !quoted && !is_non_value_english_word(&lower) {
+                8.5
+            } else {
+                0.0
+            }
+        }
+        SlotRole::AliasCommand => {
+            if quoted {
+                9.5
+            } else if is_multi_phrase && matches!(prev, "for" | "to") {
+                8.0
+            } else {
+                0.0
+            }
+        }
+        SlotRole::MessageText => {
+            if quoted {
+                9.5
+            } else if is_multi_phrase && !cand.chars().all(|c| c.is_uppercase() || c == ' ') {
+                if phrase_match.is_some() { 9.5 } else { 8.5 }
+            } else if matches!(prev, "message" | "about" | "saying") && !is_non_value_english_word(&lower) {
+                6.5
+            } else {
+                0.0
+            }
+        }
+        SlotRole::GenericPath => {
+            if matches!(prev, "called" | "named") {
+                10.0
+            } else if is_from_files && is_multi_phrase && (indirect >= 12.0 || phrase_match.is_some()) {
+                11.5 + indirect
+            } else if is_path {
+                9.0 + indirect
+            } else if indirect > 0.0 || is_named_dir_or_file {
+                8.5 + indirect
+            } else if matches!(prev, "to" | "into" | "in" | "from" | "of")
+                && !is_non_value_english_word(&lower)
+                && !is_digits(cand)
+                && !is_multi_phrase
+            {
+                7.0
+            } else if cand.chars().next().is_some_and(|c| c.is_uppercase()) && !is_non_value_english_word(&lower) && !is_multi_phrase {
+                6.0
+            } else {
+                0.0
+            }
+        }
+        SlotRole::GenericText => {
+            if quoted {
+                8.5
+            } else if is_multi_phrase {
+                7.5
+            } else if matches!(prev, "called" | "named") {
+                9.0
+            } else if !is_non_value_english_word(&lower) && !is_digits(cand) {
+                5.0
+            } else {
+                0.0
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests & Eval Benchmarks
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{catalog, suggest};
+    use serde::Deserialize;
+    use std::path::Path;
+    use std::time::Instant;
+
+    #[derive(Deserialize)]
+    struct CaseFile {
+        case: Vec<EvalCase>,
+    }
+
+    #[derive(Deserialize)]
+    struct EvalCase {
+        request: String,
+        command: String,
+        expect: Option<String>,
+        #[serde(default)]
+        files: Vec<String>,
+    }
+
+    fn load_catalog() -> Vec<Command> {
+        let dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/catalog"));
+        catalog::load(dir).unwrap()
+    }
+
+    #[test]
+    fn normalizes_stems_and_synonyms() {
+        let terms = extract_weighted_terms("unpack compressed directories and check ram");
+        assert!(terms.contains_key("c_unpack"));
+        assert!(terms.contains_key("c_folder"));
+        assert!(terms.contains_key("c_memory"));
+    }
+
+    #[test]
+    fn rejects_off_topic_and_wrong_platform() {
+        let all = load_catalog();
+        let arch = catalog::usable(all.clone(), &["arch".into(), "omarchy".into()], false);
+        let matcher = LocalMatcher::new(&arch);
+
+        for req in [
+            "write me a poem about the ocean",
+            "set an alarm for 7am",
+            "what time is it in Tokyo",
+            "burn ubuntu.iso to a usb drive",
+            "summarize this article",
+            "play some music",
+        ] {
+            let out = suggest(&matcher, &arch, req, vec![], &mut |_| None).unwrap();
+            assert!(out.suggestions.is_empty(), "expected rejection for `{req}`, got {:?}", out.suggestions);
+        }
+
+        let debian = catalog::usable(all, &["debian".into()], false);
+        let deb_matcher = LocalMatcher::new(&debian);
+        let out = suggest(
+            &deb_matcher,
+            &debian,
+            "switch the desktop theme to Everforest",
+            vec![],
+            &mut |_| None,
+        )
+        .unwrap();
+        assert!(out.suggestions.is_empty(), "expected rejection on debian, got {:?}", out.suggestions);
+    }
+
+    #[test]
+    fn supports_indirect_pwd_and_slot_disambiguation() {
+        let arch = catalog::usable(load_catalog(), &["arch".into(), "omarchy".into()], false);
+        let matcher = LocalMatcher::new(&arch);
+
+        let out = suggest(
+            &matcher,
+            &arch,
+            "make the deploy script runnable",
+            vec!["README.md".into(), "deploy.sh".into(), "src".into()],
+            &mut |_| None,
+        )
+        .unwrap();
+        assert_eq!(out.suggestions[0].line, "chmod +x deploy.sh");
+
+        let out2 = suggest(
+            &matcher,
+            &arch,
+            "print the third column of users.csv",
+            vec![],
+            &mut |_| None,
+        )
+        .unwrap();
+        assert_eq!(out2.suggestions[0].line, "cut -d, -f3 users.csv");
+    }
+
+    #[test]
+    fn handles_multi_word_values_safety_and_sysadmin_disambiguation() {
+        let arch = catalog::usable(load_catalog(), &["arch".into(), "omarchy".into()], false);
+        let matcher = LocalMatcher::new(&arch);
+
+        let cases: &[(&str, Vec<&str>, &str)] = &[
+            ("switch theme to Catppuccin Latte", vec![], "omarchy theme set 'Catppuccin Latte'"),
+            ("change font to JetBrains Mono", vec![], "omarchy font set 'JetBrains Mono'"),
+            ("remind me in 15 minutes to check oven", vec![], "omarchy reminder 15 'check oven'"),
+            (
+                "record screen with desktop sound and mic",
+                vec![],
+                "omarchy capture screenrecording --with-desktop-audio --with-microphone-audio",
+            ),
+            ("set default browser to firefox", vec![], "omarchy default browser firefox"),
+            ("set default editor to nvim", vec![], "omarchy default editor nvim"),
+            ("install firefox with omarchy", vec![], "omarchy pkg add firefox"),
+            ("install aur package spotify using omarchy", vec![], "omarchy pkg aur add spotify"),
+            ("put vacation.jpg in the trash", vec![], "gio trash vacation.jpg"),
+            ("show me what is inside homework.txt", vec!["homework.txt"], "cat homework.txt"),
+            ("make backup script.sh runnable", vec!["backup script.sh"], "chmod +x 'backup script.sh'"),
+            ("find big files over 50MB", vec![], "find . -type f -size +50M"),
+            ("find files larger than 50MB under /tmp", vec![], "find /tmp -type f -size +50M"),
+            ("am i connected to the internet", vec![], "ping -c 4 1.1.1.1"),
+            ("show network routes", vec![], "ip route"),
+            ("tail last 50 lines of docker logs in journald", vec![], "journalctl -u docker -n 50 --no-pager"),
+            ("find .rs files changed in the last 2 days", vec![], "find . -type f -name '*.rs' -mtime -2"),
+            ("force shut down vm win11", vec![], "virsh destroy win11"),
+            ("who am i logged in as", vec![], "whoami"),
+            ("compress Downloads folder into a zip file", vec![], "zip -r <archive> Downloads"),
+            ("sync ./build/ to deploy@web1:/var/www/app", vec![], "rsync -av ./build/ deploy@web1:/var/www/app"),
+            ("set default coding agent to claude", vec![], "omarchy default agent claude"),
+        ];
+
+        for (req, files, expected) in cases {
+            let files_vec: Vec<String> = files.iter().map(|s| (*s).to_string()).collect();
+            let out = suggest(&matcher, &arch, req, files_vec, &mut |_| None).unwrap();
+            assert_eq!(
+                out.suggestions.first().map(|s| s.line.as_str()),
+                Some(*expected),
+                "request: `{req}`"
+            );
+        }
+    }
+
+    #[test]
+    fn supports_with_keywords_hook() {
+        let cmds = vec![
+            Command {
+                name: "alpha".into(),
+                description: "Run tool alpha".into(),
+                template: "alpha".into(),
+                destructive: false,
+                platform: None,
+                package: None,
+                keywords: vec![],
+                slots: vec![],
+                flags: vec![],
+            },
+            Command {
+                name: "beta".into(),
+                description: "Run tool beta".into(),
+                template: "beta".into(),
+                destructive: false,
+                platform: None,
+                package: None,
+                keywords: vec![],
+                slots: vec![],
+                flags: vec![],
+            },
+        ];
+        let keywords = vec![vec!["custom-flux-widget".into()], vec![]];
+        let matcher = LocalMatcher::with_keywords(&cmds, &keywords);
+        let out = suggest(&matcher, &cmds, "custom-flux-widget", vec![], &mut |_| None).unwrap();
+        assert_eq!(out.suggestions[0].command, "alpha");
+    }
+
+    fn run_eval_file(matcher: &LocalMatcher, catalog: &[Command], path: &str) -> (usize, usize, usize, usize, usize, usize, usize, usize, Vec<u128>) {
+        let text = std::fs::read_to_string(path).unwrap();
+        let cases = toml::from_str::<CaseFile>(&text).unwrap().case;
+        let (mut top1_hit, mut top1_tot) = (0, 0);
+        let (mut top3_hit, mut top3_tot) = (0, 0);
+        let (mut exact_hit, mut exact_tot) = (0, 0);
+        let (mut rej_hit, mut rej_tot) = (0, 0);
+        let mut millis = Vec::new();
+
+        for case in &cases {
+            let out = suggest(matcher, catalog, &case.request, case.files.clone(), &mut |_| None).unwrap();
+            millis.push(out.millis);
+            let first = out.suggestions.first();
+            let got = first.map_or("(no suggestion)", |s| s.line.as_str());
+
+            if case.command == "none" {
+                rej_tot += 1;
+                if out.suggestions.is_empty() {
+                    rej_hit += 1;
+                } else {
+                    println!("MISS [none] {} -> {got}", case.request);
+                }
+            } else {
+                let accepted: Vec<&str> = case.command.split('|').collect();
+                let cmd_ok = first.is_some_and(|s| accepted.contains(&s.command.as_str()));
+                top1_tot += 1;
+                top1_hit += cmd_ok as usize;
+                top3_tot += 1;
+                top3_hit += out.ranked.iter().any(|(n, _)| accepted.contains(&n.as_str())) as usize;
+                if let Some(expect) = &case.expect {
+                    exact_tot += 1;
+                    let line_ok = first.is_some_and(|s| s.line == *expect);
+                    exact_hit += line_ok as usize;
+                    if !line_ok {
+                        println!("MISS [exact] {} -> `{got}` (wanted: `{expect}`), ranked={:?}", case.request, out.ranked);
+                    }
+                } else if !cmd_ok {
+                    println!("MISS [cmd] {} -> `{got}` (wanted: {}), ranked={:?}", case.request, case.command, out.ranked);
+                }
+            }
+        }
+        (top1_hit, top1_tot, top3_hit, top3_tot, exact_hit, exact_tot, rej_hit, rej_tot, millis)
+    }
+
+    #[test]
+    fn eval_cases_and_heldout_benchmark() {
+        let all = load_catalog();
+        let arch = catalog::usable(all.clone(), &["arch".into(), "omarchy".into()], false);
+        let matcher = LocalMatcher::new(&arch);
+
+        let started = Instant::now();
+        let (t1h, t1t, t3h, t3t, exh, ext, rjh, rjt, mut m_cases) =
+            run_eval_file(&matcher, &arch, concat!(env!("CARGO_MANIFEST_DIR"), "/evals/cases.toml"));
+        let cases_ms = started.elapsed().as_millis();
+        m_cases.sort();
+        println!(
+            "\n=== cases.toml ===\ntop-1: {t1h}/{t1t} ({:.1}%)\ntop-3: {t3h}/{t3t} ({:.1}%)\nexact: {exh}/{ext} ({:.1}%)\nrejected: {rjh}/{rjt}\nmedian: {} ms, total: {cases_ms} ms",
+            100.0 * t1h as f64 / t1t as f64,
+            100.0 * t3h as f64 / t3t as f64,
+            100.0 * exh as f64 / ext as f64,
+            m_cases[m_cases.len() / 2],
+        );
+
+        let started_h = Instant::now();
+        let (ht1h, ht1t, ht3h, ht3t, hexh, hext, hrjh, hrjt, mut m_held) =
+            run_eval_file(&matcher, &arch, concat!(env!("CARGO_MANIFEST_DIR"), "/evals/heldout.toml"));
+        let held_ms = started_h.elapsed().as_millis();
+        m_held.sort();
+        println!(
+            "\n=== heldout.toml ===\ntop-1: {ht1h}/{ht1t} ({:.1}%)\ntop-3: {ht3h}/{ht3t} ({:.1}%)\nexact: {hexh}/{hext} ({:.1}%)\nrejected: {hrjh}/{hrjt}\nmedian: {} ms, total: {held_ms} ms",
+            100.0 * ht1h as f64 / ht1t as f64,
+            100.0 * ht3h as f64 / ht3t as f64,
+            100.0 * hexh as f64 / hext as f64,
+            m_held[m_held.len() / 2],
+        );
+
+        let debian = catalog::usable(all, &["debian".into()], false);
+        let deb_matcher = LocalMatcher::new(&debian);
+        let (dt1h, dt1t, _, _, dexh, dext, drjh, drjt, _) =
+            run_eval_file(&deb_matcher, &debian, concat!(env!("CARGO_MANIFEST_DIR"), "/evals/debian.toml"));
+        println!("\n=== debian.toml ===\ntop-1: {dt1h}/{dt1t}, exact: {dexh}/{dext}, rejected: {drjh}/{drjt}");
+
+        assert_eq!(rjh, rjt, "all non-terminal cases in cases.toml must be rejected");
+        assert_eq!(hrjh, hrjt, "all non-terminal cases in heldout.toml must be rejected");
+        assert_eq!(drjh, drjt, "all non-terminal cases in debian.toml must be rejected");
+        assert!(100 * t1h / t1t >= 90, "cases top-1 too low: {t1h}/{t1t}");
+        assert!(100 * exh / ext >= 85, "cases exact too low: {exh}/{ext}");
+        assert!(100 * ht1h / ht1t >= 85, "heldout top-1 too low: {ht1h}/{ht1t}");
+        assert!(100 * hexh / hext >= 80, "heldout exact too low: {hexh}/{hext}");
+    }
+}

@@ -1,0 +1,4 @@
+name = "ollama serve"
+description = "Start the Ollama server"
+template = "ollama serve"
+keywords = ["start ollama server", "run ollama daemon", "launch ollama"]

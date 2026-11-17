@@ -1,0 +1,10 @@
+name = "virsh domiflist"
+description = "List the network cards of a virtual machine"
+template = "virsh domiflist {vm}"
+package = "libvirt"
+keywords = ["vm network cards", "vm interfaces", "vm nics", "mac address vm"]
+
+[[slots]]
+id = "vm"
+kind = "text"
+what = "the virtual machine"

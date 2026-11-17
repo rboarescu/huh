@@ -1,0 +1,4 @@
+name = "git pull"
+description = "Fetch the latest commits from the git remote and merge them"
+template = "git pull"
+keywords = ["fetch and merge", "pull latest commits", "sync from remote", "update repo"]

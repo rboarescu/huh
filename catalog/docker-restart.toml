@@ -1,0 +1,9 @@
+name = "docker restart"
+description = "Restart a Docker container"
+template = "docker restart {container}"
+keywords = ["restart container", "reboot container"]
+
+[[slots]]
+id = "container"
+kind = "text"
+what = "the container to restart"

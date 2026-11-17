@@ -1,0 +1,39 @@
+name = "cut"
+description = "Show only one column of a file whose lines are split into fields"
+template = "cut {delimiter} -f{field} {file}"
+keywords = ["extract column", "csv column", "split columns", "field delimiter", "tab separated", "colon separated", "print column"]
+
+[[slots]]
+id = "delimiter"
+kind = "choice"
+question = "What separates the columns in the file?"
+
+[[slots.options]]
+name = "tab_or_unknown"
+value = ""
+description = "Tabs, or the user does not say"
+
+[[slots.options]]
+name = "comma"
+value = "-d,"
+description = "Commas, as in a CSV file"
+
+[[slots.options]]
+name = "colon"
+value = "-d:"
+description = "Colons, as in /etc/passwd"
+
+[[slots.options]]
+name = "space"
+value = "-d' '"
+description = "Single spaces"
+
+[[slots]]
+id = "field"
+kind = "text"
+what = "the number of the column to show"
+
+[[slots]]
+id = "file"
+kind = "path"
+what = "the file to read"

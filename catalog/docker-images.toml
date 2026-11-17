@@ -1,0 +1,4 @@
+name = "docker images"
+description = "List the Docker images stored on this computer"
+template = "docker images"
+keywords = ["list images", "downloaded images", "local docker images"]

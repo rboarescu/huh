@@ -1,0 +1,5 @@
+name = "omarchy system logout"
+description = "Log out of the desktop session"
+template = "omarchy system logout"
+platform = "omarchy"
+keywords = ["log out", "sign out", "exit desktop session", "logout"]

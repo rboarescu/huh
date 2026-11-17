@@ -1,0 +1,9 @@
+name = "tmux new"
+description = "Start a new tmux terminal session that keeps running after I disconnect"
+template = "tmux new -s {name}"
+keywords = ["new tmux session", "create terminal session", "persistent shell session"]
+
+[[slots]]
+id = "name"
+kind = "text"
+what = "the name for the new session"

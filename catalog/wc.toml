@@ -1,0 +1,29 @@
+name = "wc"
+description = "Count the lines, words or characters in a file"
+template = "wc {unit} {target}"
+keywords = ["count lines", "word count", "character count", "how many lines", "how many words", "line count"]
+
+[[slots]]
+id = "unit"
+kind = "choice"
+question = "What does the user want counted?"
+
+[[slots.options]]
+name = "lines"
+value = "-l"
+description = "The number of lines"
+
+[[slots.options]]
+name = "words"
+value = "-w"
+description = "The number of words"
+
+[[slots.options]]
+name = "characters"
+value = "-m"
+description = "The number of characters"
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file to count in"

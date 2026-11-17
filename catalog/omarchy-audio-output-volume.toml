@@ -1,0 +1,25 @@
+name = "omarchy audio output volume"
+description = "Make the sound louder or quieter, or mute it"
+template = "omarchy audio output volume {change}"
+platform = "omarchy"
+keywords = ["volume up", "volume down", "louder", "quieter", "mute sound", "unmute audio", "speaker volume"]
+
+[[slots]]
+id = "change"
+kind = "choice"
+question = "What should happen to the volume?"
+
+[[slots.options]]
+name = "louder"
+value = "raise"
+description = "The sound should be louder"
+
+[[slots.options]]
+name = "quieter"
+value = "lower"
+description = "The sound should be quieter"
+
+[[slots.options]]
+name = "mute"
+value = "mute-toggle"
+description = "The sound should be muted or unmuted"

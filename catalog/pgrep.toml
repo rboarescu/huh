@@ -1,0 +1,9 @@
+name = "pgrep"
+description = "Check whether a program is running and get its process ID number"
+template = "pgrep -a {name}"
+keywords = ["is program running", "check if running", "find pid", "process id of", "check process"]
+
+[[slots]]
+id = "name"
+kind = "text"
+what = "the name of the program to look for"

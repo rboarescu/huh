@@ -1,0 +1,9 @@
+name = "touch"
+description = "Create a new, empty file"
+template = "touch {target}"
+keywords = ["empty file", "new file", "create file", "blank file"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the new file to create"

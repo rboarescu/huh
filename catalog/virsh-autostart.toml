@@ -1,0 +1,15 @@
+name = "virsh autostart"
+description = "Choose whether a virtual machine starts by itself when the host computer boots"
+template = "virsh autostart {disable} {vm}"
+package = "libvirt"
+keywords = ["autostart vm", "start vm on boot", "disable vm autostart"]
+
+[[flags]]
+id = "disable"
+value = "--disable"
+question = "Does the user want automatic starting turned off?"
+
+[[slots]]
+id = "vm"
+kind = "text"
+what = "the virtual machine"

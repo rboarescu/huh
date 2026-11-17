@@ -1,0 +1,4 @@
+name = "groups"
+description = "Show which groups my user belongs to"
+template = "groups"
+keywords = ["my groups", "which groups", "user groups", "group membership"]

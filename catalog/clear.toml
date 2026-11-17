@@ -1,0 +1,4 @@
+name = "clear"
+description = "Clear the terminal screen"
+template = "clear"
+keywords = ["clear screen", "clean terminal", "wipe screen", "empty terminal", "cls"]

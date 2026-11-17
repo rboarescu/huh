@@ -1,0 +1,4 @@
+name = "dmesg"
+description = "Show messages from the kernel, such as hardware and driver errors"
+template = "sudo dmesg"
+keywords = ["kernel log", "kernel errors", "driver errors", "hardware errors", "boot messages", "ring buffer"]

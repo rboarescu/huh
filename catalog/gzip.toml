@@ -1,0 +1,9 @@
+name = "gzip"
+description = "Compress a single file into a .gz file"
+template = "gzip {target}"
+keywords = ["compress .gz", "gzip file", "make gz"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file to compress"

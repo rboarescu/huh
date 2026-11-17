@@ -1,0 +1,5 @@
+name = "ip neigh"
+description = "List the other devices this computer has seen on the local network"
+template = "ip neigh"
+package = "iproute2"
+keywords = ["arp table", "devices on network", "lan devices", "local network neighbors", "connected devices", "mac addresses"]

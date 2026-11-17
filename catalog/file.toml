@@ -1,0 +1,9 @@
+name = "file"
+description = "Find out what kind of file something is, whatever its name says"
+template = "file {target}"
+keywords = ["file type", "kind of file", "identify file", "unknown file", "binary or text", "mime type", "detect format"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file to identify"

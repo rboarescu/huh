@@ -1,0 +1,9 @@
+name = "xdg-open"
+description = "Open a file or folder with its usual desktop program"
+template = "xdg-open {target}"
+keywords = ["open file", "open folder", "launch in gui", "open with default app", "image viewer", "file manager", "open pdf"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file or folder to open"

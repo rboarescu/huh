@@ -1,0 +1,10 @@
+name = "virsh dominfo"
+description = "Show a virtual machine's details: state, memory and number of CPUs"
+template = "virsh dominfo {vm}"
+package = "libvirt"
+keywords = ["vm specs", "vm memory", "vm cpus", "vm state", "vm details"]
+
+[[slots]]
+id = "vm"
+kind = "text"
+what = "the virtual machine to describe"

@@ -1,0 +1,9 @@
+name = "modprobe"
+description = "Load a kernel module (a driver)"
+template = "sudo modprobe {module}"
+keywords = ["load kernel module", "load driver", "kernel driver", "insert module"]
+
+[[slots]]
+id = "module"
+kind = "text"
+what = "the kernel module to load"

@@ -1,0 +1,10 @@
+name = "docker rmi"
+description = "Delete a Docker image from this computer"
+template = "docker rmi {image}"
+destructive = true
+keywords = ["delete image", "remove docker image", "erase image"]
+
+[[slots]]
+id = "image"
+kind = "text"
+what = "the image to delete"

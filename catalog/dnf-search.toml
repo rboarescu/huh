@@ -1,0 +1,10 @@
+name = "dnf search"
+description = "Search for a program that is available to install"
+template = "dnf search {term}"
+platform = "fedora"
+keywords = ["find package", "search software", "is there a package", "available packages"]
+
+[[slots]]
+id = "term"
+kind = "text"
+what = "the program or keyword to search for"

@@ -1,0 +1,4 @@
+name = "tailscale ip"
+description = "Show this computer's Tailscale VPN address"
+template = "tailscale ip -4"
+keywords = ["my tailscale ip", "tailnet ip", "vpn ip address"]

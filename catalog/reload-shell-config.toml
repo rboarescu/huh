@@ -1,0 +1,4 @@
+name = "reload shell config"
+description = "Apply changes made to my shell's startup file without opening a new terminal"
+template = "source {shell_rc}"
+keywords = ["reload bashrc", "reload zshrc", "source bashrc", "apply shell changes", "refresh shell", "reload profile", "reload fish config"]

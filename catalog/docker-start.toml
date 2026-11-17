@@ -1,0 +1,9 @@
+name = "docker start"
+description = "Start a Docker container that exists but is stopped"
+template = "docker start {container}"
+keywords = ["start stopped container", "resume container", "boot container"]
+
+[[slots]]
+id = "container"
+kind = "text"
+what = "the container to start"

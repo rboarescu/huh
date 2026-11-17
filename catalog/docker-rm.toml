@@ -1,0 +1,10 @@
+name = "docker rm"
+description = "Delete a Docker container"
+template = "docker rm {container}"
+destructive = true
+keywords = ["delete container", "remove container", "erase container"]
+
+[[slots]]
+id = "container"
+kind = "text"
+what = "the container to delete"
