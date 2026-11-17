@@ -121,8 +121,7 @@ pub fn installed(program: &str) -> bool {
     if BUILTINS.contains(&program) {
         return true;
     }
-    std::env::var_os("PATH")
-        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+    std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
 }
 
 /// Suggests an install command for the program behind `command`, or `None` for
@@ -262,8 +261,7 @@ pub fn validate(command: &Command) -> Result<()> {
             bail!("id `{id}` is used twice");
         }
     }
-    let used: BTreeSet<&str> =
-        placeholders(&command.template).into_iter().filter(|id| !FACTS.contains(id)).collect();
+    let used: BTreeSet<&str> = placeholders(&command.template).into_iter().filter(|id| !FACTS.contains(id)).collect();
     if let Some(id) = used.difference(&ids).next() {
         bail!("template uses `{{{id}}}` but no slot or flag has that id");
     }
@@ -362,7 +360,9 @@ mod tests {
         for net in ["ss", "ip", "ip neigh", "ip route", "ip route get"] {
             assert_eq!(find(net).package.as_deref(), Some("iproute2"), "{net}");
         }
-        assert!(embedded.iter().filter(|c| c.name.starts_with("virsh ")).all(|c| c.package.as_deref() == Some("libvirt")));
+        assert!(
+            embedded.iter().filter(|c| c.name.starts_with("virsh ")).all(|c| c.package.as_deref() == Some("libvirt"))
+        );
 
         for expected in ["tracepath", "ip route get", "omarchy refresh", "omarchy default", "omarchy pkg aur add"] {
             assert!(embedded.iter().any(|c| c.name == expected), "missing {expected}");
@@ -376,7 +376,8 @@ mod tests {
         // Explicit dir override loads that folder and errors if missing.
         let tmp = std::env::temp_dir().join(format!("huh-catalog-test-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
-        std::fs::write(tmp.join("demo.toml"), "name = \"demo\"\ndescription = \"d\"\ntemplate = \"echo ok\"\n").unwrap();
+        std::fs::write(tmp.join("demo.toml"), "name = \"demo\"\ndescription = \"d\"\ntemplate = \"echo ok\"\n")
+            .unwrap();
         let custom = load_default(Some(tmp.clone())).unwrap();
         assert_eq!(custom.len(), 1);
         assert_eq!(custom[0].name, "demo");
@@ -388,7 +389,8 @@ mod tests {
     fn resolves_catalog_override_precedence() {
         // Explicit beats env and config dirs.
         let envs = HashMap::from([("HUH_CATALOG", "/env/huh"), ("HOME", "/home/u")]);
-        let got = resolve_override_dir(Some(PathBuf::from("/explicit")), &|k| envs.get(k).map(|s| s.to_string()), &|_| true);
+        let got =
+            resolve_override_dir(Some(PathBuf::from("/explicit")), &|k| envs.get(k).map(|s| s.to_string()), &|_| true);
         assert_eq!(got, Some(PathBuf::from("/explicit")));
 
         // HUH_CATALOG beats config dirs.
@@ -400,11 +402,7 @@ mod tests {
         let got = resolve_override_dir(None, &|k| envs3.get(k).map(|s| s.to_string()), &|_| true);
         assert_eq!(got, Some(PathBuf::from("/home/u/.config/huh/catalog")));
 
-        let got = resolve_override_dir(
-            None,
-            &|k| envs3.get(k).map(|s| s.to_string()),
-            &|_| false,
-        );
+        let got = resolve_override_dir(None, &|k| envs3.get(k).map(|s| s.to_string()), &|_| false);
         assert_eq!(got, None);
 
         // XDG_CONFIG_HOME overrides HOME/.config.
@@ -425,9 +423,15 @@ mod tests {
             install_command(&smart, &["arch".into(), "omarchy".into()]),
             Some("omarchy pkg add smartmontools".into())
         );
-        assert_eq!(install_command(&smart, &["omarchy".into(), "arch".into()]), Some("omarchy pkg add smartmontools".into()));
+        assert_eq!(
+            install_command(&smart, &["omarchy".into(), "arch".into()]),
+            Some("omarchy pkg add smartmontools".into())
+        );
         assert_eq!(install_command(&smart, &["arch".into()]), Some("sudo pacman -S smartmontools".into()));
-        assert_eq!(install_command(&smart, &["ubuntu".into(), "debian".into()]), Some("sudo apt install smartmontools".into()));
+        assert_eq!(
+            install_command(&smart, &["ubuntu".into(), "debian".into()]),
+            Some("sudo apt install smartmontools".into())
+        );
         assert_eq!(install_command(&smart, &["fedora".into()]), Some("sudo dnf install smartmontools".into()));
         assert_eq!(install_command(&smart, &["unknown".into()]), None);
 

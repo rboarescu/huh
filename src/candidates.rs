@@ -9,10 +9,10 @@ const MAX_TOKENS: usize = 30;
 pub const MAX_FILES: usize = 40;
 
 const STOPWORDS: &[&str] = &[
-    "a", "an", "the", "i", "me", "my", "we", "you", "it", "its", "this", "that", "these", "those", "is",
-    "are", "be", "do", "does", "can", "could", "would", "should", "want", "need", "like", "please", "how",
-    "what", "which", "where", "to", "of", "in", "on", "at", "for", "from", "into", "with", "and", "or",
-    "as", "by", "so", "there", "have", "has", "some", "just",
+    "a", "an", "the", "i", "me", "my", "we", "you", "it", "its", "this", "that", "these", "those", "is", "are", "be",
+    "do", "does", "can", "could", "would", "should", "want", "need", "like", "please", "how", "what", "which", "where",
+    "to", "of", "in", "on", "at", "for", "from", "into", "with", "and", "or", "as", "by", "so", "there", "have", "has",
+    "some", "just",
 ];
 
 pub struct Candidates {
@@ -116,10 +116,10 @@ pub fn number_word(word: &str) -> Option<String> {
 }
 
 const SENTENCE_VERBS: &[&str] = &[
-    "switch", "change", "set", "use", "open", "install", "find", "show", "list", "delete",
-    "remove", "copy", "move", "make", "create", "check", "print", "count", "sort", "run",
-    "start", "stop", "restart", "add", "remind", "search", "take", "record", "turn", "give",
-    "put", "edit", "read", "write", "unpack", "pack", "extract", "compress", "compare",
+    "switch", "change", "set", "use", "open", "install", "find", "show", "list", "delete", "remove", "copy", "move",
+    "make", "create", "check", "print", "count", "sort", "run", "start", "stop", "restart", "add", "remind", "search",
+    "take", "record", "turn", "give", "put", "edit", "read", "write", "unpack", "pack", "extract", "compress",
+    "compare",
 ];
 
 /// Extracts runs of 2..=4 consecutive capitalized words (e.g. "Tokyo Night", "JetBrains Mono").
@@ -156,8 +156,26 @@ fn prepositional_phrases(request: &str, existing: &[String]) -> Vec<String> {
     let words: Vec<&str> = request.split_whitespace().collect();
     let triggers = ["to", "about", "for", "called", "named", "message", "saying", "use"];
     let stops = [
-        "in", "on", "from", "under", "inside", "within", "with", "into", "to", "as", "of",
-        "permanently", "theme", "font", "alias", "command", "file", "folder", "minutes", "minute",
+        "in",
+        "on",
+        "from",
+        "under",
+        "inside",
+        "within",
+        "with",
+        "into",
+        "to",
+        "as",
+        "of",
+        "permanently",
+        "theme",
+        "font",
+        "alias",
+        "command",
+        "file",
+        "folder",
+        "minutes",
+        "minute",
     ];
     let articles = ["the", "a", "an", "my"];
 
@@ -183,7 +201,10 @@ fn prepositional_phrases(request: &str, existing: &[String]) -> Vec<String> {
                 }
                 let cleaned = raw.trim_matches([',', ';', ':', '!', '?', '(', ')']).trim_end_matches('.');
                 let lower = cleaned.to_lowercase();
-                if cleaned.is_empty() || (w != "use" && stops.contains(&lower.as_str())) || (w == "use" && lower == "as") {
+                if cleaned.is_empty()
+                    || (w != "use" && stops.contains(&lower.as_str()))
+                    || (w == "use" && lower == "as")
+                {
                     break;
                 }
                 if w == "use" && !words[j..].iter().any(|x| x.eq_ignore_ascii_case("as")) {
@@ -257,10 +278,8 @@ fn extract_size_tokens(request: &str) -> Vec<String> {
         if let Some(canon) = unit_suffix(&w)
             && i > 0
         {
-            let prev = raw_words[i - 1]
-                .trim_matches([',', ';', ':', '!', '?', '(', ')'])
-                .trim_end_matches('.')
-                .to_lowercase();
+            let prev =
+                raw_words[i - 1].trim_matches([',', ';', ':', '!', '?', '(', ')']).trim_end_matches('.').to_lowercase();
             let num = if prev.chars().all(|c| c.is_ascii_digit()) && !prev.is_empty() {
                 Some(prev)
             } else if matches!(prev.as_str(), "a" | "an") {
@@ -292,7 +311,11 @@ pub fn tokens(request: &str) -> Vec<String> {
     };
 
     let mut push = |text: &str, quoted: bool| {
-        let text = if quoted { text.trim() } else { text.trim_matches([',', ';', ':', '!', '?', '(', ')']).trim_end_matches('.') };
+        let text = if quoted {
+            text.trim()
+        } else {
+            text.trim_matches([',', ';', ':', '!', '?', '(', ')']).trim_end_matches('.')
+        };
         if text.is_empty() {
             return;
         }

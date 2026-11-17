@@ -166,7 +166,8 @@ pub fn run_errors(path: &Path) -> Result<()> {
     let (mut cause, mut fix) = (Tally::default(), Tally::default());
     let mut total = Vec::new();
     for case in &cases {
-        let last = crate::session::Last { command: case.command.clone(), exit: Some(case.exit), output: case.output.clone() };
+        let last =
+            crate::session::Last { command: case.command.clone(), exit: Some(case.exit), output: case.output.clone() };
         let answer = explain::explain(&last, &mut |_| {})?;
         let cause_ok = case.mention.iter().all(|words| contains_any(&answer.text, words));
         let suggested = explain::suggested(&answer.text);
@@ -191,7 +192,11 @@ pub fn run_errors(path: &Path) -> Result<()> {
     println!("explanation names the cause: {cause}");
     println!("suggested command fits:      {fix}");
     if !total.is_empty() {
-        println!("time per answer:             median {} ms, slowest {} ms", total[total.len() / 2], total[total.len() - 1]);
+        println!(
+            "time per answer:             median {} ms, slowest {} ms",
+            total[total.len() / 2],
+            total[total.len() - 1]
+        );
     }
     Ok(())
 }

@@ -92,21 +92,92 @@ const KNOWN_PACKAGES: &[(&str, &str)] = &[
 
 /// Well-known commands used as a fallback typo dictionary alongside `$PATH`.
 const COMMON_COMMANDS: &[&str] = &[
-    "ls", "cd", "pwd", "cat", "less", "head", "tail", "grep", "find", "sort", "uniq", "wc", "cut",
-    "diff", "cp", "mv", "rm", "mkdir", "touch", "chmod", "chown", "ln", "tar", "gzip", "gunzip",
-    "zip", "unzip", "du", "df", "free", "ps", "top", "htop", "btop", "kill", "pkill", "pgrep",
-    "ss", "ip", "ping", "curl", "wget", "ssh", "scp", "rsync", "git", "docker", "cargo", "rustc",
-    "python", "python3", "pacman", "yay", "apt", "dnf", "systemctl", "journalctl", "sudo", "man",
-    "which", "echo", "whoami", "uname", "uptime", "lsblk", "lscpu", "lsusb", "mount", "umount",
-    "tmux", "vim", "nvim", "nano", "ollama", "tailscale", "virsh", "omarchy", "jq", "rg", "nmap",
+    "ls",
+    "cd",
+    "pwd",
+    "cat",
+    "less",
+    "head",
+    "tail",
+    "grep",
+    "find",
+    "sort",
+    "uniq",
+    "wc",
+    "cut",
+    "diff",
+    "cp",
+    "mv",
+    "rm",
+    "mkdir",
+    "touch",
+    "chmod",
+    "chown",
+    "ln",
+    "tar",
+    "gzip",
+    "gunzip",
+    "zip",
+    "unzip",
+    "du",
+    "df",
+    "free",
+    "ps",
+    "top",
+    "htop",
+    "btop",
+    "kill",
+    "pkill",
+    "pgrep",
+    "ss",
+    "ip",
+    "ping",
+    "curl",
+    "wget",
+    "ssh",
+    "scp",
+    "rsync",
+    "git",
+    "docker",
+    "cargo",
+    "rustc",
+    "python",
+    "python3",
+    "pacman",
+    "yay",
+    "apt",
+    "dnf",
+    "systemctl",
+    "journalctl",
+    "sudo",
+    "man",
+    "which",
+    "echo",
+    "whoami",
+    "uname",
+    "uptime",
+    "lsblk",
+    "lscpu",
+    "lsusb",
+    "mount",
+    "umount",
+    "tmux",
+    "vim",
+    "nvim",
+    "nano",
+    "ollama",
+    "tailscale",
+    "virsh",
+    "omarchy",
+    "jq",
+    "rg",
+    "nmap",
 ];
 
 #[cfg(test)]
 fn system_facts(os_release: &str, shell: &str) -> String {
-    let name = os_release
-        .lines()
-        .find_map(|line| line.strip_prefix("NAME="))
-        .map_or("Linux", |name| name.trim_matches('"'));
+    let name =
+        os_release.lines().find_map(|line| line.strip_prefix("NAME=")).map_or("Linux", |name| name.trim_matches('"'));
     let platforms = crate::catalog::platforms_from(os_release);
     let mut facts = format!("{name}, shell {}.", shell.rsplit('/').next().unwrap_or_default());
     if let Some((_, install)) = INSTALL.iter().find(|(family, _)| platforms.iter().any(|p| p == family)) {
@@ -299,14 +370,14 @@ fn diagnose_service_daemons(last: &Last) -> Option<String> {
     }
     if let Some(service) = extract_systemd_failed_service(&last.output) {
         return Some(format_answer(
-            &format!("Systemd failed to start `{service}` (`Job for {service} failed`). Check the service status and logs for the underlying cause."),
+            &format!(
+                "Systemd failed to start `{service}` (`Job for {service} failed`). Check the service status and logs for the underlying cause."
+            ),
             &format!("systemctl status {service}"),
         ));
     }
     if let Some(unit) = extract_systemd_missing_unit(&last.output) {
-        let stem = unit
-            .rsplit_once('.')
-            .map_or(unit.as_str(), |(s, _)| s);
+        let stem = unit.rsplit_once('.').map_or(unit.as_str(), |(s, _)| s);
         let try_cmd = if stem.is_empty() {
             "systemctl list-unit-files".to_string()
         } else {
@@ -384,10 +455,7 @@ fn diagnose_command_not_found(last: &Last) -> Option<String> {
     let (prefix, cmd, suffix) = extract_command_parts(&last.command);
     let missing = if !cmd.is_empty() { cmd.to_string() } else { extract_missing_cmd_from_output(&last.output) };
     if missing.is_empty() {
-        return Some(format_answer(
-            "The command was not found (exit code 127).",
-            "nothing",
-        ));
+        return Some(format_answer("The command was not found (exit code 127).", "nothing"));
     }
 
     // Known binary -> package mapping takes precedence over short fuzzy typo guesses (e.g. `rg`, `jq`).
@@ -431,15 +499,14 @@ fn diagnose_command_not_found(last: &Last) -> Option<String> {
     if let Some(install_cmd) = package_install_command(&missing, &os_release) {
         let omarchy_hint = omarchy_install_prose(&missing, &os_release);
         return Some(format_answer(
-            &format!("The command `{missing}` is not installed or not in your PATH (`command not found`, exit code 127).{omarchy_hint}"),
+            &format!(
+                "The command `{missing}` is not installed or not in your PATH (`command not found`, exit code 127).{omarchy_hint}"
+            ),
             &install_cmd,
         ));
     }
 
-    Some(format_answer(
-        &format!("The command `{missing}` was not found (exit code 127)."),
-        "nothing",
-    ))
+    Some(format_answer(&format!("The command `{missing}` was not found (exit code 127)."), "nothing"))
 }
 
 fn diagnose_pacman(last: &Last) -> Option<String> {
@@ -499,7 +566,9 @@ fn diagnose_git(last: &Last) -> Option<String> {
     if lower.contains("has no upstream branch") {
         let branch = extract_git_branch(&last.output).unwrap_or_else(|| "HEAD".to_string());
         return Some(format_answer(
-            &format!("Git cannot push because the current branch `{branch}` has no upstream tracking branch configured on the remote."),
+            &format!(
+                "Git cannot push because the current branch `{branch}` has no upstream tracking branch configured on the remote."
+            ),
             &format!("git push --set-upstream origin {branch}"),
         ));
     }
@@ -537,7 +606,9 @@ fn diagnose_network(last: &Last) -> Option<String> {
             ));
         }
         return Some(format_answer(
-            &format!("SSH key authentication failed (`Permission denied (publickey)`) because the remote host `{host}` did not accept your SSH key."),
+            &format!(
+                "SSH key authentication failed (`Permission denied (publickey)`) because the remote host `{host}` did not accept your SSH key."
+            ),
             &format!("ssh-copy-id {host}"),
         ));
     }
@@ -580,7 +651,9 @@ fn diagnose_filesystem(last: &Last) -> Option<String> {
     if lower.contains("target is busy") {
         let mount_path = extract_mountpoint(&last.output).unwrap_or_else(|| "<mountpoint>".to_string());
         return Some(format_answer(
-            &format!("Cannot unmount `{mount_path}` because the target is busy: a process or shell still has files open there."),
+            &format!(
+                "Cannot unmount `{mount_path}` because the target is busy: a process or shell still has files open there."
+            ),
             &format!("lsof {mount_path}"),
         ));
     }
@@ -627,7 +700,9 @@ fn diagnose_filesystem(last: &Last) -> Option<String> {
             format!("`{missing_target}`")
         };
         return Some(format_answer(
-            &format!("{subject} does not exist or cannot be opened (`No such file or directory` / `cannot find or open`).{cwd_hint}"),
+            &format!(
+                "{subject} does not exist or cannot be opened (`No such file or directory` / `cannot find or open`).{cwd_hint}"
+            ),
             "ls",
         ));
     }
@@ -639,7 +714,9 @@ fn diagnose_permissions(last: &Last) -> Option<String> {
     if lower.contains("cannot write to") && lower.contains("permission denied") {
         let file = extract_quoted(&last.output, &['\'', '"']).unwrap_or_else(|| "the destination file".to_string());
         return Some(format_answer(
-            &format!("Cannot write to `{file}` (`Permission denied`): the current folder or target file is not writable by your user."),
+            &format!(
+                "Cannot write to `{file}` (`Permission denied`): the current folder or target file is not writable by your user."
+            ),
             "ls -l",
         ));
     }
@@ -667,12 +744,16 @@ fn diagnose_permissions(last: &Last) -> Option<String> {
         }
         if trimmed.starts_with("sudo ") {
             return Some(format_answer(
-                &format!("Access was still denied even with `sudo` (`{evidence}`). Check file ownership, permissions, or mount options."),
+                &format!(
+                    "Access was still denied even with `sudo` (`{evidence}`). Check file ownership, permissions, or mount options."
+                ),
                 "ls -l",
             ));
         }
         return Some(format_answer(
-            &format!("The operation failed due to insufficient permissions (`{evidence}`); root privileges are required."),
+            &format!(
+                "The operation failed due to insufficient permissions (`{evidence}`); root privileges are required."
+            ),
             &format!("sudo {trimmed}"),
         ));
     }
@@ -684,9 +765,7 @@ fn diagnose_tools_and_code(last: &Last) -> Option<String> {
     if lower.contains("address already in use") || lower.contains("failed to bind host port") {
         let port = extract_port(last);
         let port_msg = port.as_deref().map_or("The requested port".to_string(), |p| format!("Port {p}"));
-        let try_cmd = port
-            .as_deref()
-            .map_or("ss -tulpn".to_string(), |p| format!("ss -tulpn 'sport = :{p}'"));
+        let try_cmd = port.as_deref().map_or("ss -tulpn".to_string(), |p| format!("ss -tulpn 'sport = :{p}'"));
         return Some(format_answer(
             &format!("{port_msg} is already in use by another running process (`Address already in use`)."),
             &try_cmd,
@@ -695,13 +774,17 @@ fn diagnose_tools_and_code(last: &Last) -> Option<String> {
     if lower.contains("not in gzip format") {
         let archive = extract_tar_archive(last).unwrap_or_else(|| "<archive>".to_string());
         return Some(format_answer(
-            &format!("`tar` failed because `{archive}` is not compressed with gzip (`not in gzip format`), so the `-z` flag does not match the file."),
+            &format!(
+                "`tar` failed because `{archive}` is not compressed with gzip (`not in gzip format`), so the `-z` flag does not match the file."
+            ),
             &format!("tar -xf {archive}"),
         ));
     }
     if let Some(module) = extract_python_module(&last.output) {
         return Some(format_answer(
-            &format!("Python could not import `{module}` because that module is not installed (`ModuleNotFoundError: No module named '{module}'`)."),
+            &format!(
+                "Python could not import `{module}` because that module is not installed (`ModuleNotFoundError: No module named '{module}'`)."
+            ),
             &format!("pip install {module}"),
         ));
     }
@@ -714,7 +797,9 @@ fn diagnose_tools_and_code(last: &Last) -> Option<String> {
     if let Some(err_line) = last.output.lines().find(|l| l.trim_start().starts_with("error[E")) {
         let detail = err_line.trim();
         return Some(format_answer(
-            &format!("The Rust compiler rejected the source code (`{detail}`), so the code itself must be adjusted before building again."),
+            &format!(
+                "The Rust compiler rejected the source code (`{detail}`), so the code itself must be adjusted before building again."
+            ),
             "nothing",
         ));
     }
@@ -726,13 +811,21 @@ fn diagnose_fallback(last: &Last) -> String {
     let (_, prog, _) = extract_command_parts(&last.command);
     if last.exit == Some(137) {
         return format_answer(
-            &format!("The process{} was forcefully killed (exit code 137: {}).", cmd_label(&last.command), exit_meaning(137).unwrap_or("killed")),
+            &format!(
+                "The process{} was forcefully killed (exit code 137: {}).",
+                cmd_label(&last.command),
+                exit_meaning(137).unwrap_or("killed")
+            ),
             "nothing",
         );
     }
     if last.exit == Some(143) {
         return format_answer(
-            &format!("The process{} was terminated (exit code 143: {}).", cmd_label(&last.command), exit_meaning(143).unwrap_or("terminated")),
+            &format!(
+                "The process{} was terminated (exit code 143: {}).",
+                cmd_label(&last.command),
+                exit_meaning(143).unwrap_or("terminated")
+            ),
             "nothing",
         );
     }
@@ -760,7 +853,10 @@ fn diagnose_fallback(last: &Last) -> String {
             .unwrap_or("incorrect command usage or syntax");
         let help_cmd = if prog.is_empty() { "nothing".to_string() } else { format!("{prog} --help") };
         return format_answer(
-            &format!("The command failed due to incorrect usage, flags, or syntax (exit code {}: `{evidence}`).", last.exit.unwrap_or(2)),
+            &format!(
+                "The command failed due to incorrect usage, flags, or syntax (exit code {}: `{evidence}`).",
+                last.exit.unwrap_or(2)
+            ),
             &help_cmd,
         );
     }
@@ -773,10 +869,7 @@ fn diagnose_fallback(last: &Last) -> String {
         },
     );
     if let Some(line) = last_meaningful_line(&last.output) {
-        format_answer(
-            &format!("The command{} failed with {exit_desc}: `{line}`.", cmd_label(&last.command)),
-            "nothing",
-        )
+        format_answer(&format!("The command{} failed with {exit_desc}: `{line}`.", cmd_label(&last.command)), "nothing")
     } else {
         format_answer(
             &format!("The command{} failed with {exit_desc} and printed no output.", cmd_label(&last.command)),
@@ -814,8 +907,7 @@ fn extract_command_parts(command: &str) -> (&str, &str, &str) {
 }
 
 fn is_line_prefix(part: &str) -> bool {
-    part.strip_prefix("line ")
-        .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+    part.strip_prefix("line ").is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
 }
 
 fn extract_missing_cmd_from_output(output: &str) -> String {
@@ -837,8 +929,8 @@ fn extract_missing_cmd_from_output(output: &str) -> String {
         if let Some(rest) = t.strip_prefix("zsh: command not found:") {
             return rest.trim().to_string();
         }
-        if let Some(rest) = t.strip_prefix("fish: Unknown command:")
-            .or_else(|| t.strip_prefix("fish: unknown command:"))
+        if let Some(rest) =
+            t.strip_prefix("fish: Unknown command:").or_else(|| t.strip_prefix("fish: unknown command:"))
         {
             return rest.trim().to_string();
         }
@@ -912,10 +1004,10 @@ fn extract_tar_archive(last: &Last) -> Option<String> {
     for (i, tok) in tokens.iter().enumerate() {
         if (*tok == "-f" || (tok.starts_with('-') && !tok.starts_with("--") && tok.ends_with('f')))
             && let Some(file) = tokens.get(i + 1)
-                && !file.starts_with('-')
-            {
-                return Some((*file).to_string());
-            }
+            && !file.starts_with('-')
+        {
+            return Some((*file).to_string());
+        }
     }
     for tok in tokens.iter().skip(1) {
         if !tok.starts_with('-')
@@ -1101,12 +1193,7 @@ fn extract_missing_path(last: &Last) -> String {
             }
         }
     }
-    last.command
-        .split_whitespace()
-        .skip(1)
-        .find(|tok| !tok.starts_with('-'))
-        .unwrap_or("")
-        .to_string()
+    last.command.split_whitespace().skip(1).find(|tok| !tok.starts_with('-')).unwrap_or("").to_string()
 }
 
 fn extract_quoted(text: &str, quotes: &[char]) -> Option<String> {
@@ -1500,15 +1587,11 @@ fn question_to_statement(question: &str) -> String {
     if q.starts_with("Is the thing being ") {
         return q.to_string();
     }
-    capitalize(&second_person_pronouns(
-        &q.replace("Does the user", "Do you").replace("Is the user", "Are you"),
-    ))
+    capitalize(&second_person_pronouns(&q.replace("Does the user", "Do you").replace("Is the user", "Are you")))
 }
 
 fn second_person_pronouns(text: &str) -> String {
-    text.replace("the user's", "your")
-        .replace("their", "your")
-        .replace("the user", "you")
+    text.replace("the user's", "your").replace("their", "your").replace("the user", "you")
 }
 
 fn capitalize(text: &str) -> String {
@@ -1551,7 +1634,10 @@ fn template_stage_prefix<'a>(template: &'a str, stage_program: &str) -> Option<(
     None
 }
 
-fn match_echo_command<'a>(catalog: &'a [Command], words: &[&ShellToken]) -> Option<(&'a Command, usize, String, &'a str)> {
+fn match_echo_command<'a>(
+    catalog: &'a [Command],
+    words: &[&ShellToken],
+) -> Option<(&'a Command, usize, String, &'a str)> {
     let arg = words.get(1).and_then(|t| t.as_word()).map(|(_, u, _)| u).unwrap_or("");
     let target_name = if arg.contains("export PATH=") {
         "add to PATH"
@@ -1562,22 +1648,19 @@ fn match_echo_command<'a>(catalog: &'a [Command], words: &[&ShellToken]) -> Opti
     } else {
         return None;
     };
-    catalog
-        .iter()
-        .find(|c| c.name == target_name)
-        .map(|c| (c, 1, "echo".to_string(), c.template.as_str()))
+    catalog.iter().find(|c| c.name == target_name).map(|c| (c, 1, "echo".to_string(), c.template.as_str()))
 }
 
-fn match_catalog_command<'a>(catalog: &'a [Command], words: &[&ShellToken]) -> Option<(&'a Command, usize, String, &'a str)> {
+fn match_catalog_command<'a>(
+    catalog: &'a [Command],
+    words: &[&ShellToken],
+) -> Option<(&'a Command, usize, String, &'a str)> {
     let (_, prog, _) = words.first()?.as_word()?;
     if prog == "echo" {
         return match_echo_command(catalog, words);
     }
 
-    let word_strings: Vec<&str> = words
-        .iter()
-        .filter_map(|t| t.as_word().map(|(_, u, _)| u))
-        .collect();
+    let word_strings: Vec<&str> = words.iter().filter_map(|t| t.as_word().map(|(_, u, _)| u)).collect();
 
     let mut best: Option<(&Command, usize, String, &str, bool)> = None;
     let mut primary_multiword_only = false;
@@ -1610,8 +1693,7 @@ fn match_catalog_command<'a>(catalog: &'a [Command], words: &[&ShellToken]) -> O
     if primary_found && !primary_multiword_only {
         return catalog.iter().find_map(|c| {
             let (prefix, stage, is_primary) = template_stage_prefix(&c.template, prog)?;
-            (is_primary && prefix.first().is_some_and(|p| p == prog))
-                .then(|| (c, 1, prog.to_string(), stage))
+            (is_primary && prefix.first().is_some_and(|p| p == prog)).then(|| (c, 1, prog.to_string(), stage))
         });
     }
     None
@@ -1620,16 +1702,22 @@ fn match_catalog_command<'a>(catalog: &'a [Command], words: &[&ShellToken]) -> O
 fn explain_common_flag(program: &str, flag: &str) -> Option<&'static str> {
     // Program-specific well-known flags
     match (program, flag) {
-        ("du" | "df" | "ls" | "free", "-h") => return Some("human-readable: print sizes in easy-to-read units (e.g. 1K, 234M, 2G)"),
+        ("du" | "df" | "ls" | "free", "-h") => {
+            return Some("human-readable: print sizes in easy-to-read units (e.g. 1K, 234M, 2G)");
+        }
         ("sort", "-h") => return Some("human-numeric-sort: compare human-readable numbers such as 2K or 1G"),
         ("du", "-s") => return Some("summarize: display only a total for each argument"),
         ("ln", "-s") => return Some("create a symbolic (soft) link instead of a hard link"),
         ("curl", "-L") => return Some("follow HTTP redirects automatically"),
         ("curl", "-s") => return Some("silent mode: hide progress meter and error messages"),
         ("curl", "-S") => return Some("show errors even when silent mode (-s) is enabled"),
-        ("curl", "-k") | ("curl", "--insecure") => return Some("allow insecure TLS/SSL connections without verifying certificates"),
+        ("curl", "-k") | ("curl", "--insecure") => {
+            return Some("allow insecure TLS/SSL connections without verifying certificates");
+        }
         ("curl", "-I") => return Some("fetch only the HTTP response headers"),
-        ("rsync", "-a") => return Some("archive mode: preserve permissions, timestamps, symlinks, and recurse into folders"),
+        ("rsync", "-a") => {
+            return Some("archive mode: preserve permissions, timestamps, symlinks, and recurse into folders");
+        }
         ("rsync", "-z") => return Some("compress file data during transfer"),
         ("tar", "-x") => return Some("extract files from an archive"),
         ("tar", "-c") => return Some("create a new archive"),
@@ -1709,10 +1797,7 @@ fn split_segment_redirections(tokens: &[ShellToken]) -> (Vec<ShellToken>, Vec<(S
                 continue;
             }
             if matches!(op.as_str(), ">" | ">>" | "<" | "2>" | "2>>" | "&>" | "&>>") {
-                let target = tokens
-                    .get(i + 1)
-                    .and_then(|t| t.as_word())
-                    .map(|(raw, _, _)| raw.to_string());
+                let target = tokens.get(i + 1).and_then(|t| t.as_word()).map(|(raw, _, _)| raw.to_string());
                 if target.is_some() {
                     i += 2;
                 } else {
@@ -1908,7 +1993,11 @@ fn explain_segment(catalog: &[Command], tokens: &[ShellToken], after_pipe: bool,
                 }
 
                 // 6. Combined short flags like `-la`, `-sh`, `-rf`, `-xzf`.
-                if unquoted.starts_with('-') && !unquoted.starts_with("--") && unquoted.len() > 2 && !unquoted[1..].chars().all(|c| c.is_ascii_digit()) {
+                if unquoted.starts_with('-')
+                    && !unquoted.starts_with("--")
+                    && unquoted.len() > 2
+                    && !unquoted[1..].chars().all(|c| c.is_ascii_digit())
+                {
                     let chars: Vec<char> = unquoted[1..].chars().collect();
                     let parts: Vec<(String, Option<String>)> = chars
                         .iter()
@@ -2045,7 +2134,11 @@ mod tests {
     fn question_shows_the_command_and_its_output() {
         let last = Last { command: "cat nope".into(), exit: Some(1), output: "cat: nope: No such file".into() };
         let text = question(&last);
-        assert!(text.contains("Command: cat nope") && text.contains("Exit code: 1 (general error)") && text.contains("No such file"));
+        assert!(
+            text.contains("Command: cat nope")
+                && text.contains("Exit code: 1 (general error)")
+                && text.contains("No such file")
+        );
     }
 
     #[test]
@@ -2072,11 +2165,7 @@ mod tests {
 
     #[test]
     fn explain_returns_answer_and_streams_to_callback() {
-        let last = Last {
-            command: "htpo".into(),
-            exit: Some(127),
-            output: "bash: htpo: command not found".into(),
-        };
+        let last = Last { command: "htpo".into(), exit: Some(127), output: "bash: htpo: command not found".into() };
         let mut streamed = String::new();
         let answer = explain(&last, &mut |piece| streamed.push_str(piece)).unwrap();
         assert_eq!(answer.text, streamed);
@@ -2113,10 +2202,7 @@ mod tests {
             package_install_command("jq", "ID=ubuntu\nID_LIKE=debian\n").as_deref(),
             Some("sudo apt install jq")
         );
-        assert_eq!(
-            package_install_command("jq", "ID=fedora\n").as_deref(),
-            Some("sudo dnf install jq")
-        );
+        assert_eq!(package_install_command("jq", "ID=fedora\n").as_deref(), Some("sudo dnf install jq"));
     }
 
     #[test]
@@ -2135,7 +2221,8 @@ mod tests {
         assert!(ans.contains("8080"));
         assert!(suggested(&ans).unwrap().contains("8080"));
 
-        let piped = Last { command: String::new(), exit: None, output: "Error: could not connect to ollama server".into() };
+        let piped =
+            Last { command: String::new(), exit: None, output: "Error: could not connect to ollama server".into() };
         assert_eq!(suggested(&diagnose(&piped)), Some("ollama serve"));
     }
 
@@ -2188,7 +2275,8 @@ mod tests {
         assert!(r7.iter().any(|(p, d)| p == "-f" && d.contains("force")));
 
         // 8. Chained &&, ||, ; and redirections >, >>, 2>&1
-        let r8 = explain_command(&catalog, "cargo test && echo ok > out.txt 2>&1 || echo fail >> err.log; ls --not-real");
+        let r8 =
+            explain_command(&catalog, "cargo test && echo ok > out.txt 2>&1 || echo fail >> err.log; ls --not-real");
         assert!(r8.iter().any(|(p, d)| p == "&&" && d.contains("succeeded")));
         assert!(r8.iter().any(|(p, d)| p == ">" && d.contains("overwrites")));
         assert!(r8.iter().any(|(p, d)| p == "2>&1" && d.contains("stderr")));
@@ -2266,31 +2354,21 @@ mod tests {
     #[test]
     fn handles_shell_line_prefix_fish_polkit_pacman_ssh_and_tar() {
         // bash: line 1: htpo: command not found (piped, exit None)
-        let bash_line_typo = Last {
-            command: String::new(),
-            exit: None,
-            output: "bash: line 1: htpo: command not found".into(),
-        };
+        let bash_line_typo =
+            Last { command: String::new(), exit: None, output: "bash: line 1: htpo: command not found".into() };
         let ans = diagnose(&bash_line_typo);
         assert!(ans.contains("htop"), "got: {ans}");
         assert_eq!(suggested(&ans), Some("htop"));
 
         // bash: line 1: ./Cargo.toml: Permission denied (piped, exit None -> checks metadata +x)
-        let bash_line_noexec = Last {
-            command: String::new(),
-            exit: None,
-            output: "bash: line 1: ./Cargo.toml: Permission denied".into(),
-        };
+        let bash_line_noexec =
+            Last { command: String::new(), exit: None, output: "bash: line 1: ./Cargo.toml: Permission denied".into() };
         let ans = diagnose(&bash_line_noexec);
         assert!(ans.contains("lacks executable permission"), "got: {ans}");
         assert_eq!(suggested(&ans), Some("chmod +x ./Cargo.toml"));
 
         // fish: Unknown command: rg
-        let fish_missing = Last {
-            command: String::new(),
-            exit: None,
-            output: "fish: Unknown command: rg".into(),
-        };
+        let fish_missing = Last { command: String::new(), exit: None, output: "fish: Unknown command: rg".into() };
         let ans = diagnose(&fish_missing);
         assert!(ans.contains("ripgrep"), "got: {ans}");
         assert!(suggested(&ans).unwrap().contains("ripgrep"));

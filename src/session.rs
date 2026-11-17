@@ -266,7 +266,8 @@ pub fn last() -> Result<Last> {
     };
     let log = env_nonempty("HUH_SESSION_LOG").ok_or_else(not_recorded)?;
     let status = env_nonempty("HUH_SESSION_STATUS").ok_or_else(not_recorded)?;
-    let status = std::fs::read_to_string(&status).map_err(|_| anyhow!("no command has been recorded in this terminal yet"))?;
+    let status =
+        std::fs::read_to_string(&status).map_err(|_| anyhow!("no command has been recorded in this terminal yet"))?;
     let (exit, command) = parse_status(&status);
     let bytes = std::fs::read(&log).with_context(|| format!("cannot read {log}"))?;
     let output = tail(&clean(last_region(&String::from_utf8_lossy(&bytes))));

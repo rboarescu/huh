@@ -163,10 +163,8 @@ fn print(outcome: &Outcome, catalog: &[Command], brief: bool) {
         // Hiding a missing program would push a worse command to the top, so say it instead.
         let program = s.line.split_whitespace().find(|word| *word != "sudo").unwrap_or_default();
         if !catalog::installed(program) {
-            let install_cmd = catalog
-                .iter()
-                .find(|c| c.name == s.command)
-                .and_then(|cmd| catalog::install_command(cmd, &platforms));
+            let install_cmd =
+                catalog.iter().find(|c| c.name == s.command).and_then(|cmd| catalog::install_command(cmd, &platforms));
             match install_cmd {
                 Some(cmd) => println!("   NOTE: `{program}` is not installed. Install it with: {cmd}"),
                 None => println!("   NOTE: `{program}` is not installed on this machine."),
@@ -264,12 +262,9 @@ fn main() -> Result<()> {
     let everything = catalog::load_default(cli.catalog)?;
 
     match cli.action {
-        Some(
-            Action::Why
-            | Action::ShellInit { .. }
-            | Action::EvalErrors { .. }
-            | Action::RecordSink { .. },
-        ) => unreachable!("handled above"),
+        Some(Action::Why | Action::ShellInit { .. } | Action::EvalErrors { .. } | Action::RecordSink { .. }) => {
+            unreachable!("handled above")
+        }
         Some(Action::Check) => {
             let total = everything.len();
             let here = catalog::usable(everything.clone(), &catalog::this_platform(), true);
@@ -315,8 +310,10 @@ fn main() -> Result<()> {
                 catalog::usable(everything, &catalog::this_platform(), false)
             };
             let files = if cli.no_cwd { vec![] } else { candidates::current_folder_entries() };
-            let interactive =
-                !cli.no_ask && !cli.first_line_only && std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
+            let interactive = !cli.no_ask
+                && !cli.first_line_only
+                && std::io::stdin().is_terminal()
+                && std::io::stderr().is_terminal();
             let mut decide = |question: &str| if interactive { ask_on_terminal(question) } else { None };
             let outcome = suggest(&LocalMatcher::new(&catalog), &request, files, &mut decide)?;
             if cli.debug {

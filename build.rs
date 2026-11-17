@@ -13,11 +13,7 @@ fn main() {
         .filter_map(|entry| entry.ok().map(|e| e.path()))
         .filter(|path| path.extension().is_some_and(|ext| ext == "toml"))
         .map(|path| {
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .expect("non-UTF8 catalog filename")
-                .to_string();
+            let name = path.file_name().and_then(|n| n.to_str()).expect("non-UTF8 catalog filename").to_string();
             (name, path)
         })
         .collect();
@@ -26,14 +22,12 @@ fn main() {
 
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR not set"));
     let dest_path = out_dir.join("embedded_catalog.rs");
-    let mut out = fs::File::create(&dest_path)
-        .unwrap_or_else(|e| panic!("cannot create {}: {e}", dest_path.display()));
+    let mut out = fs::File::create(&dest_path).unwrap_or_else(|e| panic!("cannot create {}: {e}", dest_path.display()));
 
     writeln!(out, "pub const EMBEDDED_CATALOG: &[(&str, &str)] = &[").unwrap();
     for (name, path) in &entries {
         println!("cargo:rerun-if-changed=catalog/{name}");
-        let contents =
-            fs::read_to_string(path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+        let contents = fs::read_to_string(path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
         writeln!(out, "    ({name:?}, {contents:?}),").unwrap();
     }
     writeln!(out, "];").unwrap();

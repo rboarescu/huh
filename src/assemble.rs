@@ -151,19 +151,12 @@ fn picked_value(
 
 /// Catalog questions talk about "the user"; shown to that user they should say "you".
 fn second_person(question: &str) -> String {
-    question
-        .replace("Does the user", "Do you")
-        .replace("Is the user", "Are you")
-        .replace("the user", "you")
+    question.replace("Does the user", "Do you").replace("Is the user", "Are you").replace("the user", "you")
 }
 
 /// Turns a catalog yes/no flag question into a concise plain-English statement.
 pub fn second_person_statement(question: &str) -> String {
-    let trimmed = question
-        .trim()
-        .trim_end_matches('?')
-        .replace("the user's", "your")
-        .replace("their ", "your ");
+    let trimmed = question.trim().trim_end_matches('?').replace("the user's", "your").replace("their ", "your ");
 
     if let Some(rest) = trimmed.strip_prefix("Does the user want to ") {
         return capitalize(&replace_user_pronouns(rest));
@@ -249,8 +242,19 @@ fn rewrite_passive_want_clause(clause: &str) -> Option<String> {
         let has_comma = raw_word.ends_with(',');
         let post_trigger = matches!(
             next,
-            "to" | "as" | "in" | "into" | "inside" | "first" | "off" | "on" | "up" | "down" | "by"
-                | "with" | "from" | "that"
+            "to" | "as"
+                | "in"
+                | "into"
+                | "inside"
+                | "first"
+                | "off"
+                | "on"
+                | "up"
+                | "down"
+                | "by"
+                | "with"
+                | "from"
+                | "that"
         );
         if (is_end || has_comma || post_trigger) && idx > 0 {
             let obj = words[..idx].join(" ");
@@ -413,10 +417,7 @@ mod tests {
             second_person_statement("Does the user want the change applied to everything inside a folder?"),
             "Apply the change to everything inside a folder"
         );
-        assert_eq!(
-            second_person_statement("Does the user want hidden files included?"),
-            "Include hidden files"
-        );
+        assert_eq!(second_person_statement("Does the user want hidden files included?"), "Include hidden files");
         assert_eq!(
             second_person_statement("Does the user want to keep watching the file for new lines as they are written?"),
             "Keep watching the file for new lines as they are written"
@@ -437,9 +438,7 @@ mod tests {
 
     #[test]
     fn populates_parts_for_flags_choices_and_filled_slots() {
-        let got = build(&chmod(), 0.9, &chmod_details(0.95, 0.9, 0.97), &mut |_| None)
-            .unwrap()
-            .unwrap();
+        let got = build(&chmod(), 0.9, &chmod_details(0.95, 0.9, 0.97), &mut |_| None).unwrap().unwrap();
         assert_eq!(got.line, "chmod -R +x deploy.sh");
         assert_eq!(
             got.parts,
@@ -453,9 +452,7 @@ mod tests {
 
     #[test]
     fn omits_unfilled_placeholder_and_empty_options_from_parts() {
-        let got = build(&chmod(), 0.9, &chmod_details(0.95, 0.02, 0.05), &mut |_| None)
-            .unwrap()
-            .unwrap();
+        let got = build(&chmod(), 0.9, &chmod_details(0.95, 0.02, 0.05), &mut |_| None).unwrap().unwrap();
         assert_eq!(got.line, "chmod +x <target>");
         assert_eq!(
             got.parts,

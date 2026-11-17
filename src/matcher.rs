@@ -23,12 +23,11 @@ const FIELD_B: [f64; FIELD_COUNT] = [0.5, 0.6, 0.5, 0.5, 0.5, 0.4];
 const BM25_K1: f64 = 1.2;
 
 const STOPWORDS: &[&str] = &[
-    "a", "an", "the", "i", "me", "my", "we", "you", "your", "it", "its", "this", "that",
-    "these", "those", "is", "are", "was", "were", "be", "been", "being", "do", "does", "did",
-    "can", "could", "would", "should", "will", "shall", "may", "might", "want", "need", "like",
-    "please", "to", "of", "in", "on", "at", "for", "from", "with", "and", "or", "as", "by",
-    "so", "there", "have", "has", "had", "some", "just", "am", "what", "which", "where", "how",
-    "who", "when", "why", "if", "then", "than", "into", "about", "get", "give", "let", "tell",
+    "a", "an", "the", "i", "me", "my", "we", "you", "your", "it", "its", "this", "that", "these", "those", "is", "are",
+    "was", "were", "be", "been", "being", "do", "does", "did", "can", "could", "would", "should", "will", "shall",
+    "may", "might", "want", "need", "like", "please", "to", "of", "in", "on", "at", "for", "from", "with", "and", "or",
+    "as", "by", "so", "there", "have", "has", "had", "some", "just", "am", "what", "which", "where", "how", "who",
+    "when", "why", "if", "then", "than", "into", "about", "get", "give", "let", "tell",
 ];
 
 #[derive(Clone, Debug)]
@@ -114,8 +113,8 @@ impl LocalMatcher {
                 let mut tf_comb = 0.0f64;
                 for f_idx in 0..FIELD_COUNT {
                     if let Some(&tf) = entry.fields[f_idx].get(&term) {
-                        let norm = 1.0 - FIELD_B[f_idx]
-                            + FIELD_B[f_idx] * (entry.field_lens[f_idx] / avg_field_lens[f_idx]);
+                        let norm =
+                            1.0 - FIELD_B[f_idx] + FIELD_B[f_idx] * (entry.field_lens[f_idx] / avg_field_lens[f_idx]);
                         tf_comb += FIELD_WEIGHTS[f_idx] * (tf / norm);
                     }
                 }
@@ -191,7 +190,8 @@ impl LocalMatcher {
         let q = QueryContext::new(request, &q_norm, &q_words, &q_terms);
 
         let fit = self.score_fit(idx, entry, &q);
-        let flags = command.flags.iter().map(|flag| score_flag(&command.name, flag, &entry.flag_terms[&flag.id], &q)).collect();
+        let flags =
+            command.flags.iter().map(|flag| score_flag(&command.name, flag, &entry.flag_terms[&flag.id], &q)).collect();
 
         // Choice slots first: which values `tar` takes depends on its action.
         let mut slots = vec![SlotPick::Unnamed; command.slots.len()];
@@ -284,19 +284,15 @@ struct RawToken {
 }
 
 impl<'a> QueryContext<'a> {
-    fn new(
-        raw: &'a str,
-        norm: &'a str,
-        words: &'a [String],
-        term_weights: &'a HashMap<String, f64>,
-    ) -> Self {
+    fn new(raw: &'a str, norm: &'a str, words: &'a [String], term_weights: &'a HashMap<String, f64>) -> Self {
         let mut word_set = HashSet::with_capacity(words.len());
         let mut stem_set = HashSet::with_capacity(words.len());
         let mut content_terms = Vec::new();
         for w in words {
             word_set.insert(w.as_str());
             let st = stem(w);
-            if !STOPWORDS.contains(&w.as_str()) && w.len() >= 2 && !is_generic_filler(w) && !content_terms.contains(&st) {
+            if !STOPWORDS.contains(&w.as_str()) && w.len() >= 2 && !is_generic_filler(w) && !content_terms.contains(&st)
+            {
                 content_terms.push(st.clone());
             }
             stem_set.insert(st);
@@ -310,9 +306,7 @@ impl<'a> QueryContext<'a> {
     }
 
     fn has_word(&self, w: &str) -> bool {
-        self.word_set.contains(w)
-            || self.term_weights.contains_key(w)
-            || self.stem_set.contains(&stem(w))
+        self.word_set.contains(w) || self.term_weights.contains_key(w) || self.stem_set.contains(&stem(w))
     }
 
     fn has_phrase(&self, phrase: &str) -> bool {
@@ -377,8 +371,8 @@ fn contains_word_phrase(haystack: &str, needle: &str) -> bool {
     let mut start = 0usize;
     while let Some(pos) = haystack[start..].find(needle) {
         let abs = start + pos;
-        let before_ok = abs == 0
-            || !haystack[..abs].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_');
+        let before_ok =
+            abs == 0 || !haystack[..abs].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_');
         let after_idx = abs + needle.len();
         let after_ok = after_idx == haystack.len()
             || !haystack[after_idx..].chars().next().is_some_and(|c| c.is_alphanumeric() || c == '_');
@@ -391,10 +385,7 @@ fn contains_word_phrase(haystack: &str, needle: &str) -> bool {
 }
 
 fn is_generic_filler(w: &str) -> bool {
-    matches!(
-        w,
-        "thing" | "things" | "stuff" | "something" | "anything" | "one" | "way" | "right" | "now"
-    )
+    matches!(w, "thing" | "things" | "stuff" | "something" | "anything" | "one" | "way" | "right" | "now")
 }
 
 fn parse_raw_tokens(request: &str) -> Vec<RawToken> {
@@ -451,17 +442,8 @@ fn parse_raw_tokens(request: &str) -> Vec<RawToken> {
             prev_word: prev_word.clone(),
             next_word: next_word.clone(),
         });
-        if !*quoted
-            && let Some(num) = number_word(&lower)
-        {
-            out.push(RawToken {
-                text: num.clone(),
-                lower: num,
-                quoted: false,
-                word_pos: idx,
-                prev_word,
-                next_word,
-            });
+        if !*quoted && let Some(num) = number_word(&lower) {
+            out.push(RawToken { text: num.clone(), lower: num, quoted: false, word_pos: idx, prev_word, next_word });
         }
     }
     out
@@ -469,9 +451,14 @@ fn parse_raw_tokens(request: &str) -> Vec<RawToken> {
 
 fn normalize_text(input: &str) -> Cow<'_, str> {
     let mut s = input.to_lowercase();
-    if !s.contains(['\'', '-', '.']) && !s.contains("wi fi") && !s.contains("screen ")
-        && !s.contains("record ") && !s.contains("nightlight") && !s.contains("readonly")
-        && !s.contains("case ") && !s.contains("ghz")
+    if !s.contains(['\'', '-', '.'])
+        && !s.contains("wi fi")
+        && !s.contains("screen ")
+        && !s.contains("record ")
+        && !s.contains("nightlight")
+        && !s.contains("readonly")
+        && !s.contains("case ")
+        && !s.contains("ghz")
     {
         return Cow::Owned(s);
     }
@@ -637,7 +624,8 @@ fn stem(word: &str) -> String {
     if w.ends_with("ing") && w.len() >= 6 {
         let base = &w[..w.len() - 3];
         let bytes = base.as_bytes();
-        if bytes.len() >= 2 && bytes[bytes.len() - 1] == bytes[bytes.len() - 2]
+        if bytes.len() >= 2
+            && bytes[bytes.len() - 1] == bytes[bytes.len() - 2]
             && matches!(bytes[bytes.len() - 1], b'b' | b'g' | b'm' | b'n' | b'p' | b'r' | b't')
         {
             return base[..base.len() - 1].to_string();
@@ -647,7 +635,8 @@ fn stem(word: &str) -> String {
     if w.ends_with("ed") && w.len() >= 5 && !matches!(w.as_str(), "need" | "feed" | "seed" | "speed") {
         let base = &w[..w.len() - 2];
         let bytes = base.as_bytes();
-        if bytes.len() >= 2 && bytes[bytes.len() - 1] == bytes[bytes.len() - 2]
+        if bytes.len() >= 2
+            && bytes[bytes.len() - 1] == bytes[bytes.len() - 2]
             && (matches!(bytes[bytes.len() - 1], b'b' | b'g' | b'm' | b'n' | b'p' | b'r' | b't')
                 || (bytes[bytes.len() - 1] == b'd' && base != "add"))
         {
@@ -836,7 +825,9 @@ fn stem_concepts(s: &str) -> Option<&'static [&'static str]> {
         "screenrecording" | "screenrecord" => &["c_screenrecord"],
         "screenshot" | "snip" => &["c_screenshot"],
         "mute" | "unmute" | "silence" => &["c_mute"],
-        "volume" | "sound" | "audio" | "loud" | "louder" | "quiet" | "quieter" | "speaker" | "headphone" => &["c_volume"],
+        "volume" | "sound" | "audio" | "loud" | "louder" | "quiet" | "quieter" | "speaker" | "headphone" => {
+            &["c_volume"]
+        }
         "brightness" | "dim" | "dimmer" | "bright" | "brighter" | "backlight" => &["c_brightness"],
         "shortcut" | "symlink" | "link" => &["c_symlink"],
         "checksum" | "hash" | "sha256" | "sha256sum" | "verify" | "intact" => &["c_checksum"],
@@ -928,7 +919,11 @@ fn index_command(cmd: &Command) -> IndexedCommand {
     let mut flag_terms = HashMap::new();
     let mut choice_opt_terms = HashMap::new();
 
-    let add_text = |f_idx: usize, text: &str, fields: &mut [HashMap<String, f64>; FIELD_COUNT], lens: &mut [f64; FIELD_COUNT], all: &mut HashSet<String>| {
+    let add_text = |f_idx: usize,
+                    text: &str,
+                    fields: &mut [HashMap<String, f64>; FIELD_COUNT],
+                    lens: &mut [f64; FIELD_COUNT],
+                    all: &mut HashSet<String>| {
         let map = extract_weighted_terms(text);
         for (term, w) in map {
             *fields[f_idx].entry(term.clone()).or_insert(0.0) += w;
@@ -990,6 +985,8 @@ fn index_command(cmd: &Command) -> IndexedCommand {
 // Ranking: Intent & Disambiguation Bonus
 // ---------------------------------------------------------------------------
 
+// Hand-tuned keyword tables read best one rule per line.
+#[rustfmt::skip]
 fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String], q: &QueryContext<'_>) -> f64 {
     let mut bonus = 0.0f64;
     let is_meta_man = q.has_any(&["how do i use", "manual page", "manual"]);
@@ -1239,9 +1236,24 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
 
 fn is_off_topic_unmodeled(_cmd: &Command, q: &QueryContext<'_>) -> bool {
     let pure_offtopic = [
-        "weather", "forecast", "joke", "poem", "haiku", "story", "essay",
-        "summarize", "summary", "translate", "flight", "hotel", "recipe",
-        "who won", "world cup", "percent of", "capital of", "meaning of",
+        "weather",
+        "forecast",
+        "joke",
+        "poem",
+        "haiku",
+        "story",
+        "essay",
+        "summarize",
+        "summary",
+        "translate",
+        "flight",
+        "hotel",
+        "recipe",
+        "who won",
+        "world cup",
+        "percent of",
+        "capital of",
+        "meaning of",
     ];
     if pure_offtopic.iter().any(|p| q.has_phrase(p)) {
         return true;
@@ -1260,7 +1272,10 @@ fn is_off_topic_unmodeled(_cmd: &Command, q: &QueryContext<'_>) -> bool {
     }
 
     let unmodeled_checks: &[(&[&str], &[&str])] = &[
-        (&["resize", "crop", "rotate", "watermark", "blur"], &["image", "photo", "picture", "png", "jpg", "jpeg", "pixels", "wide"]),
+        (
+            &["resize", "crop", "rotate", "watermark", "blur"],
+            &["image", "photo", "picture", "png", "jpg", "jpeg", "pixels", "wide"],
+        ),
         (&["convert", "transcode"], &["video", "gif", "mp4", "mp3", "wav", "webp", "heic", "pdf", "audio"]),
         (&["burn", "flash"], &["iso", "usb", "sd card", "drive"]),
         (&["merge", "split", "combine"], &["pdf"]),
@@ -1279,6 +1294,8 @@ fn is_off_topic_unmodeled(_cmd: &Command, q: &QueryContext<'_>) -> bool {
     false
 }
 
+// Hand-tuned keyword tables read best one rule per line.
+#[rustfmt::skip]
 fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
     let name = cmd.name.as_str();
     let has = |words: &[&str]| q.has_any(words);
@@ -1414,6 +1431,8 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
 // ---------------------------------------------------------------------------
 
 /// How likely `flag` is wanted; `terms` are the flag's indexed words.
+// Hand-tuned keyword tables read best one rule per line.
+#[rustfmt::skip]
 fn score_flag(cmd_name: &str, flag: &Flag, terms: &HashMap<String, f64>, q: &QueryContext<'_>) -> f64 {
     let flag_id = flag.id.as_str();
     let has = |terms: &[&str]| q.has_any(terms);
@@ -1470,6 +1489,8 @@ fn score_flag(cmd_name: &str, flag: &Flag, terms: &HashMap<String, f64>, q: &Que
 }
 
 /// The index of the best option of a `choice` slot (ties go to the option name first in order).
+// Hand-tuned keyword tables read best one rule per line.
+#[rustfmt::skip]
 fn score_choice_slot(cmd_name: &str, slot: &Slot, entry: &IndexedCommand, q: &QueryContext<'_>) -> usize {
     let has = |terms: &[&str]| q.has_any(terms);
     let slot_id = slot.id.as_str();
@@ -1652,9 +1673,13 @@ fn infer_slot_role(cmd_name: &str, slot_id: &str, kind: SlotKind) -> SlotRole {
         ("head" | "tail", "count") | ("journalctl", "lines") => SlotRole::LineCount,
         ("cut", "field") => SlotRole::FieldNumber,
         ("omarchy reminder", "minutes") => SlotRole::MinutesNumber,
-        ("omarchy reminder", "message") | ("git commit", "message") | ("append to system file", "line") => SlotRole::MessageText,
+        ("omarchy reminder", "message") | ("git commit", "message") | ("append to system file", "line") => {
+            SlotRole::MessageText
+        }
         ("kill", "pid") => SlotRole::PidNumber,
-        ("systemctl" | "systemctl --user", "service") | ("journalctl" | "search service log", "unit") => SlotRole::ServiceUnit,
+        ("systemctl" | "systemctl --user", "service") | ("journalctl" | "search service log", "unit") => {
+            SlotRole::ServiceUnit
+        }
         (_, "url") => SlotRole::Url,
         (_, "host" | "address") => SlotRole::HostOrIp,
         (_, "package" | "term" | "crate") => SlotRole::PackageOrTerm,
@@ -1684,12 +1709,18 @@ fn infer_slot_role(cmd_name: &str, slot_id: &str, kind: SlotKind) -> SlotRole {
 }
 
 fn is_upper_env_name(s: &str) -> bool {
-    s.len() >= 2 && s.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    s.len() >= 2
+        && s.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
         && s.chars().any(|c| c.is_ascii_uppercase())
 }
 
 fn looks_like_path_or_file(s: &str) -> bool {
-    if s.contains('/') || s.starts_with('~') || s.contains('*') || s.contains('?') || (s.starts_with('.') && s.len() >= 2) {
+    if s.contains('/')
+        || s.starts_with('~')
+        || s.contains('*')
+        || s.contains('?')
+        || (s.starts_with('.') && s.len() >= 2)
+    {
         return true;
     }
     if let Some((stem_part, ext)) = s.rsplit_once('.') {
@@ -1767,51 +1798,316 @@ fn is_non_value_english_word(lower: &str) -> bool {
     STOPWORDS.contains(&lower)
         || matches!(
             lower,
-            "make" | "list" | "show" | "get" | "set" | "add" | "remove" | "delete" | "erase"
-                | "start" | "stop" | "restart" | "follow" | "watch" | "close" | "run" | "open"
-                | "read" | "write" | "written" | "connect" | "disconnect" | "launch" | "halt"
-                | "scan" | "join" | "fetch" | "talk" | "chat" | "call" | "called" | "named"
-                | "create" | "build" | "compile" | "copy" | "duplicate" | "move" | "rename"
-                | "put" | "unpack" | "pack" | "extract" | "compress" | "decompress" | "check"
-                | "verify" | "find" | "locate" | "search" | "look" | "print" | "count" | "sort"
-                | "order" | "compare" | "edit" | "modify" | "modified" | "change" | "changed"
-                | "protect" | "enable" | "disable" | "turn" | "switch" | "apply" | "use" | "used"
-                | "install" | "uninstall" | "update" | "upgrade" | "unload" | "load" | "boot"
-                | "reboot" | "shutdown" | "power" | "lock" | "logout" | "remind" | "save"
-                | "download" | "upload" | "sync" | "kill" | "terminate" | "force" | "pull"
-                | "push" | "stage" | "commit" | "clone" | "attach" | "reattach" | "keep"
-                | "allow" | "prevent" | "take" | "bring" | "free" | "appear" | "occurs" | "mention"
-                | "contain" | "point" | "points" | "belong" | "leave" | "clear" | "clean"
-                | "file" | "files" | "folder" | "folders" | "directory" | "directories" | "dir"
-                | "contents" | "content" | "line" | "lines" | "word" | "words" | "character" | "characters"
-                | "program" | "programs" | "process" | "processes" | "service" | "services"
-                | "container" | "containers" | "image" | "images" | "vm" | "vms" | "virtual" | "machine"
-                | "archive" | "checksum" | "permissions" | "permission" | "executable" | "runnable"
-                | "frozen" | "hung" | "running" | "stopped" | "installed" | "available"
-                | "alphabetically" | "numerically" | "recursively" | "permanently" | "gracefully"
-                | "cleanly" | "automatically" | "completely" | "locally" | "live" | "fast"
-                | "hidden" | "recent" | "recently" | "most" | "biggest" | "smallest" | "largest"
-                | "command" | "commands" | "alias" | "variable" | "variables" | "value" | "column"
-                | "columns" | "field" | "fields" | "minute" | "minutes" | "day" | "days"
-                | "megabyte" | "megabytes" | "gigabyte" | "gigabytes" | "rust" | "crate"
-                | "project" | "branch" | "branches" | "session" | "sessions" | "theme" | "themes"
-                | "font" | "fonts" | "network" | "wifi" | "wireless" | "disk" | "disks"
-                | "healthy" | "health" | "speed" | "link" | "shortcut" | "owner" | "group"
-                | "groups" | "module" | "kernel" | "server" | "computer" | "laptop" | "terminal"
-                | "local" | "remote" | "uncommitted" | "changes" | "empty" | "new" | "old"
-                | "all" | "only" | "every" | "any" | "long" | "huge" | "much" | "many"
-                | "background" | "again" | "inside" | "outside" | "under" | "within"
-                | "console" | "definition" | "cards" | "card" | "manual" | "package" | "packages"
-                | "aur" | "tmux" | "ollama" | "docker" | "git" | "virsh" | "tailscale" | "tailnet"
-                | "past" | "last" | "first" | "top" | "bottom" | "beginning" | "end"
-                | "up" | "down" | "off" | "out" | "back" | "here" | "there" | "today"
-                | "time" | "date" | "everything" | "nothing" | "something" | "anything"
-                | "everyone" | "nobody" | "anyone" | "someone" | "sleep" | "awake"
-                | "dependency" | "memory" | "space" | "storage" | "cpu" | "ram"
-                | "model" | "models" | "logs" | "log" | "reader" | "teammates" | "export" | "shell"
-                | "route" | "routes" | "routing" | "table" | "gateway" | "internet" | "connected"
-                | "online" | "journald" | "browser" | "editor" | "application"
-                | "omarchy" | "using"
+            "make"
+                | "list"
+                | "show"
+                | "get"
+                | "set"
+                | "add"
+                | "remove"
+                | "delete"
+                | "erase"
+                | "start"
+                | "stop"
+                | "restart"
+                | "follow"
+                | "watch"
+                | "close"
+                | "run"
+                | "open"
+                | "read"
+                | "write"
+                | "written"
+                | "connect"
+                | "disconnect"
+                | "launch"
+                | "halt"
+                | "scan"
+                | "join"
+                | "fetch"
+                | "talk"
+                | "chat"
+                | "call"
+                | "called"
+                | "named"
+                | "create"
+                | "build"
+                | "compile"
+                | "copy"
+                | "duplicate"
+                | "move"
+                | "rename"
+                | "put"
+                | "unpack"
+                | "pack"
+                | "extract"
+                | "compress"
+                | "decompress"
+                | "check"
+                | "verify"
+                | "find"
+                | "locate"
+                | "search"
+                | "look"
+                | "print"
+                | "count"
+                | "sort"
+                | "order"
+                | "compare"
+                | "edit"
+                | "modify"
+                | "modified"
+                | "change"
+                | "changed"
+                | "protect"
+                | "enable"
+                | "disable"
+                | "turn"
+                | "switch"
+                | "apply"
+                | "use"
+                | "used"
+                | "install"
+                | "uninstall"
+                | "update"
+                | "upgrade"
+                | "unload"
+                | "load"
+                | "boot"
+                | "reboot"
+                | "shutdown"
+                | "power"
+                | "lock"
+                | "logout"
+                | "remind"
+                | "save"
+                | "download"
+                | "upload"
+                | "sync"
+                | "kill"
+                | "terminate"
+                | "force"
+                | "pull"
+                | "push"
+                | "stage"
+                | "commit"
+                | "clone"
+                | "attach"
+                | "reattach"
+                | "keep"
+                | "allow"
+                | "prevent"
+                | "take"
+                | "bring"
+                | "free"
+                | "appear"
+                | "occurs"
+                | "mention"
+                | "contain"
+                | "point"
+                | "points"
+                | "belong"
+                | "leave"
+                | "clear"
+                | "clean"
+                | "file"
+                | "files"
+                | "folder"
+                | "folders"
+                | "directory"
+                | "directories"
+                | "dir"
+                | "contents"
+                | "content"
+                | "line"
+                | "lines"
+                | "word"
+                | "words"
+                | "character"
+                | "characters"
+                | "program"
+                | "programs"
+                | "process"
+                | "processes"
+                | "service"
+                | "services"
+                | "container"
+                | "containers"
+                | "image"
+                | "images"
+                | "vm"
+                | "vms"
+                | "virtual"
+                | "machine"
+                | "archive"
+                | "checksum"
+                | "permissions"
+                | "permission"
+                | "executable"
+                | "runnable"
+                | "frozen"
+                | "hung"
+                | "running"
+                | "stopped"
+                | "installed"
+                | "available"
+                | "alphabetically"
+                | "numerically"
+                | "recursively"
+                | "permanently"
+                | "gracefully"
+                | "cleanly"
+                | "automatically"
+                | "completely"
+                | "locally"
+                | "live"
+                | "fast"
+                | "hidden"
+                | "recent"
+                | "recently"
+                | "most"
+                | "biggest"
+                | "smallest"
+                | "largest"
+                | "command"
+                | "commands"
+                | "alias"
+                | "variable"
+                | "variables"
+                | "value"
+                | "column"
+                | "columns"
+                | "field"
+                | "fields"
+                | "minute"
+                | "minutes"
+                | "day"
+                | "days"
+                | "megabyte"
+                | "megabytes"
+                | "gigabyte"
+                | "gigabytes"
+                | "rust"
+                | "crate"
+                | "project"
+                | "branch"
+                | "branches"
+                | "session"
+                | "sessions"
+                | "theme"
+                | "themes"
+                | "font"
+                | "fonts"
+                | "network"
+                | "wifi"
+                | "wireless"
+                | "disk"
+                | "disks"
+                | "healthy"
+                | "health"
+                | "speed"
+                | "link"
+                | "shortcut"
+                | "owner"
+                | "group"
+                | "groups"
+                | "module"
+                | "kernel"
+                | "server"
+                | "computer"
+                | "laptop"
+                | "terminal"
+                | "local"
+                | "remote"
+                | "uncommitted"
+                | "changes"
+                | "empty"
+                | "new"
+                | "old"
+                | "all"
+                | "only"
+                | "every"
+                | "any"
+                | "long"
+                | "huge"
+                | "much"
+                | "many"
+                | "background"
+                | "again"
+                | "inside"
+                | "outside"
+                | "under"
+                | "within"
+                | "console"
+                | "definition"
+                | "cards"
+                | "card"
+                | "manual"
+                | "package"
+                | "packages"
+                | "aur"
+                | "tmux"
+                | "ollama"
+                | "docker"
+                | "git"
+                | "virsh"
+                | "tailscale"
+                | "tailnet"
+                | "past"
+                | "last"
+                | "first"
+                | "top"
+                | "bottom"
+                | "beginning"
+                | "end"
+                | "up"
+                | "down"
+                | "off"
+                | "out"
+                | "back"
+                | "here"
+                | "there"
+                | "today"
+                | "time"
+                | "date"
+                | "everything"
+                | "nothing"
+                | "something"
+                | "anything"
+                | "everyone"
+                | "nobody"
+                | "anyone"
+                | "someone"
+                | "sleep"
+                | "awake"
+                | "dependency"
+                | "memory"
+                | "space"
+                | "storage"
+                | "cpu"
+                | "ram"
+                | "model"
+                | "models"
+                | "logs"
+                | "log"
+                | "reader"
+                | "teammates"
+                | "export"
+                | "shell"
+                | "route"
+                | "routes"
+                | "routing"
+                | "table"
+                | "gateway"
+                | "internet"
+                | "connected"
+                | "online"
+                | "journald"
+                | "browser"
+                | "editor"
+                | "application"
+                | "omarchy"
+                | "using"
         )
 }
 
@@ -1910,15 +2206,7 @@ fn bind_slots(
 
         for &cand in &slot_picks[slot_id] {
             let is_from_files = *kind == SlotKind::Path && text_cands.is_some_and(|tc| !tc.contains(cand));
-            let s = score_candidate_for_role(
-                cmd_name,
-                cand,
-                role,
-                *kind,
-                is_from_files,
-                to_split_pos,
-                q,
-            );
+            let s = score_candidate_for_role(cmd_name, cand, role, *kind, is_from_files, to_split_pos, q);
             if s > 0.5 {
                 cands_scored.push((cand.to_string(), s));
             }
@@ -1943,7 +2231,13 @@ fn bind_slots(
         let pick = list.iter().find(|(c, _)| !used.contains(c));
         if let Some((cand, score)) = pick {
             used.insert(cand.clone());
-            let named_prob = if *score >= 4.0 { 0.94 } else if *score >= 2.2 { 0.82 } else { 0.50 };
+            let named_prob = if *score >= 4.0 {
+                0.94
+            } else if *score >= 2.2 {
+                0.82
+            } else {
+                0.50
+            };
             result.insert(slot_id.clone(), (named_prob, cand.clone()));
         } else {
             result.insert(slot_id.clone(), (0.05, String::new()));
@@ -1956,8 +2250,15 @@ fn bind_slots(
 fn role_priority(role: SlotRole) -> u8 {
     match role {
         SlotRole::ArchiveFile | SlotRole::Url | SlotRole::DiskDevice => 1,
-        SlotRole::PidNumber | SlotRole::FieldNumber | SlotRole::DaysNumber | SlotRole::SizeSpec | SlotRole::MinutesNumber | SlotRole::LineCount => 2,
-        SlotRole::NamePattern | SlotRole::EnvVarName | SlotRole::AliasName | SlotRole::LinkName | SlotRole::Pattern => 3,
+        SlotRole::PidNumber
+        | SlotRole::FieldNumber
+        | SlotRole::DaysNumber
+        | SlotRole::SizeSpec
+        | SlotRole::MinutesNumber
+        | SlotRole::LineCount => 2,
+        SlotRole::NamePattern | SlotRole::EnvVarName | SlotRole::AliasName | SlotRole::LinkName | SlotRole::Pattern => {
+            3
+        }
         SlotRole::ServiceUnit | SlotRole::OwnerUser | SlotRole::DestPath | SlotRole::LinkTarget => 4,
         SlotRole::FindWhere | SlotRole::SearchWhere | SlotRole::SourcePath => 5,
         _ => 6,
@@ -1968,7 +2269,10 @@ fn find_preposition_pos(q: &QueryContext<'_>, preps: &[&str]) -> Option<usize> {
     for rt in &q.raw_tokens {
         if !rt.quoted && preps.contains(&rt.lower.as_str()) {
             if rt.lower == "to"
-                && matches!(rt.prev_word.as_str(), "want" | "need" | "like" | "how" | "going" | "used" | "trying" | "able" | "refuses" | "force")
+                && matches!(
+                    rt.prev_word.as_str(),
+                    "want" | "need" | "like" | "how" | "going" | "used" | "trying" | "able" | "refuses" | "force"
+                )
             {
                 continue;
             }
@@ -1982,12 +2286,34 @@ fn is_adjective_or_determiner(lower: &str) -> bool {
     STOPWORDS.contains(&lower)
         || matches!(
             lower,
-            "new" | "empty" | "hidden" | "all" | "every" | "any" | "other" | "same"
-                | "current" | "most" | "first" | "last" | "biggest" | "largest" | "smallest"
-                | "huge" | "long" | "old" | "local" | "remote" | "virtual" | "whole" | "entire"
+            "new"
+                | "empty"
+                | "hidden"
+                | "all"
+                | "every"
+                | "any"
+                | "other"
+                | "same"
+                | "current"
+                | "most"
+                | "first"
+                | "last"
+                | "biggest"
+                | "largest"
+                | "smallest"
+                | "huge"
+                | "long"
+                | "old"
+                | "local"
+                | "remote"
+                | "virtual"
+                | "whole"
+                | "entire"
         )
 }
 
+// Hand-tuned keyword tables read best one rule per line.
+#[rustfmt::skip]
 fn score_candidate_for_role(
     cmd_name: &str,
     cand: &str,
@@ -2474,12 +2800,7 @@ mod tests {
 
         let debian = catalog::usable(all, &["debian".into()], false);
         let deb_matcher = LocalMatcher::new(&debian);
-        let out = suggest(&deb_matcher,
-            "switch the desktop theme to Everforest",
-            vec![],
-            &mut |_| None,
-        )
-        .unwrap();
+        let out = suggest(&deb_matcher, "switch the desktop theme to Everforest", vec![], &mut |_| None).unwrap();
         assert!(out.suggestions.is_empty(), "expected rejection on debian, got {:?}", out.suggestions);
     }
 
@@ -2488,7 +2809,8 @@ mod tests {
         let arch = catalog::usable(load_catalog(), &["arch".into(), "omarchy".into()], false);
         let matcher = LocalMatcher::new(&arch);
 
-        let out = suggest(&matcher,
+        let out = suggest(
+            &matcher,
             "make the deploy script runnable",
             vec!["README.md".into(), "deploy.sh".into(), "src".into()],
             &mut |_| None,
@@ -2496,12 +2818,7 @@ mod tests {
         .unwrap();
         assert_eq!(out.suggestions[0].line, "chmod +x deploy.sh");
 
-        let out2 = suggest(&matcher,
-            "print the third column of users.csv",
-            vec![],
-            &mut |_| None,
-        )
-        .unwrap();
+        let out2 = suggest(&matcher, "print the third column of users.csv", vec![], &mut |_| None).unwrap();
         assert_eq!(out2.suggestions[0].line, "cut -d, -f3 users.csv");
     }
 
@@ -2542,11 +2859,7 @@ mod tests {
         for (req, files, expected) in cases {
             let files_vec: Vec<String> = files.iter().map(|s| (*s).to_string()).collect();
             let out = suggest(&matcher, req, files_vec, &mut |_| None).unwrap();
-            assert_eq!(
-                out.suggestions.first().map(|s| s.line.as_str()),
-                Some(*expected),
-                "request: `{req}`"
-            );
+            assert_eq!(out.suggestions.first().map(|s| s.line.as_str()), Some(*expected), "request: `{req}`");
         }
     }
 
@@ -2589,13 +2902,18 @@ mod tests {
         let evals = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals");
 
         // (matcher, file, least top-1 %, least exact-line %)
-        for (matcher, file, min_top1, min_exact) in [(&arch, "cases", 90, 85), (&arch, "heldout", 85, 80), (&debian, "debian", 0, 0)] {
+        for (matcher, file, min_top1, min_exact) in
+            [(&arch, "cases", 90, 85), (&arch, "heldout", 85, 80), (&debian, "debian", 0, 0)]
+        {
             let report = eval::score(matcher, &evals.join(format!("{file}.toml"))).unwrap();
             for line in report.lines.iter().filter(|line| line.starts_with("MISS")) {
                 println!("{line}");
             }
             println!("\n=== {file}.toml ===\n{report}");
-            assert_eq!(report.rejected.hit, report.rejected.total, "all non-terminal cases in {file}.toml must be rejected");
+            assert_eq!(
+                report.rejected.hit, report.rejected.total,
+                "all non-terminal cases in {file}.toml must be rejected"
+            );
             assert!(report.top1.percent() >= min_top1, "{file} top-1 too low: {}", report.top1);
             assert!(report.exact.percent() >= min_exact, "{file} exact too low: {}", report.exact);
         }
