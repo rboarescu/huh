@@ -510,8 +510,10 @@ mod tests {
         assert_eq!(manager(&words(&["omarchy", "arch"])).as_deref(), Some("omarchy"));
         assert_eq!(manager(&words(&["arch", "omarchy"])).as_deref(), Some("omarchy"));
         assert_eq!(fact(&words(&["omarchy", "arch"]), "pkg_remove").as_deref(), Some("omarchy pkg drop"));
-        // Inherited from arch.
-        assert_eq!(fact(&words(&["omarchy", "arch"]), "pkg_update").as_deref(), Some("sudo pacman -Syu"));
+        // Overridden for omarchy; inherited from arch.
+        assert_eq!(fact(&words(&["omarchy", "arch"]), "pkg_update").as_deref(), Some("omarchy update"));
+        assert_eq!(fact(&words(&["omarchy", "arch"]), "pkg_search").as_deref(), Some("pacman -Ss"));
+        assert_eq!(fact(&words(&["arch"]), "pkg_update").as_deref(), Some("sudo pacman -Syu"));
         assert_eq!(manager(&words(&["arch"])).as_deref(), Some("arch"));
     }
 

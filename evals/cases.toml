@@ -499,7 +499,7 @@ expect = "omarchy pkg drop libreoffice"
 [[case]]
 request = "update all my packages"
 command = "system update"
-expect = "sudo pacman -Syu"
+expect = "omarchy update"
 
 [[case]]
 request = "is there a package for gimp"

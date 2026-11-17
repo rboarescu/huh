@@ -144,6 +144,8 @@ extends = "arch"
 ids = ["omarchy"]
 install = "omarchy pkg add"
 remove = "omarchy pkg drop"
+# Updates the system packages and runs Omarchy's own migrations.
+update = "omarchy update"
 
 [families.debian]
 ids = ["debian", "ubuntu", "linuxmint", "pop", "elementary", "zorin", "raspbian", "kali", "devuan", "neon", "parrot", "mx", "deepin", "pureos", "tuxedo", "lmde", "trisquel", "peppermint", "bodhi", "ubuntu-core"]

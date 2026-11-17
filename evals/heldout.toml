@@ -304,7 +304,7 @@ expect = "omarchy pkg drop steam"
 [[case]]
 request = "upgrade the whole system"
 command = "system update"
-expect = "sudo pacman -Syu"
+expect = "omarchy update"
 
 [[case]]
 request = "look for a pdf reader i can install"
