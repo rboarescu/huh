@@ -24,3 +24,8 @@ expect = "apt search gimp"
 [[case]]
 request = "switch the desktop theme to Everforest"
 command = "none"
+
+[[case]]
+request = "which package owns /usr/bin/ls"
+command = "package owns file"
+expect = "dpkg -S /usr/bin/ls"
