@@ -221,8 +221,25 @@ fn why_last(last: session::Last) -> Result<()> {
     Ok(())
 }
 
+/// Rust ignores SIGPIPE, so printing into a closed pipe (`huh check | head`) panics.
+/// Restoring the default makes huh exit quietly instead, like other Unix tools.
+#[cfg(unix)]
+fn exit_quietly_on_closed_pipe() {
+    unsafe extern "C" {
+        fn signal(signum: i32, handler: usize) -> usize;
+    }
+    const SIGPIPE: i32 = 13;
+    const SIG_DFL: usize = 0;
+    // SAFETY: called once at startup, before any other thread exists.
+    unsafe {
+        signal(SIGPIPE, SIG_DFL);
+    }
+}
+
 fn main() -> Result<()> {
     use std::io::IsTerminal;
+    #[cfg(unix)]
+    exit_quietly_on_closed_pipe();
     let cli = Cli::parse();
 
     // These do not need the catalog, and the shell ones run in every new terminal.
