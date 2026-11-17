@@ -17,13 +17,22 @@
 # Rule for unknown programs: a program name is only used as a package name when this
 # file says so (`same`, or a `[packages]` row with a `*` entry or an entry for the family).
 # Otherwise huh prints the family's `provides` search instead of guessing a package name.
+#
+# `[packages]` values: a name; "" meaning "this family's repositories have no such package"
+# (huh says so and offers its provides search instead of an install that cannot work); or no
+# entry at all, meaning "unknown" (huh prints the provides search instead of guessing).
+# Availability that depends on the release (a package missing from Debian 11 or Ubuntu 20.04
+# but present in newer ones) is NOT modelled per release: the row keeps the current name and
+# a `[notes]` row adds a short remark that is printed with the install command, e.g.
+#   [notes]
+#   eza = { debian = "Debian 11/12 and Ubuntu before 24.04 do not ship it; ..." }
 
 # Programs whose package has the same name on every family below.
 same = [
   "htop", "btop", "tmux", "git", "vim", "nano", "tree", "zip", "unzip", "rsync", "wget", "curl",
-  "jq", "nmap", "strace", "lsof", "socat", "ethtool", "fzf", "bat", "eza", "iperf3", "tcpdump",
+  "jq", "strace", "lsof", "socat", "ethtool", "fzf", "bat", "eza", "tcpdump",
   "smartmontools", "upower", "ripgrep", "neovim", "pciutils", "usbutils", "traceroute", "mtr",
-  "docker-compose", "snapper", "ncdu", "zsh", "fish", "less", "make", "gcc", "whois", "cmake",
+  "docker-compose", "ncdu", "zsh", "less", "gcc", "whois", "cmake",
   "bubblewrap",
 ]
 
@@ -91,21 +100,26 @@ xdg-open = "xdg-utils"
 # package key -> family -> package name. `*` is the name on every family without its own
 # entry; "" means the family has no such package (so huh stays quiet instead of guessing).
 # A family that has neither an entry nor `*` is unknown: huh prints the provides search.
-# Keys are Arch package names; omarchy inherits arch.
+# Keys are Arch package names; omarchy inherits arch; `nix` (Nix on another distro) uses the nixos names.
 [packages]
 ripgrep = { "*" = "ripgrep" }
+nmap = { arch = "nmap", debian = "nmap", fedora = "nmap", suse = "nmap", alpine = "nmap", nixos = "nmap", gentoo = "net-analyzer/nmap" }
+snapper = { arch = "snapper", debian = "snapper", fedora = "snapper", suse = "snapper", alpine = "", void = "snapper", nixos = "snapper", gentoo = "sys-fs/snapper" }
+make = { "*" = "make", nixos = "gnumake" }
+iperf3 = { "*" = "iperf3", suse = "iperf" }
+fish = { "*" = "fish", void = "fish-shell" }
 zbar = { arch = "zbar", debian = "zbar-tools", fedora = "zbar", suse = "zbar", alpine = "zbar", void = "zbar", nixos = "zbar", gentoo = "media-gfx/zbar" }
 libvirt = { arch = "libvirt", debian = "libvirt-clients", fedora = "libvirt-client", suse = "libvirt-client", alpine = "libvirt-client", void = "libvirt", nixos = "libvirt", gentoo = "app-emulation/libvirt" }
 sqlite = { arch = "sqlite", debian = "sqlite3", fedora = "sqlite", suse = "sqlite3", alpine = "sqlite", void = "sqlite", nixos = "sqlite", gentoo = "dev-db/sqlite" }
 imagemagick = { arch = "imagemagick", debian = "imagemagick", fedora = "ImageMagick", suse = "ImageMagick", alpine = "imagemagick", void = "ImageMagick", nixos = "imagemagick", gentoo = "media-gfx/imagemagick" }
 fd = { arch = "fd", debian = "fd-find", fedora = "fd-find", suse = "fd", alpine = "fd", void = "fd", nixos = "fd", gentoo = "sys-apps/fd" }
 ffmpeg = { "*" = "ffmpeg", fedora = "ffmpeg-free" }
-bind = { arch = "bind", debian = "bind9-dnsutils", fedora = "bind-utils", suse = "bind-utils", alpine = "bind-tools", nixos = "bind", gentoo = "net-dns/bind-tools" }
+bind = { arch = "bind", debian = "bind9-dnsutils", fedora = "bind-utils", suse = "bind-utils", alpine = "bind-tools", void = "bind-utils", nixos = "bind", gentoo = "net-dns/bind-tools" }
 openbsd-netcat = { arch = "openbsd-netcat", debian = "netcat-openbsd", fedora = "nmap-ncat", suse = "netcat-openbsd", alpine = "netcat-openbsd", nixos = "netcat", gentoo = "net-analyzer/openbsd-netcat" }
 python = { arch = "python", debian = "python3", fedora = "python3", suse = "python3", alpine = "python3", void = "python3", nixos = "python3", gentoo = "dev-lang/python" }
 python-pip = { arch = "python-pip", debian = "python3-pip", fedora = "python3-pip", suse = "python3-pip", alpine = "py3-pip", void = "python3-pip", gentoo = "dev-python/pip" }
 nodejs = { arch = "nodejs", debian = "nodejs", fedora = "nodejs", alpine = "nodejs", void = "nodejs", nixos = "nodejs", gentoo = "net-libs/nodejs" }
-npm = { arch = "npm", debian = "npm", fedora = "npm", alpine = "npm", nixos = "nodePackages.npm" }
+npm = { arch = "npm", debian = "npm", fedora = "npm", alpine = "npm", nixos = "nodejs" }
 "7zip" = { arch = "7zip", debian = "p7zip-full", alpine = "7zip", nixos = "p7zip" }
 procps = { arch = "procps-ng", debian = "procps", fedora = "procps-ng", suse = "procps", alpine = "procps-ng", void = "procps-ng", nixos = "procps", gentoo = "sys-process/procps" }
 networkmanager = { arch = "networkmanager", debian = "network-manager", fedora = "NetworkManager", suse = "NetworkManager", alpine = "networkmanager-cli", void = "NetworkManager", nixos = "networkmanager", gentoo = "net-misc/networkmanager" }
@@ -119,15 +133,22 @@ openssh = { arch = "openssh", debian = "openssh-client", fedora = "openssh-clien
 github-cli = { arch = "github-cli", debian = "gh", fedora = "gh", suse = "gh", alpine = "github-cli", void = "github-cli", nixos = "gh", gentoo = "dev-util/github-cli" }
 man-db = { arch = "man-db", debian = "man-db", fedora = "man-db", suse = "man", alpine = "mandoc", void = "man-db" }
 docker = { arch = "docker", debian = "docker.io", fedora = "docker", suse = "docker", alpine = "docker", void = "docker", nixos = "docker", gentoo = "app-containers/docker" }
-btrfs-progs = { "*" = "btrfs-progs", gentoo = "sys-fs/btrfs-progs" }
+btrfs-progs = { "*" = "btrfs-progs", suse = "btrfsprogs", gentoo = "sys-fs/btrfs-progs" }
 xdg-utils = { "*" = "xdg-utils", gentoo = "x11-misc/xdg-utils" }
-unrar = { arch = "unrar", suse = "unrar", alpine = "unrar", void = "unrar", nixos = "unrar" }
+unrar = { arch = "unrar", suse = "unrar", alpine = "", nixos = "unrar" }
 tailscale = { arch = "tailscale", alpine = "tailscale", void = "tailscale", nixos = "tailscale" }
 ollama = { arch = "ollama", nixos = "ollama" }
 yay = { "*" = "" }
 paru = { "*" = "" }
 cargo = { "*" = "cargo", arch = "rust", gentoo = "dev-lang/rust" }
-rustc = { "*" = "rustc", arch = "rust", gentoo = "dev-lang/rust" }
+rustc = { "*" = "rustc", arch = "rust", suse = "rust", alpine = "rust", void = "rust", gentoo = "dev-lang/rust" }
+
+# Remarks printed with an install command when the package is missing from some releases of
+# the family. package key -> family -> text.
+[notes]
+eza = { debian = "eza is not in Debian 11/12 or Ubuntu before 24.04; there, find it with `apt-file search bin/eza` or install it from upstream." }
+btop = { debian = "btop is not in Debian 11 or Ubuntu 20.04; on those releases install it from a backport or upstream." }
+github-cli = { debian = "gh is not in Debian 11 or Ubuntu 20.04; on those releases use GitHub's own apt repository." }
 
 [families.arch]
 ids = ["arch", "archarm", "artix", "manjaro", "endeavouros", "cachyos", "garuda", "arcolinux", "parabola", "blackarch", "steamos", "chimeraos", "archcraft", "rebornos"]
@@ -207,11 +228,18 @@ update = "sudo emerge --sync && sudo emerge --ask --update --deep --newuse @worl
 owns = "equery belongs"
 provides = "e-file {}"
 
+# NixOS itself: the system is configured declaratively, so updating means rebuilding it.
 [families.nixos]
 ids = ["nixos"]
-detect = ["nix", "nix-env"]
 install = "nix profile install nixpkgs#{}"
 remove = "nix profile remove {}"
 search = "nix search nixpkgs {}"
 update = "sudo nixos-rebuild switch --upgrade"
 provides = "nix-locate bin/{}"
+
+# The Nix package manager on some other system (no NixOS in os-release, but `nix` on PATH, as
+# in the nixos/nix container): there is no system to rebuild, only the user's profile to upgrade.
+[families.nix]
+extends = "nixos"
+detect = ["nix", "nix-env"]
+update = "nix profile upgrade --all"

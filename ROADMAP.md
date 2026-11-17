@@ -1,5 +1,16 @@
 # huh: roadmap and status
 
+## Completed: Platform and package-name fixes from the Docker verification (2026-11-17)
+
+- **Names**: "install dig/docker" map program to package per family (the `[programs]`/`[packages]` data, via `pkg_role` on package tasks and `assemble::package_line`); fixed suse (`btrfsprogs`, `iperf`, `rust`), void (`fish-shell`, `rust`, `bind-utils`; `nmap`/`unrar` fall back to `xlocate`), alpine (`rust`; `snapper`/`unrar` marked not packaged with `""`), nixos (`gnumake`, npm in `nodejs`). Names were checked in containers.
+- **Releases**: new `[notes]` table keeps the current package name and adds a remark for releases that lack it (`eza` on Debian 11/12/Ubuntu < 24.04, `btop`/`gh` on Debian 11/Ubuntu 20.04); shown under the suggestion and in `huh why`.
+- **Nix**: new `nix` family (Nix on a non-NixOS system, found by `nix` on PATH) updates with `nix profile upgrade --all`; `nixos` keeps `nixos-rebuild`. No "owns" task there, and a request for one no longer falls through to `nix search ... owns`; `nix-locate` templates take a file name when given a path (no `bin//usr/...`).
+- **No package manager** (busybox): package requests say "could not detect a package manager" instead of `which htop`.
+- **Wording**: "remove htop" is a package removal when the object is a known program or on PATH (files still delete); "a package called X" filler is dropped; "which package owns /usr/bin/ls" ranks first with ~93%.
+- **`huh why`**: no `Try:` line when there is nothing to try; an installed program is reported with its path and "the failure is elsewhere".
+- **Tests**: `evals/platforms.toml` (per-family cases with a `platform` field, run by `cargo test` and `huh eval --platform`), new unit tests in `platform.rs`, `candidates.rs`, `doctor.rs`.
+- **Next**: per-release package data only if the notes prove too coarse; `nix profile add` once old nix versions are gone.
+
 ## Completed: `huh explain` rewrite for vetting LLM-run commands (2026-11-17)
 
 Use case: an agent ran a long command and the user wants to know what it did before trusting it.

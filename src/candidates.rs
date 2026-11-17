@@ -150,6 +150,9 @@ fn capitalized_phrases(request: &str) -> Vec<String> {
     phrases
 }
 
+/// Nouns that introduce a name ("a package called X"); they are not part of the name.
+const NAMED_THINGS: &[&str] = &["package", "program", "app", "application", "tool", "software", "utility", "command"];
+
 /// Extracts short multi-word value phrases after prepositions/markers (e.g. "to stretch my legs").
 fn prepositional_phrases(request: &str, existing: &[String]) -> Vec<String> {
     let mut out = Vec::new();
@@ -189,6 +192,19 @@ fn prepositional_phrases(request: &str, existing: &[String]) -> Vec<String> {
                 && articles.contains(&first.to_lowercase().as_str())
                 && w != "called"
                 && w != "named"
+            {
+                j += 1;
+            }
+            // "for a package called ripgrep", "for the program named foo": the name is what follows.
+            if matches!(w.as_str(), "for" | "about")
+                && words.get(j).is_some_and(|noun| NAMED_THINGS.contains(&noun.to_lowercase().as_str()))
+                && words.get(j + 1).is_some_and(|label| matches!(label.to_lowercase().as_str(), "called" | "named"))
+            {
+                j += 2;
+            } else if matches!(w.as_str(), "for" | "about")
+                && words.get(j).is_some_and(|noun| {
+                    matches!(noun.to_lowercase().as_str(), "package" | "program" | "app" | "application" | "software")
+                })
             {
                 j += 1;
             }
@@ -404,6 +420,22 @@ mod tests {
         assert!(ord.contains(&"21".to_string()));
         assert!(ord.contains(&"1".to_string()));
         assert!(ord.contains(&"5".to_string()));
+    }
+
+    #[test]
+    fn filler_before_a_name_is_not_part_of_the_name() {
+        for request in [
+            "search for a package called ripgrep",
+            "search for the package ripgrep",
+            "search for a program named ripgrep",
+            "find package ripgrep",
+            "look for an app called ripgrep",
+        ] {
+            let found = Candidates::new(request, vec![]);
+            let values = found.for_slot(SlotKind::Text);
+            assert!(values.contains("ripgrep"), "{request}: {values:?}");
+            assert!(!values.iter().any(|v| v.contains(' ')), "{request}: {values:?}");
+        }
     }
 
     #[test]

@@ -232,8 +232,10 @@ fn diagnose(last: &Last) -> String {
     diagnose_fallback(last)
 }
 
+/// The explanation, then a `Try:` line with the command to run. "nothing" means there is no
+/// command to suggest, and then there is no `Try:` line either.
 fn format_answer(explanation: &str, try_cmd: &str) -> String {
-    format!("{explanation}\nTry: {try_cmd}")
+    if try_cmd == "nothing" { explanation.to_string() } else { format!("{explanation}\nTry: {try_cmd}") }
 }
 
 fn cmd_label(command: &str) -> String {
@@ -403,8 +405,9 @@ fn diagnose_command_not_found(last: &Last) -> Option<String> {
         Found::OnPath(file) => {
             return Some(format_answer(
                 &format!(
-                    "The shell reported `{missing}` as not found, but it is installed at `{}` on this machine. \
-                     The shell that ran it probably had a different PATH, or a script it ran looks for another program.",
+                    "The shell reported `{missing}` as not found, but it is installed at `{}` on this machine, \
+                     so the failure is elsewhere: the shell that ran it probably had a different PATH, or a script \
+                     it ran looks for another program or has a typo in its arguments.",
                     file.display()
                 ),
                 "nothing",
@@ -457,11 +460,15 @@ fn diagnose_command_not_found(last: &Last) -> Option<String> {
     }
     if let Some(advice) = advice.as_ref().filter(|a| a.installs) {
         let package = advice.package.as_deref().unwrap_or(&missing);
-        let note = if package == missing {
+        let mut note = if package == missing {
             format!("{intro}.")
         } else {
             format!("{intro}; it is provided by the `{package}` package.")
         };
+        if let Some(remark) = &advice.note {
+            note.push(' ');
+            note.push_str(remark);
+        }
         return Some(format_answer(&note, &advice.command));
     }
     if !known && let Some(correction) = typo(2, true) {
@@ -1644,6 +1651,25 @@ mod tests {
         assert_eq!(suggested(&ans), None);
         let ans = diagnose(&failed("", "sh: 1: ls: not found"));
         assert_eq!(suggested(&ans), None, "{ans}");
+    }
+
+    #[test]
+    fn nothing_to_try_means_no_try_line() {
+        let ans = diagnose(&failed("sh -c 'sh: x'", "bash: sh: command not found"));
+        assert!(!ans.contains("Try:"), "{ans}");
+        assert!(ans.contains("installed at") && ans.contains("failure is elsewhere"), "{ans}");
+        assert_eq!(format_answer("It is fine.", "nothing"), "It is fine.");
+        assert_eq!(format_answer("It broke.", "ls -la"), "It broke.\nTry: ls -la");
+    }
+
+    #[test]
+    fn install_hints_use_the_package_not_the_program() {
+        crate::platform::pin_for_eval(&["debian"]);
+        let ans = diagnose(&failed("dig example.com", "bash: dig: command not found"));
+        assert_eq!(suggested(&ans), Some("sudo apt install bind9-dnsutils"), "{ans}");
+        assert!(ans.contains("`bind9-dnsutils` package"), "{ans}");
+        let ans = diagnose(&failed("eza", "bash: eza: command not found"));
+        assert!(ans.contains("Ubuntu before 24.04"), "{ans}");
     }
 
     #[test]

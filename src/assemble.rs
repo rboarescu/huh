@@ -104,15 +104,74 @@ pub fn build(
         values.insert(&slot.id, value);
     }
 
+    let line =
+        package_line(command, &mut values, &mut notes, &mut parts).unwrap_or_else(|| fill(&command.template, &values));
+
     Ok(Some(Suggestion {
         command: command.name.clone(),
-        line: fill(&command.template, &values),
+        line,
         probability,
         description: command.description.clone(),
         destructive: command.destructive,
         notes,
         parts,
     }))
+}
+
+/// Package tasks: the person names a program ("install dig", "remove docker") and the system
+/// wants a package name (`bind9-dnsutils`, `docker.io`). Puts the package name into the slot
+/// and adds the remark about releases that lack it. Returns a whole replacement line when the
+/// program has no package here (search for what provides it instead). Names data/platforms.toml
+/// knows nothing about are used as typed.
+fn package_line<'a>(
+    command: &'a Command,
+    values: &mut BTreeMap<&'a str, String>,
+    notes: &mut Vec<String>,
+    parts: &mut [(String, String)],
+) -> Option<String> {
+    use crate::platform::{self, Wanted};
+    let role = command.pkg_role.as_deref()?;
+    let slot = command.slots.first()?;
+    let value = values.get(slot.id.as_str())?.clone();
+    let platforms = crate::catalog::this_platform();
+    if role == "pkg_provides" {
+        // A search by program name (`bin/{}`, `*/bin/{}`) cannot take a path: look for its file name.
+        if value.contains('/') && command.template.contains(&format!("/{{{}}}", slot.id)) {
+            let name = value.trim_end_matches('/').rsplit('/').next().unwrap_or_default().to_string();
+            values.insert(slot.id.as_str(), name);
+        }
+        return None;
+    }
+    if !matches!(role, "pkg_install" | "pkg_remove") || value.starts_with('<') || value.contains(' ') {
+        return None;
+    }
+    match platform::wanted_package(&value, &platforms) {
+        Wanted::AsTyped => None,
+        Wanted::Package { name, note } => {
+            for part in parts.iter_mut().filter(|(piece, _)| *piece == value) {
+                part.0 = name.clone();
+            }
+            values.insert(slot.id.as_str(), name);
+            if role == "pkg_install" {
+                notes.extend(note);
+            }
+            None
+        }
+        Wanted::NoPackage { search } => {
+            if role != "pkg_install" {
+                return None;
+            }
+            match search {
+                Some(search) => {
+                    notes.push(format!(
+                        "`{value}` has no package in this system's repositories: this searches for what provides it."
+                    ));
+                    Some(search)
+                }
+                None => None,
+            }
+        }
+    }
 }
 
 /// The text for a path or text slot, and whether it is a `<placeholder>`.

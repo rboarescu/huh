@@ -7,6 +7,7 @@
 
 use crate::candidates::{Candidates, number_word};
 use crate::catalog::{Command, Flag, Slot, SlotKind};
+use crate::platform;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -318,6 +319,49 @@ impl<'a> QueryContext<'a> {
 
     fn has_any(&self, list: &[&str]) -> bool {
         list.iter().any(|item| self.has_phrase(item))
+    }
+
+    /// "remove htop", "uninstall docker": a removal verb whose only object is a bare word that is
+    /// a program or package, not a file in the current folder.
+    fn removes_program(&self) -> bool {
+        const VERBS: &[&str] = &["remove", "uninstall", "delete", "erase", "purge"];
+        const FILLER: &[&str] = &["package", "program", "app", "application", "software", "tool", "command"];
+        if !self.words.iter().any(|w| VERBS.contains(&w.as_str())) && !self.has_phrase("get rid of") {
+            return false;
+        }
+        let mut object = self.raw_tokens.iter().filter(|t| {
+            !STOPWORDS.contains(&t.lower.as_str())
+                && !VERBS.contains(&t.lower.as_str())
+                && !FILLER.contains(&t.lower.as_str())
+                && !matches!(t.lower.as_str(), "get" | "rid")
+                && number_word(&t.lower).is_none()
+        });
+        let (Some(word), None) = (object.next(), object.next()) else { return false };
+        let bare = !word.quoted && word.lower.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        bare && !std::path::Path::new(&word.text).exists()
+            && (platform::is_known_program(&word.lower)
+                || matches!(platform::locate(&word.lower), platform::Found::OnPath(_)))
+    }
+
+    /// "which package owns /usr/bin/ls": asks for the owner of a file, not to search or install.
+    fn asks_package_owner(&self) -> bool {
+        self.has_word("package")
+            && (self.has_any(&[
+                "owns",
+                "owned by",
+                "belongs to",
+                "belong to",
+                "come from",
+                "comes from",
+                "installed this file",
+                "provided by",
+                "owner of",
+            ]) || (self.has_absolute_path() && self.has_any(&["which package", "what package"])))
+    }
+
+    /// A word that is part of a path ("/usr/bin/ls", "~/notes", "./run.sh").
+    fn has_absolute_path(&self) -> bool {
+        self.raw_tokens.iter().any(|t| t.text.starts_with('/') || t.text.starts_with("~/") || t.text.starts_with("./"))
     }
 
     fn has_log_file(&self) -> bool {
@@ -1057,6 +1101,13 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "unzip" if q.raw.contains(".zip") && !has_url && !q.has_remote_scp() && q.has_any(&["extract", "unpack", "unzip", "decompress", "open"]) => bonus += 9.5,
         "zip" if !has_url && !q.has_remote_scp() && q.has_any(&["zip up", "into", "pack", "compress", "create", "make"]) && (q.raw.contains(".zip") || q.has_word("zip")) => bonus += 9.5,
         "unrar" if q.raw.contains(".rar") => bonus += 9.5,
+        "package install" if q.has_exact_word("install")
+            && q.raw_tokens.iter().any(|t| !t.quoted && t.lower != "install" && platform::is_known_program(&t.lower)) => bonus += 12.0,
+        "package remove" if q.removes_program() => bonus += 9.0,
+        "package owns file" if q.asks_package_owner() => bonus += 9.0,
+        "package provides program" if q.has_word("package")
+            && q.has_any(&["provides", "provide", "contains", "has the command", "for the command"])
+            && !q.has_absolute_path() => bonus += 5.0,
         "gunzip" if q.raw.contains(".gz") && !q.raw.contains(".tar.gz") && !has_url && q.has_any(&["decompress", "unpack", "extract", "gunzip"]) => bonus += 9.5,
         "gzip" if q.has_any(&["compress", "gzip"]) && !q.raw.contains(".zip") && !q.raw.contains(".tar") => bonus += 8.0,
         "sha256sum" if q.has_any(&["checksum", "sha256", "hash", "verify", "intact"]) => bonus += 9.0,
@@ -1362,7 +1413,8 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
 
     match name {
         "gio trash" => has(&["trash", "recycle bin", "discard"]),
-        "rm" => !has(&["trash", "recycle bin"]) || has(&["permanently", "permanent"]),
+        "package search" | "package install" | "package remove" => !q.asks_package_owner(),
+        "rm" => (!has(&["trash", "recycle bin"]) || has(&["permanently", "permanent"])) && !q.removes_program(),
         "ls" => !q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text))
             || q.raw_tokens.iter().any(|t| t.text.ends_with('/') || std::path::Path::new(&t.text).is_dir()),
         "battery status" => has(&["battery", "charge", "upower"]),
@@ -1806,6 +1858,7 @@ fn is_non_value_english_word(lower: &str) -> bool {
                 | "remove"
                 | "delete"
                 | "erase"
+                | "rid"
                 | "start"
                 | "stop"
                 | "restart"
@@ -2362,7 +2415,9 @@ fn score_candidate_for_role(
         || matches!(next, "service" | "group" | "container" | "image" | "vm" | "network" | "model" | "branch" | "session")
         || (role == SlotRole::ServiceUnit && matches!(next, "log" | "logs" | "unit" | "daemon"));
 
-    if !quoted && !is_path && !is_digits(cand) && !explicitly_labeled && is_non_value_english_word(&lower)
+    // "docker", "make" and "tree" are ordinary words elsewhere but real packages here.
+    let known_package = role == SlotRole::PackageOrTerm && crate::platform::is_known_program(&lower);
+    if !quoted && !is_path && !is_digits(cand) && !explicitly_labeled && !known_package && is_non_value_english_word(&lower)
         && !is_multi_phrase
             && !is_upper_env_name(cand)
             && !(matches!(role, SlotRole::ServiceUnit | SlotRole::ProgramName) && prev == "for")
@@ -2580,13 +2635,14 @@ fn score_candidate_for_role(
             if cand.contains('.') && lower.ends_with(".pkg.tar.zst") {
                 return 0.0;
             }
+            let value_word = known_package || !is_non_value_english_word(&lower);
             if matches!(prev, "install" | "uninstall" | "remove" | "for" | "add" | "drop" | "search" | "crate" | "package" | "get")
-                && !is_non_value_english_word(&lower)
+                && value_word
             {
                 9.0
-            } else if matches!(next, "as" | "from" | "crate" | "package") && !is_non_value_english_word(&lower) {
+            } else if matches!(next, "as" | "from" | "crate" | "package") && value_word {
                 8.5
-            } else if !is_non_value_english_word(&lower) && !is_digits(cand) {
+            } else if value_word && !is_digits(cand) {
                 5.0
             } else {
                 0.0
@@ -2871,6 +2927,7 @@ mod tests {
                 template: "alpha".into(),
                 destructive: false,
                 explain_only: false,
+                pkg_role: None,
                 platform: None,
                 package: None,
                 keywords: vec!["custom-flux-widget".into()],
@@ -2883,6 +2940,7 @@ mod tests {
                 template: "beta".into(),
                 destructive: false,
                 explain_only: false,
+                pkg_role: None,
                 platform: None,
                 package: None,
                 keywords: vec![],
@@ -2903,10 +2961,15 @@ mod tests {
         let evals = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals");
 
         // (matcher, file, least top-1 %, least exact-line %)
-        for (matcher, file, min_top1, min_exact) in
-            [(&arch, "cases", 90, 85), (&arch, "heldout", 85, 80), (&debian, "debian", 0, 0)]
+        for (matcher, platform, file, min_top1, min_exact) in
+            [(&arch, "arch", "cases", 90, 85), (&arch, "arch", "heldout", 85, 80), (&debian, "debian", "debian", 0, 0)]
         {
-            let report = eval::score(matcher, &evals.join(format!("{file}.toml"))).unwrap();
+            let platform = if platform == "arch" {
+                vec!["arch".to_string(), "omarchy".to_string()]
+            } else {
+                vec![platform.to_string()]
+            };
+            let report = eval::score_for(matcher, &evals.join(format!("{file}.toml")), &platform).unwrap();
             for line in report.lines.iter().filter(|line| line.starts_with("MISS")) {
                 println!("{line}");
             }
@@ -2917,6 +2980,22 @@ mod tests {
             );
             assert!(report.top1.percent() >= min_top1, "{file} top-1 too low: {}", report.top1);
             assert!(report.exact.percent() >= min_exact, "{file} exact too low: {}", report.exact);
+        }
+    }
+
+    /// Every package manager family answers package requests with its own commands and package
+    /// names (evals/platforms.toml): `huh eval --cases evals/platforms.toml --platform <family>`.
+    #[test]
+    fn package_requests_on_every_family() {
+        let all = load_catalog();
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals/platforms.toml");
+        for family in ["debian", "fedora", "suse", "alpine", "void", "gentoo", "nixos", "nix"] {
+            let platform = vec![family.to_string()];
+            let matcher = LocalMatcher::new(&catalog::usable(all.clone(), &platform, false));
+            let report = eval::score_for(&matcher, &file, &platform).unwrap();
+            let misses: Vec<&String> = report.lines.iter().filter(|line| line.starts_with("MISS")).collect();
+            assert!(report.top1.total > 0, "{family}: no cases ran");
+            assert!(misses.is_empty(), "{family}: {misses:#?}");
         }
     }
 }

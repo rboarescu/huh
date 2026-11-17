@@ -49,6 +49,9 @@ struct Data {
     programs: BTreeMap<String, String>,
     #[serde(default)]
     packages: BTreeMap<String, BTreeMap<String, String>>,
+    /// package key -> family -> remark about releases that lack the package.
+    #[serde(default)]
+    notes: BTreeMap<String, BTreeMap<String, String>>,
     #[serde(default)]
     families: BTreeMap<String, Family>,
 }
@@ -60,6 +63,9 @@ impl Data {
         self.programs.extend(other.programs);
         for (key, rows) in other.packages {
             self.packages.entry(key).or_default().extend(rows);
+        }
+        for (key, rows) in other.notes {
+            self.notes.entry(key).or_default().extend(rows);
         }
         for (name, add) in other.families {
             let family = self.families.entry(name).or_default();
@@ -195,6 +201,18 @@ pub fn pin_for_eval(ids: &[&str]) {
     PINNED.with(|pinned| *pinned.borrow_mut() = Some(ids));
 }
 
+thread_local! {
+    static EVAL_PLATFORM: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// For `huh eval --platform` and tests: on this thread, `detect()` answers with these platform
+/// words, so requests are scored (and package names filled in) as for another system. Unlike
+/// `pin_for_eval` it leaves PATH lookups alone. An empty list ends the override.
+pub fn use_platform_for_eval(ids: &[String]) {
+    let ids = (!ids.is_empty()).then(|| expand(ids));
+    EVAL_PLATFORM.with(|platform| *platform.borrow_mut() = ids);
+}
+
 /// The names of all known families.
 pub fn family_names() -> Vec<String> {
     data().families.keys().cloned().collect()
@@ -204,6 +222,9 @@ pub fn family_names() -> Vec<String> {
 pub fn detect() -> Vec<String> {
     if let Some(pinned) = PINNED.with(|pinned| pinned.borrow().clone()) {
         return pinned;
+    }
+    if let Some(platform) = EVAL_PLATFORM.with(|platform| platform.borrow().clone()) {
+        return platform;
     }
     detect_with(&read_os_release(), &|program| !matches!(locate(program), Found::Missing))
 }
@@ -290,6 +311,41 @@ pub fn is_system_tool(program: &str) -> bool {
     known.contains(program)
 }
 
+/// What a request such as "install dig" should install on this platform.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Wanted {
+    /// Not a program or package data/platforms.toml knows (or no package manager): use the word as typed.
+    AsTyped,
+    /// The word names a program or package with this package name here, plus any remark about releases.
+    Package { name: String, note: Option<String> },
+    /// A known program that this family's repositories do not carry (or huh has no name for):
+    /// search for what provides it instead, when the family can.
+    NoPackage { search: Option<String> },
+}
+
+/// Maps the program or package a person named to this family's package name.
+pub fn wanted_package(word: &str, platforms: &[String]) -> Wanted {
+    if !is_known_program(word) || is_system_tool(word) {
+        return Wanted::AsTyped;
+    }
+    let data = data();
+    let Some(family) = manager(platforms) else { return Wanted::AsTyped };
+    match package_name(data, &family, word, None) {
+        Name::Package(name) => {
+            let key = data.programs.get(word).map_or(word, String::as_str);
+            Wanted::Package { name, note: release_note(data, &family, key) }
+        }
+        Name::NotPackaged | Name::Unknown => {
+            Wanted::NoPackage { search: fact(platforms, "pkg_provides").map(|template| fill(&template, word)) }
+        }
+    }
+}
+
+fn release_note(data: &Data, family: &str, key: &str) -> Option<String> {
+    let rows = data.notes.get(key)?;
+    data.chain(family).into_iter().find_map(|f| rows.get(f)).cloned()
+}
+
 /// What to tell the user about a program that is not installed.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Advice {
@@ -298,6 +354,8 @@ pub struct Advice {
     pub installs: bool,
     /// The package `command` installs, when it does.
     pub package: Option<String>,
+    /// A remark about releases that lack the package.
+    pub note: Option<String>,
 }
 
 /// How to get `program` on this platform. `package` is the catalog's package name when it
@@ -311,13 +369,35 @@ pub fn install_advice(program: &str, package: Option<&str>, platforms: &[String]
     let family = manager(platforms)?;
     match package_name(data, &family, program, package) {
         Name::Package(name) => {
-            Some(Advice { command: fill(&fact(platforms, "pkg_install")?, &name), installs: true, package: Some(name) })
+            let key = package.or_else(|| data.programs.get(program).map(String::as_str)).unwrap_or(program);
+            Some(Advice {
+                command: fill(&fact(platforms, "pkg_install")?, &name),
+                installs: true,
+                package: Some(name),
+                note: release_note(data, &family, key),
+            })
         }
         Name::NotPackaged => None,
-        Name::Unknown => {
-            Some(Advice { command: fill(&fact(platforms, "pkg_provides")?, program), installs: false, package: None })
-        }
+        Name::Unknown => Some(Advice {
+            command: fill(&fact(platforms, "pkg_provides")?, program),
+            installs: false,
+            package: None,
+            note: None,
+        }),
     }
+}
+
+/// What to say when a package task is asked for on a system whose package manager is unknown.
+pub fn no_manager_message() -> String {
+    let mut binaries: Vec<&str> =
+        data().families.values().filter_map(|f| f.detect.as_ref()?.first()).map(String::as_str).collect();
+    binaries.sort();
+    binaries.dedup();
+    format!(
+        "huh could not detect a package manager on this system (looked for {}), so it has no package command to suggest.\n   \
+         Describe yours in ~/.config/huh/platforms.toml (see the README, \"Adding a distro or package\").",
+        binaries.join(", ")
+    )
 }
 
 /// Puts `argument` where the template has `{}`, or at the end when it has none.
@@ -443,10 +523,13 @@ mod tests {
             assert!(data.field(name, |f| f.provides.as_ref()).is_some(), "{name} has no provides command");
             assert!(family.extends.as_ref().is_none_or(|p| data.families.contains_key(p)), "{name} extends nothing");
         }
-        for (key, rows) in &data.packages {
+        for (key, rows) in data.packages.iter().chain(&data.notes) {
             for family in rows.keys() {
                 assert!(family == "*" || data.families.contains_key(family), "{key}: unknown family {family}");
             }
+        }
+        for key in data.notes.keys() {
+            assert!(data.packages.contains_key(key) || data.same.contains(key), "note for unknown package {key}");
         }
         for key in data.programs.values() {
             assert!(data.packages.contains_key(key) || data.same.contains(key), "program key {key} has no package row");
@@ -489,7 +572,7 @@ mod tests {
             ("apk", "alpine"),
             ("xbps-install", "void"),
             ("emerge", "gentoo"),
-            ("nix", "nixos"),
+            ("nix", "nix"),
         ] {
             let platform = detect_with("ID=somethingnew\nID_LIKE=\"other\"\n", &has(binary));
             assert_eq!(manager(&platform).as_deref(), Some(family), "{binary}");
@@ -559,6 +642,94 @@ mod tests {
         );
     }
 
+    fn command_for(program: &str, family: &str) -> Option<String> {
+        install_advice(program, None, &words(&[family])).map(|a| a.command)
+    }
+
+    #[test]
+    fn package_names_verified_against_the_repositories() {
+        // opensuse tumbleweed
+        assert_eq!(command_for("btrfs", "suse").as_deref(), Some("sudo zypper install btrfsprogs"));
+        assert_eq!(command_for("iperf3", "suse").as_deref(), Some("sudo zypper install iperf"));
+        assert_eq!(command_for("rustc", "suse").as_deref(), Some("sudo zypper install rust"));
+        // void
+        assert_eq!(command_for("fish", "void").as_deref(), Some("sudo xbps-install -S fish-shell"));
+        assert_eq!(command_for("rustc", "void").as_deref(), Some("sudo xbps-install -S rust"));
+        assert_eq!(command_for("dig", "void").as_deref(), Some("sudo xbps-install -S bind-utils"));
+        // not in void's repositories: no guess, a provides search
+        assert_eq!(command_for("nmap", "void").as_deref(), Some("xlocate nmap"));
+        assert_eq!(command_for("unrar", "void").as_deref(), Some("xlocate unrar"));
+        // alpine
+        assert_eq!(command_for("rustc", "alpine").as_deref(), Some("sudo apk add rust"));
+        assert_eq!(command_for("snapper", "alpine"), None, "marked as not packaged");
+        assert_eq!(command_for("unrar", "alpine"), None, "marked as not packaged");
+        // nixos and nix
+        for family in ["nixos", "nix"] {
+            assert_eq!(command_for("make", family).as_deref(), Some("nix profile install nixpkgs#gnumake"));
+            assert_eq!(command_for("npm", family).as_deref(), Some("nix profile install nixpkgs#nodejs"));
+        }
+    }
+
+    #[test]
+    fn requested_programs_map_to_package_names() {
+        let wanted = |word: &str, family: &str| wanted_package(word, &words(&[family]));
+        let package = |name: &str| Wanted::Package { name: name.to_string(), note: None };
+        // The word the person typed is a program; the package has another name.
+        assert_eq!(wanted("dig", "debian"), package("bind9-dnsutils"));
+        assert_eq!(wanted("dig", "fedora"), package("bind-utils"));
+        assert_eq!(wanted("dig", "alpine"), package("bind-tools"));
+        assert_eq!(wanted("dig", "arch"), package("bind"));
+        assert_eq!(wanted("dig", "gentoo"), package("net-dns/bind-tools"));
+        assert_eq!(wanted("nslookup", "suse"), package("bind-utils"));
+        assert_eq!(wanted("docker", "debian"), package("docker.io"));
+        assert_eq!(wanted("docker", "gentoo"), package("app-containers/docker"));
+        assert_eq!(wanted("docker", "arch"), package("docker"));
+        // Same name everywhere, or no opinion: use the word as typed.
+        assert_eq!(wanted("htop", "debian"), package("htop"));
+        assert_eq!(wanted("vlc", "debian"), Wanted::AsTyped);
+        assert_eq!(wanted("pacman", "debian"), Wanted::AsTyped);
+        assert_eq!(wanted("dig", "somethingnew-no-pm"), Wanted::AsTyped);
+        // Known programs the family does not carry: look for what provides them.
+        assert_eq!(wanted("snapper", "alpine"), Wanted::NoPackage { search: Some("apk search -e cmd:snapper".into()) });
+        assert_eq!(wanted("nmap", "void"), Wanted::NoPackage { search: Some("xlocate nmap".into()) });
+    }
+
+    #[test]
+    fn releases_that_lack_a_package_get_a_note() {
+        let Wanted::Package { name, note } = wanted_package("eza", &words(&["debian"])) else { panic!("eza") };
+        assert_eq!(name, "eza");
+        assert!(note.is_some_and(|note| note.contains("Debian 11/12") && note.contains("24.04")));
+        let advice = install_advice("gh", None, &words(&["debian"])).unwrap();
+        assert_eq!(advice.command, "sudo apt install gh");
+        assert!(advice.note.is_some_and(|note| note.contains("Debian 11")));
+        // Other families do not carry the remark, nor do packages without one.
+        assert_eq!(install_advice("eza", None, &words(&["fedora"])).unwrap().note, None);
+        assert_eq!(install_advice("htop", None, &words(&["debian"])).unwrap().note, None);
+    }
+
+    #[test]
+    fn nix_on_another_system_upgrades_the_profile_not_the_system() {
+        // No os-release (the nixos/nix container) but `nix` on PATH.
+        let has_nix = |program: &str| program == "nix";
+        let platform = detect_with("", &has_nix);
+        assert_eq!(manager(&platform).as_deref(), Some("nix"));
+        assert_eq!(fact(&platform, "pkg_update").as_deref(), Some("nix profile upgrade --all"));
+        assert_eq!(fact(&platform, "pkg_install").as_deref(), Some("nix profile install nixpkgs#{}"));
+        assert_eq!(fact(&platform, "pkg_owns"), None);
+        // On NixOS the system is rebuilt.
+        let nixos = detect_with("ID=nixos\n", &has_nix);
+        assert_eq!(manager(&nixos).as_deref(), Some("nixos"));
+        assert_eq!(fact(&nixos, "pkg_update").as_deref(), Some("sudo nixos-rebuild switch --upgrade"));
+        // Nix next to a distro with its own package manager does not take over.
+        assert_eq!(manager(&detect_with("ID=ubuntu\n", &has_nix)).as_deref(), Some("debian"));
+    }
+
+    #[test]
+    fn explains_why_there_is_no_package_command() {
+        let message = no_manager_message();
+        assert!(message.contains("could not detect a package manager") && message.contains("apt-get"), "{message}");
+    }
+
     #[test]
     fn unknown_programs_get_a_provides_search_not_a_guess() {
         let cases = [
@@ -573,7 +744,11 @@ mod tests {
         ];
         for (family, command) in cases {
             let advice = install_advice("frobnicate", None, &words(&[family])).expect(family);
-            assert_eq!(advice, Advice { command: command.to_string(), installs: false, package: None }, "{family}");
+            assert_eq!(
+                advice,
+                Advice { command: command.to_string(), installs: false, package: None, note: None },
+                "{family}"
+            );
         }
     }
 

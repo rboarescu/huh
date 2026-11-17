@@ -1,0 +1,590 @@
+# Package requests on non-Arch systems. Each case names the package manager family it is
+# about (`platform`); `huh eval --cases evals/platforms.toml --platform <family>` runs that
+# family's cases (cargo test runs every family). Package names were checked against the
+# distributions' own repositories in containers (see data/platforms.toml).
+
+[[case]]
+request = "install htop"
+platform = "debian"
+command = "package install"
+expect = "sudo apt install htop"
+
+[[case]]
+request = "install dig"
+platform = "debian"
+command = "package install"
+expect = "sudo apt install bind9-dnsutils"
+
+[[case]]
+request = "install the dig tool"
+platform = "debian"
+command = "package install"
+expect = "sudo apt install bind9-dnsutils"
+
+[[case]]
+request = "install docker"
+platform = "debian"
+command = "package install"
+expect = "sudo apt install docker.io"
+
+[[case]]
+request = "remove htop"
+platform = "debian"
+command = "package remove"
+expect = "sudo apt remove htop"
+
+[[case]]
+request = "uninstall docker"
+platform = "debian"
+command = "package remove"
+expect = "sudo apt remove docker.io"
+
+[[case]]
+request = "search for a package called ripgrep"
+platform = "debian"
+command = "package search"
+expect = "apt search ripgrep"
+
+[[case]]
+request = "search for the program named htop"
+platform = "debian"
+command = "package search"
+expect = "apt search htop"
+
+[[case]]
+request = "update all packages"
+platform = "debian"
+command = "system update"
+expect = "sudo apt update && sudo apt upgrade"
+
+[[case]]
+request = "which package owns /usr/bin/ls"
+platform = "debian"
+command = "package owns file"
+expect = "dpkg -S /usr/bin/ls"
+
+[[case]]
+request = "install htop"
+platform = "fedora"
+command = "package install"
+expect = "sudo dnf install htop"
+
+[[case]]
+request = "install dig"
+platform = "fedora"
+command = "package install"
+expect = "sudo dnf install bind-utils"
+
+[[case]]
+request = "install the dig tool"
+platform = "fedora"
+command = "package install"
+expect = "sudo dnf install bind-utils"
+
+[[case]]
+request = "install docker"
+platform = "fedora"
+command = "package install"
+expect = "sudo dnf install docker"
+
+[[case]]
+request = "remove htop"
+platform = "fedora"
+command = "package remove"
+expect = "sudo dnf remove htop"
+
+[[case]]
+request = "uninstall docker"
+platform = "fedora"
+command = "package remove"
+expect = "sudo dnf remove docker"
+
+[[case]]
+request = "search for a package called ripgrep"
+platform = "fedora"
+command = "package search"
+expect = "dnf search ripgrep"
+
+[[case]]
+request = "search for the program named htop"
+platform = "fedora"
+command = "package search"
+expect = "dnf search htop"
+
+[[case]]
+request = "update all packages"
+platform = "fedora"
+command = "system update"
+expect = "sudo dnf upgrade"
+
+[[case]]
+request = "which package owns /usr/bin/ls"
+platform = "fedora"
+command = "package owns file"
+expect = "rpm -qf /usr/bin/ls"
+
+[[case]]
+request = "install htop"
+platform = "suse"
+command = "package install"
+expect = "sudo zypper install htop"
+
+[[case]]
+request = "install dig"
+platform = "suse"
+command = "package install"
+expect = "sudo zypper install bind-utils"
+
+[[case]]
+request = "install the dig tool"
+platform = "suse"
+command = "package install"
+expect = "sudo zypper install bind-utils"
+
+[[case]]
+request = "install docker"
+platform = "suse"
+command = "package install"
+expect = "sudo zypper install docker"
+
+[[case]]
+request = "remove htop"
+platform = "suse"
+command = "package remove"
+expect = "sudo zypper remove htop"
+
+[[case]]
+request = "uninstall docker"
+platform = "suse"
+command = "package remove"
+expect = "sudo zypper remove docker"
+
+[[case]]
+request = "search for a package called ripgrep"
+platform = "suse"
+command = "package search"
+expect = "zypper search ripgrep"
+
+[[case]]
+request = "search for the program named htop"
+platform = "suse"
+command = "package search"
+expect = "zypper search htop"
+
+[[case]]
+request = "update all packages"
+platform = "suse"
+command = "system update"
+expect = "sudo zypper update"
+
+[[case]]
+request = "which package owns /usr/bin/ls"
+platform = "suse"
+command = "package owns file"
+expect = "rpm -qf /usr/bin/ls"
+
+[[case]]
+request = "install htop"
+platform = "alpine"
+command = "package install"
+expect = "sudo apk add htop"
+
+[[case]]
+request = "install dig"
+platform = "alpine"
+command = "package install"
+expect = "sudo apk add bind-tools"
+
+[[case]]
+request = "install the dig tool"
+platform = "alpine"
+command = "package install"
+expect = "sudo apk add bind-tools"
+
+[[case]]
+request = "install docker"
+platform = "alpine"
+command = "package install"
+expect = "sudo apk add docker"
+
+[[case]]
+request = "remove htop"
+platform = "alpine"
+command = "package remove"
+expect = "sudo apk del htop"
+
+[[case]]
+request = "uninstall docker"
+platform = "alpine"
+command = "package remove"
+expect = "sudo apk del docker"
+
+[[case]]
+request = "search for a package called ripgrep"
+platform = "alpine"
+command = "package search"
+expect = "apk search ripgrep"
+
+[[case]]
+request = "search for the program named htop"
+platform = "alpine"
+command = "package search"
+expect = "apk search htop"
+
+[[case]]
+request = "update all packages"
+platform = "alpine"
+command = "system update"
+expect = "sudo apk update && sudo apk upgrade"
+
+[[case]]
+request = "which package owns /usr/bin/ls"
+platform = "alpine"
+command = "package owns file"
+expect = "apk info -W /usr/bin/ls"
+
+[[case]]
+request = "install htop"
+platform = "void"
+command = "package install"
+expect = "sudo xbps-install -S htop"
+
+[[case]]
+request = "install dig"
+platform = "void"
+command = "package install"
+expect = "sudo xbps-install -S bind-utils"
+
+[[case]]
+request = "install the dig tool"
+platform = "void"
+command = "package install"
+expect = "sudo xbps-install -S bind-utils"
+
+[[case]]
+request = "install docker"
+platform = "void"
+command = "package install"
+expect = "sudo xbps-install -S docker"
+
+[[case]]
+request = "remove htop"
+platform = "void"
+command = "package remove"
+expect = "sudo xbps-remove -R htop"
+
+[[case]]
+request = "uninstall docker"
+platform = "void"
+command = "package remove"
+expect = "sudo xbps-remove -R docker"
+
+[[case]]
+request = "search for a package called ripgrep"
+platform = "void"
+command = "package search"
+expect = "xbps-query -Rs ripgrep"
+
+[[case]]
+request = "search for the program named htop"
+platform = "void"
+command = "package search"
+expect = "xbps-query -Rs htop"
+
+[[case]]
+request = "update all packages"
+platform = "void"
+command = "system update"
+expect = "sudo xbps-install -Su"
+
+[[case]]
+request = "which package owns /usr/bin/ls"
+platform = "void"
+command = "package owns file"
+expect = "xbps-query -o /usr/bin/ls"
+
+[[case]]
+request = "install htop"
+platform = "gentoo"
+command = "package install"
+expect = "sudo emerge --ask htop"
+
+[[case]]
+request = "install dig"
+platform = "gentoo"
+command = "package install"
+expect = "sudo emerge --ask net-dns/bind-tools"
+
+[[case]]
+request = "install the dig tool"
+platform = "gentoo"
+command = "package install"
+expect = "sudo emerge --ask net-dns/bind-tools"
+
+[[case]]
+request = "install docker"
+platform = "gentoo"
+command = "package install"
+expect = "sudo emerge --ask app-containers/docker"
+
+[[case]]
+request = "remove htop"
+platform = "gentoo"
+command = "package remove"
+expect = "sudo emerge --ask --depclean htop"
+
+[[case]]
+request = "uninstall docker"
+platform = "gentoo"
+command = "package remove"
+expect = "sudo emerge --ask --depclean app-containers/docker"
+
+[[case]]
+request = "search for a package called ripgrep"
+platform = "gentoo"
+command = "package search"
+expect = "emerge --search ripgrep"
+
+[[case]]
+request = "search for the program named htop"
+platform = "gentoo"
+command = "package search"
+expect = "emerge --search htop"
+
+[[case]]
+request = "update all packages"
+platform = "gentoo"
+command = "system update"
+expect = "sudo emerge --sync && sudo emerge --ask --update --deep --newuse @world"
+
+[[case]]
+request = "which package owns /usr/bin/ls"
+platform = "gentoo"
+command = "package owns file"
+expect = "equery belongs /usr/bin/ls"
+
+[[case]]
+request = "install htop"
+platform = "nixos"
+command = "package install"
+expect = "nix profile install nixpkgs#htop"
+
+[[case]]
+request = "install dig"
+platform = "nixos"
+command = "package install"
+expect = "nix profile install nixpkgs#bind"
+
+[[case]]
+request = "install the dig tool"
+platform = "nixos"
+command = "package install"
+expect = "nix profile install nixpkgs#bind"
+
+[[case]]
+request = "install docker"
+platform = "nixos"
+command = "package install"
+expect = "nix profile install nixpkgs#docker"
+
+[[case]]
+request = "remove htop"
+platform = "nixos"
+command = "package remove"
+expect = "nix profile remove htop"
+
+[[case]]
+request = "uninstall docker"
+platform = "nixos"
+command = "package remove"
+expect = "nix profile remove docker"
+
+[[case]]
+request = "search for a package called ripgrep"
+platform = "nixos"
+command = "package search"
+expect = "nix search nixpkgs ripgrep"
+
+[[case]]
+request = "search for the program named htop"
+platform = "nixos"
+command = "package search"
+expect = "nix search nixpkgs htop"
+
+[[case]]
+request = "update all packages"
+platform = "nixos"
+command = "system update"
+expect = "sudo nixos-rebuild switch --upgrade"
+
+[[case]]
+request = "which package owns /usr/bin/ls"
+platform = "nixos"
+command = "package provides program"
+
+[[case]]
+request = "install htop"
+platform = "nix"
+command = "package install"
+expect = "nix profile install nixpkgs#htop"
+
+[[case]]
+request = "install dig"
+platform = "nix"
+command = "package install"
+expect = "nix profile install nixpkgs#bind"
+
+[[case]]
+request = "install the dig tool"
+platform = "nix"
+command = "package install"
+expect = "nix profile install nixpkgs#bind"
+
+[[case]]
+request = "install docker"
+platform = "nix"
+command = "package install"
+expect = "nix profile install nixpkgs#docker"
+
+[[case]]
+request = "remove htop"
+platform = "nix"
+command = "package remove"
+expect = "nix profile remove htop"
+
+[[case]]
+request = "uninstall docker"
+platform = "nix"
+command = "package remove"
+expect = "nix profile remove docker"
+
+[[case]]
+request = "search for a package called ripgrep"
+platform = "nix"
+command = "package search"
+expect = "nix search nixpkgs ripgrep"
+
+[[case]]
+request = "search for the program named htop"
+platform = "nix"
+command = "package search"
+expect = "nix search nixpkgs htop"
+
+[[case]]
+request = "update all packages"
+platform = "nix"
+command = "system update"
+expect = "nix profile upgrade --all"
+
+[[case]]
+request = "which package owns /usr/bin/ls"
+platform = "nix"
+command = "package provides program"
+
+[[case]]
+request = "install btrfs-progs"
+platform = "suse"
+command = "package install"
+expect = "sudo zypper install btrfsprogs"
+
+[[case]]
+request = "install iperf3"
+platform = "suse"
+command = "package install"
+expect = "sudo zypper install iperf"
+
+[[case]]
+request = "install rustc"
+platform = "suse"
+command = "package install"
+expect = "sudo zypper install rust"
+
+[[case]]
+request = "install fish"
+platform = "void"
+command = "package install"
+expect = "sudo xbps-install -S fish-shell"
+
+[[case]]
+request = "install rustc"
+platform = "void"
+command = "package install"
+expect = "sudo xbps-install -S rust"
+
+[[case]]
+request = "install rustc"
+platform = "alpine"
+command = "package install"
+expect = "sudo apk add rust"
+
+[[case]]
+request = "install make"
+platform = "nixos"
+command = "package install"
+expect = "nix profile install nixpkgs#gnumake"
+
+[[case]]
+request = "install npm"
+platform = "nixos"
+command = "package install"
+expect = "nix profile install nixpkgs#nodejs"
+
+[[case]]
+request = "install npm"
+platform = "nix"
+command = "package install"
+expect = "nix profile install nixpkgs#nodejs"
+
+[[case]]
+request = "install btop"
+platform = "debian"
+command = "package install"
+expect = "sudo apt install btop"
+
+[[case]]
+request = "install snapper"
+platform = "alpine"
+command = "package install"
+expect = "apk search -e cmd:snapper"
+
+[[case]]
+request = "install unrar"
+platform = "alpine"
+command = "package install"
+expect = "apk search -e cmd:unrar"
+
+[[case]]
+request = "install nmap"
+platform = "void"
+command = "package install"
+expect = "xlocate nmap"
+
+[[case]]
+request = "install unrar"
+platform = "void"
+command = "package install"
+expect = "xlocate unrar"
+
+[[case]]
+request = "install eza"
+platform = "debian"
+command = "package install"
+expect = "sudo apt install eza"
+
+[[case]]
+request = "install gh"
+platform = "debian"
+command = "package install"
+expect = "sudo apt install gh"
+
+[[case]]
+request = "which package provides dig"
+platform = "debian"
+command = "package provides program"
+expect = "apt-file search bin/dig"
+
+[[case]]
+request = "which package provides /usr/bin/ls"
+platform = "nixos"
+command = "package provides program"
+expect = "nix-locate bin/ls"

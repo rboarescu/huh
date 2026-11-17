@@ -20,6 +20,10 @@ pub struct Command {
     /// Made by `with_explain_variants`, not written in catalog files.
     #[serde(default)]
     pub explain_only: bool,
+    /// The `pkg_*` fact this template was made from (`pkg_install`, ...), set when the catalog is
+    /// made usable for a platform. Lets slot filling map program names to package names.
+    #[serde(skip)]
+    pub pkg_role: Option<String>,
     /// Set for commands that only exist on one family of systems: "arch", "debian",
     /// "fedora", "omarchy", ... Matched against the platform words (see platform.rs).
     pub platform: Option<String>,
@@ -223,7 +227,8 @@ pub fn missing_note(line: &str, command: Option<&Command>, platforms: &[String])
             let package = command.and_then(|c| c.package.as_deref());
             match platform::install_advice(program, package, platforms).filter(|_| !foreign) {
                 Some(advice) if advice.installs => {
-                    Some(format!("`{program}` is not installed. Install it with: {}", advice.command))
+                    let remark = advice.note.map(|note| format!(" {note}")).unwrap_or_default();
+                    Some(format!("`{program}` is not installed. Install it with: {}{remark}", advice.command))
                 }
                 Some(advice) => Some(format!(
                     "`{program}` is not installed. Find the package that provides it with: {}",
@@ -240,6 +245,17 @@ pub fn this_platform() -> Vec<String> {
     platform::detect()
 }
 
+/// `pkg_role` of a package task on a system with no known package manager.
+const NO_MANAGER: &str = "none";
+
+impl Command {
+    /// True for a package task kept only to recognise the request on a system whose package
+    /// manager is unknown. Its template is not a command.
+    pub fn without_manager(&self) -> bool {
+        self.pkg_role.as_deref() == Some(NO_MANAGER)
+    }
+}
+
 /// Fills the `{pkg_*}` placeholders of a command from the platform's package manager.
 /// `None` when the platform has no such task (e.g. no "which package owns" on NixOS).
 fn resolve_one(mut command: Command, platforms: &[String]) -> Option<Command> {
@@ -247,7 +263,16 @@ fn resolve_one(mut command: Command, platforms: &[String]) -> Option<Command> {
         if !platform::PKG_FACTS.contains(&id) {
             continue;
         }
-        let text = platform::fact(platforms, id)?;
+        let Some(text) = platform::fact(platforms, id) else {
+            // No package manager known at all: keep the task so the request is recognised as a
+            // package request (and answered with "no package manager detected", see `without_manager`).
+            if platform::manager(platforms).is_none() {
+                command.pkg_role = Some(NO_MANAGER.to_string());
+                return Some(command);
+            }
+            return None;
+        };
+        command.pkg_role.get_or_insert_with(|| id.to_string());
         let filled = match command.slots.first() {
             Some(slot) => platform::fill(&text, &format!("{{{}}}", slot.id)),
             None if text.contains("{}") => return None,
@@ -447,6 +472,7 @@ mod tests {
             template: template.into(),
             destructive: false,
             explain_only: false,
+            pkg_role: None,
             platform: platform.map(str::to_string),
             package: None,
             keywords: vec![],
@@ -611,7 +637,9 @@ mod tests {
         );
         assert_eq!(task("package owns file", &["fedora"]).as_deref(), Some("rpm -qf {file}"));
         assert_eq!(task("package owns file", &["nixos"]), None);
-        assert_eq!(task("package install", &["somethingnew-no-pm"]), None);
+        // With no known package manager the task stays only to recognise the request.
+        let none = usable(all.clone(), &["somethingnew-no-pm".to_string()], false);
+        assert!(none.iter().find(|c| c.name == "package install").is_some_and(Command::without_manager));
         // Distro-specific entries stay with their distro.
         assert!(task("yay install", &["debian"]).is_none());
         assert!(task("omarchy update", &["arch"]).is_none());

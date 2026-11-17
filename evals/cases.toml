@@ -1150,3 +1150,44 @@ expect = "sudo ethtool enp2s0 | grep -i speed"
 request = "log in to github from the terminal"
 command = "gh auth login"
 expect = "gh auth login"
+
+[[case]]
+request = "install dig"
+command = "package install"
+expect = "omarchy pkg add bind"
+
+[[case]]
+request = "install the dig tool"
+command = "package install"
+expect = "omarchy pkg add bind"
+
+[[case]]
+request = "install docker"
+command = "package install"
+expect = "omarchy pkg add docker"
+
+[[case]]
+request = "remove htop"
+command = "package remove"
+expect = "omarchy pkg drop htop"
+
+[[case]]
+request = "delete htop"
+command = "package remove"
+expect = "omarchy pkg drop htop"
+
+[[case]]
+request = "remove old.log"
+command = "rm"
+expect = "rm old.log"
+files = ["old.log"]
+
+[[case]]
+request = "search for a package called ripgrep"
+command = "package search"
+expect = "pacman -Ss ripgrep"
+
+[[case]]
+request = "which package owns /usr/bin/ls"
+command = "package owns file"
+expect = "pacman -Qo /usr/bin/ls"

@@ -151,6 +151,10 @@ fn join_argv(args: &[String]) -> String {
 }
 
 fn print(outcome: &Outcome, catalog: &[Command], brief: bool) {
+    if package_task_without_manager(outcome, catalog) {
+        println!("No suggestion: {}", platform::no_manager_message());
+        return;
+    }
     if outcome.suggestions.is_empty() {
         println!("No suggestion: nothing in the catalog fits that request.");
         return;
@@ -176,6 +180,11 @@ fn print(outcome: &Outcome, catalog: &[Command], brief: bool) {
             println!("   {note}");
         }
     }
+}
+
+/// The best match is a package task, but this system has no package manager huh knows.
+fn package_task_without_manager(outcome: &Outcome, catalog: &[Command]) -> bool {
+    outcome.suggestions.first().is_some_and(|s| catalog.iter().any(|c| c.name == s.command && c.without_manager()))
 }
 
 /// Asks on the terminal and reads a line; Enter alone means no.
@@ -310,7 +319,7 @@ fn main() -> Result<()> {
         }
         Some(Action::Eval { cases, platform }) => {
             let catalog = catalog::usable(everything, &platform, false);
-            eval::run(&LocalMatcher::new(&catalog), &cases)?;
+            eval::run(&LocalMatcher::new(&catalog), &cases, &platform)?;
         }
         None => {
             let request = join_argv(&cli.request);
@@ -339,6 +348,9 @@ fn main() -> Result<()> {
                 eprintln!("[debug] {} ms, ranked: {:?}", outcome.millis, outcome.ranked);
             }
             if cli.first_line_only {
+                if package_task_without_manager(&outcome, &catalog) {
+                    std::process::exit(1);
+                }
                 if let Some(first) = outcome.suggestions.first() {
                     println!("{}", first.line);
                     return Ok(());

@@ -145,7 +145,8 @@ catalog, the `NOTE:` line under a suggestion and the install hints of `huh why`,
 **Detecting the system.** The `ID` and `ID_LIKE` words of `/etc/os-release` (then `/usr/lib/os-release`) are
 mapped to a family: `arch` (Manjaro, EndeavourOS, Artix, CachyOS, ...), `omarchy` (extends arch), `debian`
 (Ubuntu, Mint, Pop, elementary, Zorin, Kali, ...), `fedora` (RHEL, Rocky, Alma, Amazon, ...), `suse`, `alpine`,
-`void`, `gentoo`, `nixos`. A derivative that only names its parent (`ID_LIKE=ubuntu`) still lands in `debian`. When
+`void`, `gentoo`, `nixos`, and `nix` (the Nix package manager on some other system, with no NixOS in os-release:
+it differs only in updating with `nix profile upgrade --all` instead of rebuilding the system). A derivative that only names its parent (`ID_LIKE=ubuntu`) still lands in `debian`. When
 os-release is missing or lists nothing known, the package manager binary found on PATH decides (`pacman`, `apt`,
 `dnf`, `zypper`, `apk`, `xbps-install`, `emerge`, `nix`).
 
@@ -156,6 +157,16 @@ os-release is missing or lists nothing known, the package manager binary found o
 `nix profile install nixpkgs#...`, `omarchy pkg add` on Omarchy, ...). A task a family cannot do (no "which package
 owns this file" on NixOS) is simply not offered there. `yay` and `omarchy pkg aur add` stay Arch and Omarchy
 entries (`platform = "arch"` / `"omarchy"`).
+
+**Names you type.** "install dig" or "install docker" is a program name, not a package name: when
+`data/platforms.toml` knows the program, huh installs the family's package (`bind9-dnsutils`, `bind-utils`,
+`bind-tools`, `docker.io`, ...). A package the family does not carry (`""` in `[packages]`, or no row for a known
+program) turns the line into the provides search with a note saying so, and a package that only some releases lack
+(`eza` on Debian 11/12 and Ubuntu before 24.04, `btop` and `gh` on Debian 11 and Ubuntu 20.04) keeps its name and
+gets the `[notes]` remark. Names you type that the data does not know are used as typed. "remove htop" (a bare
+program or package name, not a file in the folder) is a package removal; "remove old.log" and "delete the build
+folder" still delete files. Filler like "a package called" never ends up in the value. If no package manager is
+detected at all (busybox), package requests answer "could not detect a package manager" instead of guessing.
 
 **Missing programs.** A suggestion whose program is not installed gets a `NOTE:` line. The package name is looked up
 per family, so the hint is `sudo apt install network-manager` for `nmcli` on Debian and
@@ -198,6 +209,7 @@ nmcli = { mylinux = "nm-cli" }         # package name where it differs (omit a f
 **Other**
 - Catalog entries can set `platform` to any family name (or an os-release ID). Only entries matching this system are offered by default; `huh --all-commands` offers the rest.
 - All 195 catalog entries (`catalog/*.toml`) are embedded into the binary at compile time via `build.rs`, so `huh` runs from any directory. Override lookup order: `--catalog`, `$HUH_CATALOG`, `~/.config/huh/catalog`, then the embedded catalog.
+- `evals/platforms.toml` holds the package requests for every non-Arch family (`platform = "debian"` on each case); `cargo test` runs all of them, or `huh eval --cases evals/platforms.toml --platform <family>`.
 - `huh eval --platform <ids>` scores as another system (`debian`, `fedora`, `suse`, `alpine`, `void`, `gentoo`, `nixos`, `arch,omarchy`, ...).
 
 ## Layout
@@ -231,8 +243,8 @@ Measured with `cargo run --release` on 2026-11-17 (195 catalog entries; all offe
 
 | Suite | Cases | Right command first | In top 3 | Exact command line | "Nothing fits" | Median time |
 |---|---|---|---|---|---|---|
-| `evals/cases.toml` | 230 | 221/221 (100%) | 221/221 (100%) | 216/216 (100%) | 9/9 (100%) | 0 ms |
-| `evals/heldout.toml` | 134 | 129/129 (100%) | 129/129 (100%) | 124/124 (100%) | 5/5 (100%) | 0 ms |
+| `evals/cases.toml` | 238 | 229/229 (100%) | 229/229 (100%) | 224/224 (100%) | 9/9 (100%) | 0 ms |
+| `evals/heldout.toml` | 138 | 133/133 (100%) | 133/133 (100%) | 128/128 (100%) | 5/5 (100%) | 0 ms |
 | `evals/debian.toml` (`--platform debian`) | 5 | 4/4 (100%) | 4/4 (100%) | 4/4 (100%) | 1/1 (100%) | 0 ms |
 
 Error Doctor (`eval-errors`, release build):

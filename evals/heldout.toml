@@ -670,3 +670,24 @@ expect = "cut -d, -f3 users.csv"
 request = "show the 20 most recent log lines for docker"
 command = "journalctl"
 expect = "journalctl -u docker -n 20 --no-pager"
+
+[[case]]
+request = "get rid of the htop program"
+command = "package remove"
+expect = "omarchy pkg drop htop"
+
+[[case]]
+request = "search for a program named tmux"
+command = "package search"
+expect = "pacman -Ss tmux"
+
+[[case]]
+request = "what package does /etc/pacman.conf come from"
+command = "package owns file"
+expect = "pacman -Qo /etc/pacman.conf"
+
+[[case]]
+request = "delete the tmux folder"
+command = "rm"
+expect = "rm -r tmux"
+files = ["tmux"]

@@ -22,6 +22,9 @@ struct Case {
     /// Pretend these are the entries of the current folder.
     #[serde(default)]
     files: Vec<String>,
+    /// Package manager family ("debian", "alpine|void", ...) this case is about. Such a case runs
+    /// only when scoring as that family (`huh eval --platform`); other cases run everywhere.
+    platform: Option<String>,
 }
 
 #[derive(Default)]
@@ -79,8 +82,8 @@ impl std::fmt::Display for Report {
 }
 
 /// `huh eval`: prints every case, then the scores.
-pub fn run(matcher: &LocalMatcher, path: &Path) -> Result<()> {
-    let report = score(matcher, path)?;
+pub fn run(matcher: &LocalMatcher, path: &Path, platforms: &[String]) -> Result<()> {
+    let report = score_for(matcher, path, platforms)?;
     for line in &report.lines {
         println!("{line}");
     }
@@ -88,7 +91,17 @@ pub fn run(matcher: &LocalMatcher, path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn score(matcher: &LocalMatcher, path: &Path) -> Result<Report> {
+/// Scores as a system with these platform words (see platform.rs): package names are filled in
+/// for it and cases tagged with its package manager family are included.
+pub fn score_for(matcher: &LocalMatcher, path: &Path, platforms: &[String]) -> Result<Report> {
+    crate::platform::use_platform_for_eval(platforms);
+    let report = score_cases(matcher, path, platforms);
+    crate::platform::use_platform_for_eval(&[]);
+    report
+}
+
+fn score_cases(matcher: &LocalMatcher, path: &Path, platforms: &[String]) -> Result<Report> {
+    let family = crate::platform::manager(platforms);
     let text = std::fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
     let cases = toml::from_str::<CaseFile>(&text).with_context(|| format!("invalid {}", path.display()))?.case;
 
@@ -98,6 +111,11 @@ pub fn score(matcher: &LocalMatcher, path: &Path) -> Result<Report> {
     let mut millis = Vec::new();
 
     for case in &cases {
+        if let Some(wanted) = &case.platform
+            && !family.as_ref().is_some_and(|family| wanted.split('|').any(|w| w == family))
+        {
+            continue;
+        }
         let outcome = suggest(matcher, &case.request, case.files.clone(), &mut |_| None)?;
         millis.push(outcome.millis);
         let first = outcome.suggestions.first();
