@@ -781,3 +781,16 @@ output = "ls: cannot access '/nonexistent/path': No such file or directory"
 mention = ["nonexistent/path"]
 forbid = ["try: nothing"]
 fix = "ls"
+
+[[case]]
+command = "npm install -g pnpm"
+exit = 243
+output = """npm ERR! code EACCES
+npm ERR! syscall mkdir
+npm ERR! path /usr/lib/node_modules/pnpm
+npm ERR! errno -13
+npm ERR! Error: EACCES: permission denied, mkdir '/usr/lib/node_modules/pnpm'
+npm ERR! The operation was rejected by your operating system."""
+mention = ["root", "prefix|npx"]
+fix = "npm config set prefix"
+forbid = ["sudo npm"]

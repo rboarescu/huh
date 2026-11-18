@@ -206,6 +206,9 @@ fn diagnose(last: &Last) -> String {
     if let Some(ans) = diagnose_docker(last) {
         return ans;
     }
+    if let Some(ans) = diagnose_npm_global_permissions(last) {
+        return ans;
+    }
     if let Some(ans) = diagnose_service_daemons(last) {
         return ans;
     }
@@ -244,6 +247,30 @@ fn diagnose(last: &Last) -> String {
 
 /// The explanation, then a `Try:` line with the command to run. "nothing" means there is no
 /// command to suggest, and then there is no `Try:` line either.
+/// `npm install -g` into a system folder fails with EACCES. The common advice, `sudo npm
+/// install -g`, runs every package's install scripts as root and leaves root-owned files in
+/// the npm cache, so point at a per-user prefix instead.
+fn diagnose_npm_global_permissions(last: &Last) -> Option<String> {
+    let lines = || last.output.lines().filter(|l| l.to_lowercase().contains("eacces"));
+    let line = lines().find(|l| l.to_lowercase().contains("permission denied")).or_else(|| lines().next())?;
+    let lower = last.output.to_lowercase();
+    let is_npm =
+        lower.contains("npm err") || lower.contains("npm error") || last.command.trim_start().starts_with("npm");
+    if !is_npm || !lower.contains("node_modules") || !(lower.contains("/usr/") || lower.contains("/opt/")) {
+        return None;
+    }
+    Some(format_answer(
+        &format!(
+            "npm tried to install a global package into a system folder that only root can write to (`{}`). \
+             Do not rerun it with sudo: that runs the package's install scripts as root. \
+             Give npm a folder of your own instead, add `~/.local/bin` to your PATH, then install again \
+             (or run the tool once with `npx`).",
+            line.trim()
+        ),
+        "npm config set prefix ~/.local",
+    ))
+}
+
 fn format_answer(explanation: &str, try_cmd: &str) -> String {
     if try_cmd.trim().is_empty() || try_cmd.trim().eq_ignore_ascii_case("nothing") {
         explanation.to_string()
