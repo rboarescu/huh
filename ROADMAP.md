@@ -81,6 +81,13 @@ Known limits: stdout and stderr arrive mixed in the terminal, so the tutor goes 
 
 The next step is a fresh measurement round (error tests inside a container) against the targets: beginner ≥ 85%, sysadmin ≥ 65%, `huh why` useful fix ≥ 65%, ≤ 5 misleading, 0 non-errors called errors, 0 dangerous suggestions without a WARNING.
 
+## Completed: expert mode and `huh tools` (2026-11-18)
+
+- **Expert mode** (`--expert`, `HUH_MODE=expert`, `mode = "expert"` in `~/.config/huh/config.toml`; `--normal` / `HUH_MODE=normal` override the file): turns off exactly the beginner protections (the evidence requirement for dangerous suggestions, the broad-target drop, the state-question action ban). Broad-target lines keep their WARNING and gain a `note: this acts on ...` line. Every WARNING, the refusals (access to systems or accounts that are not the user's, formatting or wiping drives) and the `huh explain` redirects are unchanged. Notice goes to stderr. Precedence: flag, environment, file, default.
+- **Evals**: `evals/expert.toml` (45 cases, optional per-case `mode = "expert"`): vague dangerous requests abstain in normal mode and answer with a WARNING in expert mode, refusals hold in both. All other evals still run in normal mode and pass.
+- **`huh tools [word...]`**: every executable on `$PATH` with a one-line description (catalog, then curated table, then the man page NAME line read from disk; links such as `zstdmt` use their target's). No program is run. About 0.4 s for 4,000 programs. `--no-desc` lists names only.
+- Next: `.xz` and `.zst` man pages are skipped (no pure-Rust decoder is a dependency); about 40% of programs on a developer machine have no man page at all.
+
 ## Completed: sysadmin round (catalog and ranking) (2026-11-18)
 
 Findings: fresh testers asked sysadmin questions the catalog lacked, or got a wrong-but-confident entry (`git commit -m` for cherry-pick, `cp` for `host:path`, `kill` without `-9`, `cut` for whitespace columns).

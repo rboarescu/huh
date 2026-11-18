@@ -1,7 +1,6 @@
 //! `huh eval`: run test requests through the matcher and score the results.
 
 use crate::matcher::LocalMatcher;
-use crate::suggest;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -29,6 +28,8 @@ struct Case {
     /// Package manager family ("debian", "alpine|void", ...) this case is about. Such a case runs
     /// only when scoring as that family (`huh eval --platform`); other cases run everywhere.
     platform: Option<String>,
+    /// "expert" scores the case in expert mode (default: normal).
+    mode: Option<String>,
 }
 
 #[derive(Default)]
@@ -123,7 +124,11 @@ fn score_cases(matcher: &LocalMatcher, path: &Path, platforms: &[String]) -> Res
         {
             continue;
         }
-        let outcome = suggest(matcher, &case.request, case.files.clone(), &mut |_| None)?;
+        let mode = match &case.mode {
+            Some(m) => crate::mode::Mode::parse(m)?,
+            None => crate::mode::Mode::Normal,
+        };
+        let outcome = crate::suggest_in(mode, matcher, &case.request, case.files.clone(), &mut |_| None)?;
         millis.push(outcome.millis);
         let first = outcome.suggestions.first();
         let got = first.map_or("(no suggestion)", |s| s.line.as_str());
@@ -297,6 +302,22 @@ pub fn score_errors(path: &Path, verbose: bool) -> Result<(Tally, Tally)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Expert mode (evals/expert.toml): relaxed protections answer, refusals and warnings stay.
+    #[test]
+    fn expert_evals_all_pass() {
+        let arch = vec!["arch".to_string(), "omarchy".to_string()];
+        let catalog = crate::catalog::usable(crate::catalog::load_embedded().unwrap(), &arch, false);
+        let matcher = LocalMatcher::new(&catalog);
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals/expert.toml");
+        let report = score_for(&matcher, &file, &arch).unwrap();
+        let misses: Vec<&String> = report.lines.iter().filter(|line| line.starts_with("MISS")).collect();
+        for line in &misses {
+            println!("{line}");
+        }
+        assert!(report.lines.len() >= 30, "expert.toml should hold 30+ cases");
+        assert!(misses.is_empty(), "expert evals must be at 100%: {} misses", misses.len());
+    }
 
     #[test]
     fn recorded_failures_are_all_explained() {

@@ -37,7 +37,7 @@ impl ManPage {
 // Finding and reading pages
 // ---------------------------------------------------------------------------
 
-fn man_dirs() -> Vec<PathBuf> {
+pub fn man_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     if let Ok(path) = std::env::var("MANPATH") {
         dirs.extend(path.split(':').filter(|p| !p.is_empty()).map(PathBuf::from));
@@ -84,6 +84,27 @@ fn read_page_source(path: &Path) -> Option<String> {
         file.take(MAX_PAGE_BYTES).read_to_end(&mut bytes).ok()?;
     }
     Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The first `limit` bytes of a page's roff source (plain or `.gz`); enough for the NAME section.
+pub fn read_head(path: &Path, limit: u64) -> Option<String> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut bytes = Vec::new();
+    if path.extension().is_some_and(|e| e == "gz") {
+        // A truncated stream still yields what was decoded before the error.
+        let _ = flate2::read::GzDecoder::new(file).take(limit).read_to_end(&mut bytes);
+    } else {
+        file.take(limit).read_to_end(&mut bytes).ok()?;
+    }
+    Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The page name a leading `.so` redirect line points to, if the page is only a pointer.
+pub fn so_target(src: &str) -> Option<String> {
+    let line = src.lines().find(|l| !l.trim().is_empty() && !l.starts_with(".\\\""))?;
+    let target = line.strip_prefix(".so ")?.trim();
+    let stem = Path::new(target).file_name()?.to_str()?;
+    Some(stem.rsplit_once('.').map_or(stem, |(a, _)| a).to_string())
 }
 
 /// Loads and parses the man page called `name`, following `.so` redirects.
