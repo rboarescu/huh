@@ -1,0 +1,12 @@
+name = "omarchy brightness set"
+description = "Set the screen brightness to an exact level"
+template = "omarchy brightness display {level}"
+kind = "action"
+platform = "omarchy"
+keywords = ["set brightness to", "brightness to percent", "set the brightness to 30", "brightness at 50 percent", "set screen brightness exactly"]
+
+[[slots]]
+id = "level"
+kind = "text"
+what = "the brightness level, such as 30%"
+extract = "percent"

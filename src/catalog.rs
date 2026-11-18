@@ -40,7 +40,122 @@ pub struct Command {
     pub slots: Vec<Slot>,
     #[serde(default)]
     pub flags: Vec<Flag>,
+    /// Whether the command only looks at the system (`query`) or changes it (`action`). Left out,
+    /// it is derived from the name and template (see `Command::kind`).
+    #[serde(default)]
+    pub kind: Option<Kind>,
+    /// Words that, when the request says them (and does not negate them), rule this command out:
+    /// the request wants the opposite.
+    #[serde(default)]
+    pub opposites: Vec<String>,
 }
+
+/// Whether a command answers a question about the system or changes it.
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    Query,
+    Action,
+    /// Both, depending on the option picked (`tar` lists or creates): never demoted for its mood.
+    Mixed,
+}
+
+/// Words in a command's name or template that mean it changes something. Anything else shows,
+/// lists or checks.
+const ACTION_WORDS: &[&str] = &[
+    "add",
+    "autostart",
+    "build",
+    "chmod",
+    "chown",
+    "clean",
+    "commit",
+    "connect",
+    "cp",
+    "create",
+    "delete",
+    "destroy",
+    "disable",
+    "disconnect",
+    "down",
+    "drop",
+    "enable",
+    "gzip",
+    "gunzip",
+    "hibernate",
+    "install",
+    "kill",
+    "launch",
+    "lock",
+    "ln",
+    "logout",
+    "mkdir",
+    "modprobe",
+    "mount",
+    "mv",
+    "passwd",
+    "pkill",
+    "power",
+    "pull",
+    "push",
+    "reboot",
+    "refresh",
+    "remove",
+    "reset",
+    "restart",
+    "restore",
+    "rm",
+    "rsync",
+    "run",
+    "scp",
+    "serve",
+    "set",
+    "shutdown",
+    "snapshot",
+    "start",
+    "stash",
+    "stop",
+    "suspend",
+    "switch",
+    "tar",
+    "toggle",
+    "touch",
+    "trash",
+    "umount",
+    "undefine",
+    "unmount",
+    "unrar",
+    "unzip",
+    "up",
+    "update",
+    "upgrade",
+    "useradd",
+    "usermod",
+    "write",
+    "xdg-open",
+    "yay",
+    "zip",
+    "prune",
+    "rename",
+    "login",
+    "append",
+    "alias",
+    "export",
+    "reload",
+    "source",
+    "download",
+    "pkg",
+    "nano",
+    "ssh",
+    "nc",
+    "attach",
+    "new",
+    "reminder",
+    "cd",
+    "userdel",
+    "rebase",
+    "build",
+];
 
 #[derive(Deserialize, Debug, Clone, Copy, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -87,6 +202,10 @@ pub struct SlotOption {
     /// Set when picking this option can lose work or change the system: the WARNING line says this.
     #[serde(default)]
     pub warning: Option<String>,
+    /// Words that rule this option out when the request says them (and does not negate them):
+    /// `stay-awake` is never right for "put it to sleep".
+    #[serde(default)]
+    pub opposites: Vec<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -107,12 +226,46 @@ impl Command {
     pub fn program(&self) -> &str {
         self.template.split_whitespace().find(|word| *word != "sudo").unwrap_or_default()
     }
+
+    /// The declared kind, else `Action` for destructive commands and commands whose name or
+    /// template says they start, stop, set, install, ... something, else `Query`.
+    pub fn kind(&self) -> Kind {
+        if let Some(kind) = self.kind {
+            return kind;
+        }
+        let words_of = |text: &str| -> Vec<String> {
+            text.split(|c: char| !c.is_alphanumeric() && c != '-')
+                .filter(|w| !w.is_empty())
+                .map(str::to_lowercase)
+                .collect()
+        };
+        let literal: String =
+            self.template.split_whitespace().filter(|w| !w.contains('{')).collect::<Vec<_>>().join(" ");
+        let package_change = self
+            .pkg_role
+            .as_deref()
+            .is_some_and(|r| matches!(r, "pkg_install" | "pkg_remove" | "pkg_update" | "pkg_clean"));
+        let acts = self.destructive
+            || package_change
+            || words_of(&self.name).iter().chain(words_of(&literal).iter()).any(|w| ACTION_WORDS.contains(&w.as_str()));
+        if acts { Kind::Action } else { Kind::Query }
+    }
 }
 
 /// Placeholders that code fills in from the machine, not from the request. The `pkg_*`
 /// ones become the package manager's command when the catalog is made usable for a platform.
-pub const FACTS: &[&str] =
-    &["shell_rc", "pkg_install", "pkg_remove", "pkg_search", "pkg_update", "pkg_owns", "pkg_provides"];
+pub const FACTS: &[&str] = &[
+    "shell_rc",
+    "pkg_install",
+    "pkg_remove",
+    "pkg_search",
+    "pkg_update",
+    "pkg_owns",
+    "pkg_provides",
+    "pkg_query",
+    "pkg_list",
+    "pkg_clean",
+];
 
 pub fn fact(id: &str) -> Option<String> {
     match id {
@@ -223,7 +376,8 @@ pub fn missing_note(line: &str, command: Option<&Command>, platforms: &[String])
     let first = words.next().unwrap_or_default();
     let sudo = first == "sudo";
     let program = if sudo { words.next().unwrap_or_default() } else { first };
-    if program.is_empty() || is_builtin(program) {
+    // `./backup.sh`: a script of the user's own, not a program to install.
+    if program.is_empty() || is_builtin(program) || program.starts_with("./") {
         return None;
     }
     match platform::locate(program) {
@@ -492,6 +646,8 @@ mod tests {
             keywords: vec![],
             slots: vec![],
             flags: vec![],
+            kind: None,
+            opposites: vec![],
         }
     }
 

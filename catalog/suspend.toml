@@ -1,0 +1,6 @@
+name = "suspend"
+description = "Put the computer to sleep, keeping the session in memory"
+template = "systemctl suspend"
+kind = "action"
+keywords = ["put the computer to sleep", "sleep mode", "suspend the laptop", "suspend to ram", "go to sleep", "make the pc sleep", "sleep now", "put the laptop to sleep"]
+opposites = ["not", "never", "stop", "prevent", "awake", "caffeine", "keep", "avoid"]

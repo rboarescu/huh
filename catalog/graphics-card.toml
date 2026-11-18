@@ -1,0 +1,5 @@
+name = "graphics card"
+description = "Show which graphics card (GPU) the computer has"
+template = "lspci | grep -i vga"
+kind = "query"
+keywords = ["what graphics card do i have", "which gpu", "show the gpu", "video card", "graphics hardware", "which graphics card", "gpu model"]

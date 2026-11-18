@@ -1,0 +1,12 @@
+name = "bluetoothctl connect"
+description = "Connect to a paired Bluetooth device such as headphones or a speaker"
+template = "bluetoothctl connect {device}"
+kind = "action"
+keywords = ["connect bluetooth headphones", "connect to bluetooth speaker", "connect my headphones", "pair bluetooth", "connect earbuds", "connect bluetooth device", "connect airpods"]
+opposites = ["disconnect", "off"]
+
+[[slots]]
+id = "device"
+kind = "text"
+what = "the Bluetooth device's address (see bluetoothctl devices)"
+extract = "mac"

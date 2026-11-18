@@ -1,0 +1,6 @@
+name = "bluetooth status"
+description = "Show whether Bluetooth is switched on"
+template = "bluetoothctl show | grep Powered"
+kind = "query"
+package = "bluez-utils"
+keywords = ["is bluetooth on", "is bluetooth enabled", "bluetooth powered", "bluetooth state", "bluetooth status", "is bluetooth working"]

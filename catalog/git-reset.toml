@@ -1,6 +1,7 @@
 name = "git reset"
 description = "Undo the last commit, or throw away all uncommitted changes"
 template = "git reset {mode}"
+kind = "action"
 keywords = ["undo last commit", "undo the last commit but keep changes", "uncommit", "reset to last commit", "discard all local changes", "hard reset", "throw away all changes", "reset hard", "go back one commit"]
 
 [[slots]]

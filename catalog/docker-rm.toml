@@ -1,8 +1,14 @@
 name = "docker rm"
 description = "Delete a Docker container"
-template = "docker rm {container}"
+template = "docker rm {force} {container}"
 destructive = true
 keywords = ["delete container", "remove container", "erase container"]
+
+[[flags]]
+id = "force"
+value = "-f"
+question = "Does the user want the container removed even if it is running?"
+warning = "this force-removes the container even while it runs: whatever it is doing stops at once."
 
 [[slots]]
 id = "container"

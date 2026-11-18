@@ -588,3 +588,138 @@ request = "which package provides /usr/bin/ls"
 platform = "nixos"
 command = "package provides program"
 expect = "nix-locate bin/ls"
+
+# ---- is it installed, what is installed, clean the cache ----
+
+[[case]]
+request = "is vlc installed"
+platform = "debian"
+command = "package installed"
+expect = "dpkg -s vlc"
+
+[[case]]
+request = "list installed packages"
+platform = "debian"
+command = "package list"
+expect = "apt list --installed"
+
+[[case]]
+request = "clean up old packages"
+platform = "debian"
+command = "package cache clean"
+expect = "sudo apt autoremove && sudo apt clean"
+warn = true
+
+[[case]]
+request = "is vlc installed"
+platform = "fedora"
+command = "package installed"
+expect = "rpm -q vlc"
+
+[[case]]
+request = "list installed packages"
+platform = "fedora"
+command = "package list"
+expect = "dnf list --installed"
+
+[[case]]
+request = "clean up old packages"
+platform = "fedora"
+command = "package cache clean"
+expect = "sudo dnf clean all"
+warn = true
+
+[[case]]
+request = "is vlc installed"
+platform = "suse"
+command = "package installed"
+expect = "rpm -q vlc"
+
+[[case]]
+request = "list installed packages"
+platform = "suse"
+command = "package list"
+expect = "zypper search --installed-only"
+
+[[case]]
+request = "clean up old packages"
+platform = "suse"
+command = "package cache clean"
+expect = "sudo zypper clean --all"
+warn = true
+
+[[case]]
+request = "is vlc installed"
+platform = "alpine"
+command = "package installed"
+expect = "apk info -e vlc"
+
+[[case]]
+request = "list installed packages"
+platform = "alpine"
+command = "package list"
+expect = "apk info"
+
+[[case]]
+request = "clean up old packages"
+platform = "alpine"
+command = "package cache clean"
+expect = "sudo apk cache clean"
+warn = true
+
+[[case]]
+request = "is vlc installed"
+platform = "void"
+command = "package installed"
+expect = "xbps-query vlc"
+
+[[case]]
+request = "list installed packages"
+platform = "void"
+command = "package list"
+expect = "xbps-query -l"
+
+[[case]]
+request = "clean up old packages"
+platform = "void"
+command = "package cache clean"
+expect = "sudo xbps-remove -O"
+warn = true
+
+[[case]]
+request = "is vlc installed"
+platform = "gentoo"
+command = "package installed"
+expect = "equery list vlc"
+
+[[case]]
+request = "list installed packages"
+platform = "gentoo"
+command = "package list"
+expect = "equery list \"*\""
+
+[[case]]
+request = "clean up old packages"
+platform = "gentoo"
+command = "package cache clean"
+expect = "sudo eclean-dist"
+warn = true
+
+[[case]]
+request = "is vlc installed"
+platform = "nixos"
+command = "package installed"
+expect = "nix-env -q vlc"
+
+[[case]]
+request = "list installed packages"
+platform = "nixos"
+command = "package list"
+expect = "nix profile list"
+
+[[case]]
+request = "clean up old packages"
+platform = "nixos"
+command = "package cache clean"
+expect = "sudo nix-collect-garbage"
+warn = true

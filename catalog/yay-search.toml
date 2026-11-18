@@ -1,6 +1,7 @@
 name = "yay search"
 description = "Search for a program in the AUR as well as the official repositories"
 template = "yay -Ss {term}"
+kind = "query"
 platform = "arch"
 keywords = ["search aur", "find aur package", "yay -Ss"]
 

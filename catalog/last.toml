@@ -1,0 +1,12 @@
+name = "last"
+description = "Show the most recent logins to this computer"
+template = "last -n {count}"
+kind = "query"
+keywords = ["last logins", "recent logins", "login history", "who logged in recently", "previous logins", "show recent logins", "who has logged in"]
+
+[[slots]]
+id = "count"
+kind = "text"
+what = "how many logins to show"
+default = "10"
+extract = "count"

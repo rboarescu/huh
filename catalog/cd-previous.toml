@@ -1,4 +1,5 @@
 name = "cd previous"
 description = "Go back to the folder I was in before"
 template = "cd -"
+kind = "query"
 keywords = ["go back to the previous folder", "previous directory", "last folder", "go back", "return to the old directory", "back to where i was", "cd back"]

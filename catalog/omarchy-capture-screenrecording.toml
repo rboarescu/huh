@@ -1,6 +1,7 @@
 name = "omarchy capture screenrecording"
 description = "Record a video of the screen"
 template = "omarchy capture screenrecording {desktop_audio} {microphone}"
+kind = "action"
 platform = "omarchy"
 keywords = ["record screen", "screen capture video", "desktop recording", "record with mic", "record desktop audio"]
 

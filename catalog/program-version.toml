@@ -1,0 +1,11 @@
+name = "program version"
+description = "Show which version of a program is installed"
+template = "{program} --version"
+kind = "query"
+keywords = ["check python version", "what version of", "which version of", "version of the program", "program version", "installed version", "check version"]
+
+[[slots]]
+id = "program"
+kind = "text"
+what = "the program to ask for its version"
+extract = "versioned_program"

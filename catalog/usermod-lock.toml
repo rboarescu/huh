@@ -1,0 +1,12 @@
+name = "usermod lock"
+description = "Lock a user account so it cannot log in with a password"
+template = "sudo usermod -L {user}"
+kind = "action"
+keywords = ["lock user account", "lock a user", "disable user login", "block a user from logging in", "lock the account", "suspend user account"]
+opposites = ["unlock"]
+
+[[slots]]
+id = "user"
+kind = "text"
+what = "the account to lock"
+extract = "user_name"

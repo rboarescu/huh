@@ -1,6 +1,7 @@
 name = "package search"
 description = "Search for a program that is available to install"
 template = "{pkg_search}"
+kind = "query"
 keywords = ["find package", "search software", "is there a package", "available packages", "pacman -Ss"]
 
 [[slots]]

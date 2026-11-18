@@ -1,6 +1,7 @@
 name = "git stash"
 description = "Put uncommitted changes aside, bring them back, or list what is set aside"
 template = "git stash {action}"
+kind = "mixed"
 keywords = ["stash changes", "stash my changes", "shelve changes", "set changes aside", "pop the stash", "apply stash", "list stashes", "stashed changes", "put work aside"]
 
 [[slots]]

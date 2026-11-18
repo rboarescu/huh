@@ -1,0 +1,7 @@
+name = "package cache clean"
+description = "Clean up old downloaded packages and leftovers to free disk space"
+template = "{pkg_clean}"
+kind = "action"
+destructive = true
+warning = "this deletes downloaded package files and unused leftovers; reinstalling or downgrading will download them again."
+keywords = ["clean package cache", "clear package cache", "clean up old packages", "remove old packages", "free space from packages", "autoremove", "paccache", "clean apt cache", "unused packages", "package leftovers"]

@@ -1,0 +1,11 @@
+name = "udisksctl unmount"
+description = "Unmount a USB stick or other drive so it can be removed safely"
+template = "udisksctl unmount -b {device}"
+kind = "action"
+keywords = ["unmount drive", "unmount usb", "unmount usb stick", "safely remove usb", "unmount external disk", "unmount flash drive", "unmount sd card", "eject usb"]
+
+[[slots]]
+id = "device"
+kind = "text"
+extract = "device"
+what = "the drive's device name, e.g. /dev/sdb1"

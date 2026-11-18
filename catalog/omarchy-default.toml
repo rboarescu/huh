@@ -1,6 +1,7 @@
 name = "omarchy default"
 description = "Set the default browser, text editor, or terminal application in Omarchy"
 template = "omarchy default {kind} {app}"
+kind = "action"
 platform = "omarchy"
 keywords = ["default app", "default browser", "default editor", "default terminal", "default agent", "default coding agent", "change browser", "change editor", "change terminal", "change agent", "set default", "preferred application"]
 

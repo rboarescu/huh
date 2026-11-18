@@ -1,4 +1,4 @@
 name = "pwd"
 description = "Show which folder I am in right now"
 template = "pwd"
-keywords = ["current directory", "working directory", "where am i", "current folder", "which folder am i in", "present working directory"]
+keywords = ["current directory", "working directory", "where am i", "current folder", "which folder am i in", "present working directory", "what folder am i in", "what directory am i in", "which folder am i in"]

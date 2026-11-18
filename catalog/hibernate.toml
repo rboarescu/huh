@@ -1,0 +1,5 @@
+name = "hibernate"
+description = "Hibernate: save the session to disk and power off"
+template = "systemctl hibernate"
+kind = "action"
+keywords = ["hibernate the computer", "suspend to disk", "save session and power off", "hibernation"]

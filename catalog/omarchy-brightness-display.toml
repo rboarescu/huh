@@ -1,6 +1,7 @@
 name = "omarchy brightness display"
 description = "Make the screen brighter or dimmer"
 template = "omarchy brightness display {change}"
+kind = "action"
 platform = "omarchy"
 keywords = ["brighter screen", "dim screen", "screen brightness", "backlight up", "backlight down"]
 

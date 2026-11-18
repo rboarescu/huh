@@ -1,6 +1,7 @@
 name = "omarchy audio output volume"
 description = "Make the sound louder or quieter, or mute it"
 template = "omarchy audio output volume {change}"
+kind = "action"
 platform = "omarchy"
 keywords = ["volume up", "volume down", "louder", "quieter", "mute sound", "unmute audio", "speaker volume"]
 

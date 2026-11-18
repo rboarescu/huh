@@ -2,6 +2,7 @@ name = "omarchy toggle idle"
 description = "Keep the computer awake so it does not lock or sleep by itself, or let it idle normally again"
 template = "omarchy toggle idle {mode}"
 platform = "omarchy"
+opposites = ["suspend", "hibernate"]
 keywords = ["stay awake", "prevent sleep", "keep screen on", "disable auto lock", "caffeine", "allow idle", "allow sleep"]
 
 [[slots]]
@@ -13,6 +14,7 @@ question = "What does the user want?"
 name = "stay_awake"
 value = "stay-awake"
 description = "The computer should stay awake and not lock or sleep"
+opposites = ["sleep", "suspend", "hibernate"]
 
 [[slots.options]]
 name = "allow_idle"

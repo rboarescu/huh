@@ -1,6 +1,7 @@
 name = "omarchy dns"
 description = "Choose which DNS provider the computer uses to look up website names"
 template = "omarchy dns {provider}"
+kind = "action"
 platform = "omarchy"
 keywords = ["change dns", "cloudflare dns", "google dns", "1.1.1.1", "8.8.8.8", "dhcp dns", "dns server"]
 

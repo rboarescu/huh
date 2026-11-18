@@ -1,0 +1,5 @@
+name = "package list"
+description = "List every package installed on this system"
+template = "{pkg_list}"
+kind = "query"
+keywords = ["installed packages", "list installed packages", "what is installed", "packages i have", "everything installed", "all installed programs", "installed software"]

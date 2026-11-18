@@ -6,7 +6,7 @@
 //! disambiguators, domain-coherence fit checks, and syntactic slot-role binding.
 
 use crate::candidates::{Candidates, EntryKind, number_word};
-use crate::catalog::{Command, Flag, Slot, SlotKind};
+use crate::catalog::{Command, Flag, Kind, Slot, SlotKind};
 use crate::platform;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -34,6 +34,7 @@ const STOPWORDS: &[&str] = &[
 #[derive(Clone, Debug)]
 struct IndexedCommand {
     command: Command,
+    kind: Kind,
     installed: bool,
     name_lower: String,
     name_words: Vec<String>,
@@ -161,9 +162,23 @@ impl LocalMatcher {
                 let intent_bonus =
                     command_intent_bonus(&entry.command, entry.name_lower.as_str(), &entry.name_words, &q_ctx);
                 let tie_break = if entry.installed { 0.12 } else { 0.0 };
-                (&entry.command, bm25 + intent_bonus + tie_break)
+                (&entry.command, bm25 + intent_bonus + tie_break + intent_adjust(entry, &q_ctx))
             })
             .collect();
+        // An instruction is not answered with a bare query when an action fits as well.
+        if q_ctx.mood == Mood::Instruction && !q_ctx.asks_for_information() {
+            let best_action = scored
+                .iter()
+                .zip(&self.entries)
+                .filter(|(_, e)| e.kind == Kind::Action)
+                .map(|((_, s), _)| *s)
+                .fold(f64::MIN, f64::max);
+            for ((_, score), entry) in scored.iter_mut().zip(&self.entries) {
+                if entry.kind == Kind::Query && *score <= best_action + INSTRUCTION_MARGIN {
+                    *score -= INSTRUCTION_QUERY_PENALTY;
+                }
+            }
+        }
         scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.name.cmp(&b.0.name)));
 
         // Softmax over the top 12; the rest share a sliver of probability.
@@ -252,7 +267,44 @@ impl LocalMatcher {
         } else {
             fit
         };
+        let fit = if self.rests_on_generic_words(entry, &q) { fit.min(0.14) } else { fit };
         Some(Details { fit, flags, slots })
+    }
+
+    /// The minimum-evidence floor: a match that rests only on generic words of the request
+    /// ("order" for `sort`, "make" for `cp`, "last" for `tail`) or on the name of a program that
+    /// many entries share ("git" for `git push`) says nothing about what the person wants.
+    fn rests_on_generic_words(&self, entry: &IndexedCommand, q: &QueryContext<'_>) -> bool {
+        if q.content_terms.len() < 2 {
+            return false;
+        }
+        let shared_program = |term: &String| {
+            let term = term.strip_prefix("c_").unwrap_or(term);
+            entry.name_words.len() >= 2
+                && entry.name_words.first().is_some_and(|w| stem(w) == term && entry.command.program() == w.as_str())
+                && self.vocab.get(term).is_some_and(|&id| self.postings[id].len() >= 10)
+        };
+        // Concepts a generic word brings along ("order" is "sort") are as generic as the word,
+        // unless another word or a phrase of the request names the same concept.
+        let concepts_of = |generic: bool| -> HashSet<&'static str> {
+            q.words
+                .iter()
+                .filter(|w| GENERIC_WORDS.contains(&stem(w).as_str()) == generic)
+                .flat_map(|w| stem_concepts(&stem(w)).into_iter().chain(stem_concepts(w)).flatten().copied())
+                .collect()
+        };
+        let (generic_concepts, other_concepts) = (concepts_of(true), concepts_of(false));
+        let from_phrase =
+            |term: &str| PHRASE_CONCEPTS.iter().any(|(phrase, c)| *c == term && contains_word_phrase(q.norm, phrase));
+        let matched: Vec<&String> = q.term_weights.keys().filter(|t| entry.all_terms.contains(*t)).collect();
+        !matched.is_empty()
+            && matched.iter().all(|t| {
+                GENERIC_WORDS.contains(&t.as_str())
+                    || shared_program(t)
+                    || (generic_concepts.contains(t.as_str())
+                        && !other_concepts.contains(t.as_str())
+                        && !from_phrase(t))
+            })
     }
 
     fn score_fit(&self, idx: usize, entry: &IndexedCommand, q: &QueryContext<'_>) -> f64 {
@@ -276,7 +328,7 @@ impl LocalMatcher {
             }
         }
         let bonus = command_intent_bonus(&entry.command, &entry.name_lower, &entry.name_words, q);
-        let raw_score = bm25 + bonus + if entry.installed { 0.12 } else { 0.0 };
+        let raw_score = bm25 + bonus + intent_adjust(entry, q) + if entry.installed { 0.12 } else { 0.0 };
 
         if raw_score >= 5.5 {
             0.95
@@ -305,6 +357,7 @@ struct QueryContext<'a> {
     term_weights: &'a HashMap<String, f64>,
     content_terms: Vec<String>,
     raw_tokens: Vec<RawToken>,
+    mood: Mood,
 }
 
 #[derive(Clone, Debug)]
@@ -332,7 +385,32 @@ impl<'a> QueryContext<'a> {
             stem_set.insert(st);
         }
         let raw_tokens = parse_raw_tokens(raw);
-        Self { raw, norm, words, word_set, stem_set, term_weights, content_terms, raw_tokens }
+        let mood = request_mood(norm, words);
+        Self { raw, norm, words, word_set, stem_set, term_weights, content_terms, raw_tokens, mood }
+    }
+
+    /// "show", "list", "tell me", "find": the request wants something looked up, so a query is
+    /// what it asks for even though it is phrased as an instruction.
+    fn asks_for_information(&self) -> bool {
+        const VERBS: &[&str] = &[
+            "show", "list", "display", "print", "tell", "view", "find", "check", "see", "look", "read", "give", "get",
+            "which", "what", "who", "where", "how", "whether", "describe", "explain", "count", "compare", "search",
+        ];
+        self.words.iter().any(|w| VERBS.contains(&w.as_str()))
+    }
+
+    /// The request says this word (or phrase) and does not negate it: "put it to sleep" names
+    /// sleep, "stop it from going to sleep" does not.
+    fn names_unnegated(&self, item: &str) -> bool {
+        const NEGATORS: &[&str] =
+            &["not", "no", "never", "without", "stop", "prevent", "avoid", "from", "disable", "off", "cancel", "block"];
+        if item.contains(' ') {
+            return contains_word_phrase(self.norm, item);
+        }
+        let wanted = stem(item);
+        self.words.iter().enumerate().any(|(i, w)| {
+            stem(w) == wanted && !self.words[i.saturating_sub(6)..i].iter().any(|b| NEGATORS.contains(&b.as_str()))
+        })
     }
 
     fn has_exact_word(&self, w: &str) -> bool {
@@ -536,6 +614,237 @@ impl<'a> QueryContext<'a> {
                     || t.lower.contains(".org/"))
         })
     }
+}
+
+/// What the request is: a question about the state of the system, or something to do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mood {
+    Question,
+    Instruction,
+}
+
+/// Stems of words that appear in many descriptions without saying what the person wants.
+const GENERIC_WORDS: &[&str] =
+    &["order", "make", "set", "up", "last", "program", "not", "new", "thing", "time", "number", "one"];
+
+/// How far a question about state pushes an action down, and how far an opposite pushes a command down.
+const STATE_QUESTION_PENALTY: f64 = 4.0;
+const OPPOSITE_PENALTY: f64 = 8.0;
+/// An instruction takes a bare query down by this much when an action scores within `MARGIN` of it.
+const INSTRUCTION_QUERY_PENALTY: f64 = 1.0;
+const INSTRUCTION_MARGIN: f64 = 1.5;
+
+/// Classifies the request by its opening words. Polite and how-to forms ("can you", "please",
+/// "how do i", "i want to", "what command") are instructions, as is anything that goes on to ask
+/// for a change ("which process uses port 80, and kill it"); "is/are/do i have/what/which/who/
+/// where/how much/check if" are questions about state. Everything else is an instruction.
+fn request_mood(norm: &str, words: &[String]) -> Mood {
+    const FILLERS: &[&str] = &["so", "ok", "okay", "hey", "hi", "and", "also", "well", "um", "huh"];
+    const INSTRUCTION_OPENERS: &[&str] = &[
+        "can you",
+        "could you",
+        "would you",
+        "will you",
+        "can i",
+        "could i",
+        "can we",
+        "please",
+        "pls",
+        "how do i",
+        "how do you",
+        "how do we",
+        "how to",
+        "how can i",
+        "how can we",
+        "how would i",
+        "how should i",
+        "how could i",
+        "i want",
+        "i need",
+        "i would like",
+        "i wanna",
+        "i like to",
+        "let us",
+        "let me",
+        "help me",
+        "show me how",
+        "tell me how",
+        "give me",
+        "what command",
+        "which command",
+        "what is the command",
+        "what is the best way",
+        "what is the way",
+        "what do i type",
+        "what do i run",
+        "what do i use",
+        "what should i run",
+        "what should i type",
+        "what should i use",
+        "what can i use",
+        "what can i run",
+        "is there a command",
+        "is there a way",
+        "is there an easy way",
+        "is it possible to",
+        "what is the easiest way",
+        "which tool",
+        "what tool",
+        "what program",
+    ];
+    const QUESTION_OPENERS: &[&str] = &[
+        "is",
+        "are",
+        "am",
+        "was",
+        "were",
+        "does",
+        "did",
+        "has",
+        "have",
+        "what",
+        "which",
+        "who",
+        "whose",
+        "where",
+        "when",
+        "why",
+        "check if",
+        "check whether",
+        "see if",
+        "see whether",
+        "find out if",
+        "find out what",
+        "find out which",
+        "tell me if",
+        "tell me whether",
+        "tell me what",
+        "tell me which",
+        "tell me who",
+        "tell me where",
+        "tell me how much",
+        "tell me how many",
+        "show me what",
+        "show me which",
+        "show me who",
+        "show me where",
+        "show me how much",
+        "show me how many",
+        "let me know",
+        "do i",
+        "do we",
+        "do you",
+        "do the",
+        "do my",
+        "do any",
+        "do these",
+        "do those",
+        "do they",
+        "how much",
+        "how many",
+        "how long",
+        "how big",
+        "how large",
+        "how fast",
+        "how hot",
+        "how old",
+        "how often",
+        "how far",
+        "how full",
+        "how warm",
+        "how loud",
+        "how high",
+        "how low",
+        "how is",
+        "how are",
+        "how does",
+    ];
+    const CHANGE_VERBS: &[&str] = &[
+        "kill",
+        "delete",
+        "remove",
+        "stop",
+        "restart",
+        "start",
+        "install",
+        "uninstall",
+        "fix",
+        "free",
+        "enable",
+        "disable",
+        "turn",
+        "switch",
+        "close",
+        "clean",
+        "reset",
+        "change",
+        "set",
+        "make",
+        "connect",
+        "disconnect",
+        "mount",
+        "unmount",
+        "reboot",
+        "run",
+        "open",
+        "update",
+        "upgrade",
+        "create",
+        "add",
+        "move",
+        "copy",
+        "rename",
+    ];
+    let mut w: Vec<&str> = words.iter().map(String::as_str).collect();
+    while w.len() > 1 && FILLERS.contains(&w[0]) {
+        w.remove(0);
+    }
+    let starts = |phrase: &&str| {
+        let p: Vec<&str> = phrase.split(' ').collect();
+        w.len() >= p.len() && w[..p.len()] == p[..]
+    };
+    if INSTRUCTION_OPENERS.iter().any(starts) || w.contains(&"please") {
+        return Mood::Instruction;
+    }
+    if !QUESTION_OPENERS.iter().any(starts) {
+        return Mood::Instruction;
+    }
+    // A question that goes on to ask for a change is an instruction.
+    let continues = |i: usize| w[i.saturating_sub(1)..i].iter().any(|b| matches!(*b, "and" | "then" | "so" | "to"));
+    if (3..w.len()).any(|i| CHANGE_VERBS.contains(&w[i]) && continues(i))
+        || norm.contains(", ") && w.len() > 5 && w.iter().skip(3).any(|x| CHANGE_VERBS.contains(x))
+    {
+        return Mood::Instruction;
+    }
+    Mood::Question
+}
+
+/// What the kind of the command, the mood of the request and the opposites do to the score:
+/// a question about state strongly demotes actions, and a command (or option) whose opposite the
+/// request names is ruled out.
+fn intent_adjust(entry: &IndexedCommand, q: &QueryContext<'_>) -> f64 {
+    let mut adjust = 0.0;
+    if q.mood == Mood::Question && entry.kind == Kind::Action {
+        adjust -= STATE_QUESTION_PENALTY;
+    }
+    if contradicted(entry, q) {
+        adjust -= OPPOSITE_PENALTY;
+    }
+    adjust
+}
+
+/// The request names an opposite of this command, or of the option the matcher would pick.
+fn contradicted(entry: &IndexedCommand, q: &QueryContext<'_>) -> bool {
+    let command = &entry.command;
+    if command.opposites.iter().any(|word| q.names_unnegated(word)) {
+        return true;
+    }
+    command.slots.iter().filter(|slot| slot.kind == SlotKind::Choice).any(|slot| {
+        slot.options.iter().any(|o| !o.opposites.is_empty()) && {
+            let picked = &slot.options[score_choice_slot(&command.name, slot, entry, q)];
+            picked.opposites.iter().any(|word| q.names_unnegated(word))
+        }
+    })
 }
 
 fn strip_quoted_for_ranking(request: &str) -> String {
@@ -1162,6 +1471,7 @@ fn index_command(cmd: &Command) -> IndexedCommand {
 
     IndexedCommand {
         command: cmd.clone(),
+        kind: cmd.kind(),
         installed: cmd.available(),
         name_lower,
         name_words,
@@ -1257,6 +1567,24 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "stat" if q.has_any(&["when was", "last modified", "last changed", "facts about", "metadata"])
             || (q.has_word("size") && q.has_word("permissions") && q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text))) => bonus += 8.0,
         "file" if q.has_any(&["what type of file", "what kind of file", "type of file", "kind of file"]) => bonus += 8.0,
+        "ls" if q.has_any(&["who owns", "owner of", "file owner", "owned by", "who is the owner"]) && !q.has_any(&["package", "pacman", "dpkg", "rpm"]) => bonus += 9.0,
+        "wpctl set-volume" if crate::extract::extract("percent", q.raw).is_some() && q.has_any(&["volume", "sound", "audio"]) => bonus += 9.0,
+        "omarchy brightness set" if crate::extract::extract("percent", q.raw).is_some() && q.has_any(&["brightness", "backlight", "bright", "dim"]) => bonus += 9.0,
+        "userdel" if q.has_any(&["user", "account"]) && q.has_any(&["delete", "remove", "erase", "get rid of"]) && !q.has_any(&["group", "package", "file"]) => bonus += 16.0,
+        "usermod lock" if q.has_any(&["user", "account"]) && q.has_any(&["lock", "block"]) && !q.has_any(&["unlock", "screen"]) => bonus += 9.0,
+        "git branch delete" if q.has_any(&["delete", "remove", "drop", "get rid of"]) && q.has_any(&["branch", "branches"]) => bonus += 9.0,
+        "git rebase" if q.has_any(&["rebase"]) => bonus += 9.0,
+        "ssh tunnel" if q.has_any(&["tunnel", "port forward", "forward a port", "forward local port", "forward port"]) => bonus += 9.0,
+        "last" if q.has_any(&["logged in recently", "recent logins", "login history", "last logins", "who logged in", "previous logins"]) && !q.has_any(&["currently", "right now", "who is logged in", "who's logged in"]) => bonus += 9.0,
+        "wifi current" if q.has_any(&["wifi name", "name of the wifi", "wifi i am on", "wifi am i on", "wifi network name", "network name"]) => bonus += 9.0,
+        "package list" if q.has_any(&["what is installed", "what is installed on", "everything installed", "all installed"]) => bonus += 9.0,
+        "umount" if q.has_any(&["unmount", "umount"]) && q.raw_tokens.iter().any(|t| ["/mnt", "/media", "/run/media", "~/", "/srv", "/home"].iter().any(|p| t.text.starts_with(p))) => bonus += 9.0,
+        "package installed" if q.has_exact_word("installed") && !q.has_exact_word("where") && !q.has_any(&["packages", "everything", "all", "list"]) => bonus += 8.0,
+        "bluetoothctl info" if q.has_any(&["connected"]) && q.has_any(&["is", "are", "am"]) && q.has_any(&["bluetooth", "headphones", "headset", "earbuds", "airpods", "speaker"]) => bonus += 9.0,
+        "run script" if q.has_any(&["run", "execute", "launch", "start"])
+            && q.raw_tokens.iter().any(|t| [".sh", ".py", ".bash", ".pl", ".rb"].iter().any(|ext| t.lower.ends_with(ext))) => bonus += 9.0,
+        "wifi current" if q.has_any(&["connected to", "am i on", "am i connected", "current wifi", "which wifi", "what wifi", "which network", "what network", "my ssid", "current ssid"]) => bonus += 8.0,
+        "bluetooth status" if q.has_any(&["is bluetooth on", "is bluetooth enabled", "is bluetooth working", "bluetooth powered", "bluetooth status", "bluetooth state"]) => bonus += 12.0,
         "ls" if (q.has_any(&["list", "contents", "what is in", "what files are in", "files in", "hidden", "dotfile", "dotfiles", "sizes and dates", "changed most recently"])
             || (q.has_word("show") && q.has_any(&["dotfiles", "hidden", "permissions"])))
             && !q.has_any(&["container", "image", "branch", "snapshot", "subvolume", "tmux", "vm", "virtual", "theme", "font", "wifi", "disk", "partition", "usb", "ollama", "tar", "archive", "dump"])
@@ -1316,7 +1644,7 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "rm" if q.has_any(&["delete", "remove", "erase", "get rid of"]) && !q.has_any(&["container", "image", "model", "duplicate", "uninstall", "package", "branch", "vm", "trash", "recycle bin"]) && !age_phrase && !q.asks_recovery() => bonus += 6.5,
         "mkdir" if q.has_any(&["create", "make", "new"]) && q.has_any(&["folder", "folders", "directory", "directories"]) && !q.has_any(&["shortcut", "archive", "zip", "copy"]) => bonus += 8.0,
         "touch" if q.has_any(&["empty file", "new file", "create an empty file"]) => bonus += 8.5,
-        "pwd" if q.has_any(&["which directory", "which folder", "where am i", "current directory", "current folder"]) || (q.has_word("what") && q.has_any(&["folder", "directory"]) && q.has_word("this")) => bonus += 9.0,
+        "pwd" if q.has_any(&["which directory", "which folder", "where am i", "current directory", "current folder"]) || (q.has_word("what") && q.has_any(&["folder", "directory"]) && q.has_word("this")) || q.has_any(&["folder am i in", "directory am i in", "folder i am in", "directory i am in"]) => bonus += 9.0,
         "cd" if q.has_any(&["go to", "change directory", "change into", "enter folder"]) => bonus += 8.5,
         "ps" if q.has_any(&["programs are running", "running processes", "what programs"]) && !q.has_any(&["cpu", "memory", "live"]) => bonus += 7.0,
         "top" if q.has_any(&["eating my cpu", "most processor", "most memory", "cpu right now"]) => bonus += 9.5,
@@ -1567,10 +1895,53 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         return false;
     }
 
+    // New-style entries first: the words that say the request is about their subject at all.
+    let percent = crate::extract::extract("percent", q.raw).is_some();
+    match name {
+        "wifi current" => return has(&["wifi", "wireless", "ssid"]) && !has(&["nearby", "available", "scan", "list", "password"]),
+        "package installed" => return q.has_exact_word("installed") && !has(&["packages", "everything", "all"]),
+        "package list" => return q.has_exact_word("installed") && has(&["packages", "programs", "software", "apps", "everything", "all", "list", "what is installed"]),
+        "package cache clean" => return has(&["cache", "old packages", "unused packages", "autoremove", "leftover", "leftovers", "orphans"])
+            && has(&["clean", "clear", "free", "remove", "delete", "purge", "empty", "up"]),
+        "package install" | "package remove" if q.has_exact_word("installed") && !q.has_exact_word("install") => return false,
+        "package owns file" => return has(&["package", "packages", "pacman", "dpkg", "rpm", "installed"]),
+        "git branch" => return !has(&["delete", "remove", "drop", "get rid of"]) && has(&["branch", "branches", "git"]),
+        "suspend" => return has(&["sleep", "suspend"]),
+        "hibernate" => return has(&["hibernate", "hibernation"]),
+        "bluetoothctl connect" | "bluetoothctl disconnect" | "bluetoothctl devices" | "bluetoothctl info" | "bluetooth status" =>
+            return has(&["bluetooth", "headphones", "headset", "earbuds", "airpods"]),
+        "udisksctl unmount" if q.raw_tokens.iter().any(|t| ["/mnt", "/media", "/run/media", "~/", "/srv", "/home"].iter().any(|p| t.text.starts_with(p))) => return false,
+        "udisksctl mount" | "udisksctl unmount" | "udisksctl power-off" =>
+            return has(&["usb", "drive", "disk", "stick", "mount", "unmount", "eject", "partition", "sd card", "flash", "device"]) && !has(&["docker", "container", "image"]),
+        "umount" => return has(&["unmount", "umount"]) || (has(&["mount point"]) && has(&["unmount", "release"])),
+        "sensors" => return has(&["temperature", "temperatures", "temp", "temps", "hot", "overheating", "overheat", "thermal", "fan", "fans", "sensors", "heat"]),
+        "last" => return has(&["login", "logins", "logged in", "log ins"]) && !has(&["who is logged in", "who's logged in", "currently"]),
+        "graphics card" => return has(&["graphics", "gpu", "video card", "vga"]),
+        "program version" => return has(&["version", "versions"]) && !has(&["omarchy", "kernel", "linux", "distro", "os", "git"]),
+        "run script" => return has(&["script", "run", "execute"])
+            && (has(&["script"]) || q.raw_tokens.iter().any(|t| [".sh", ".py", ".bash", ".pl", ".rb"].iter().any(|ext| t.lower.ends_with(ext)))),
+        "userdel" => return has(&["user", "account"]) && has(&["delete", "remove", "erase", "get rid of"]) && !has(&["group", "package"]),
+        "usermod lock" => return has(&["user", "account"]) && has(&["lock", "block", "disable"]) && !has(&["unlock", "screen"]),
+        "docker build" => return has(&["docker", "container", "dockerfile", "image"]) && has(&["build", "dockerfile", "tag"]),
+        "git branch delete" => return has(&["delete", "remove", "drop", "get rid of"]) && has(&["branch", "branches"]),
+        "git rebase" => return has(&["rebase", "squash", "reorder"]),
+        "ssh tunnel" => return has(&["tunnel", "forward", "forwarding", "port forward"]),
+        "curl post json" => return has(&["post"]) && has(&["json", "curl", "api", "body", "data"]),
+        "wl-copy" => return has(&["clipboard"]) && !has(&["paste", "screenshot"]),
+        "wl-paste" => return has(&["clipboard", "paste"]) && has(&["paste", "show", "print", "contents", "what"]),
+        "wpctl set-volume" => return percent && has(&["volume", "sound", "audio"]),
+        "omarchy brightness set" => return percent && has(&["brightness", "backlight", "bright", "dim", "screen"]),
+        "omarchy audio output volume" if percent => return false,
+        "omarchy brightness display" if percent => return false,
+        _ => {}
+    }
+
     match name {
         "reboot" => return q.is_power_request(true),
         "shutdown" => return q.is_power_request(false),
         "shutdown cancel" => return has(&["cancel", "abort"]) && has(&["shutdown", "reboot", "power off", "restart", "shut down", "poweroff"]),
+        "systemctl" | "systemctl --user" => return !(has(&["wifi", "wireless", "bluetooth", "headphones"]) && !has(&["service", "daemon", "networkmanager", "boot", "startup", "unit", "automatically"])),
+        "nmcli wifi list" => return has(&["wifi", "wireless", "nmcli"]) && !(has(&["connected to", "am i on", "am i connected", "current wifi", "current ssid", "my ssid"]) && !has(&["nearby", "available", "around", "range", "scan", "list"])),
         "systemctl status" | "systemctl failed" => return !has(&["container", "containers"]),
         "find delete" => return has(&["delete", "remove", "clean", "clean up", "purge", "erase", "get rid of", "wipe"]),
         "kill port" | "ss port" => return q.names_port() || q.has_phrase("already in use"),
@@ -1663,7 +2034,8 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
     match name {
         "gio trash" => has(&["trash", "recycle bin", "discard"]),
         "package search" | "package install" | "package remove" => !q.asks_package_owner(),
-        "rm" => (!has(&["trash", "recycle bin"]) || has(&["permanently", "permanent"])) && !q.removes_program(),
+        "rm" => (!has(&["trash", "recycle bin"]) || has(&["permanently", "permanent"])) && !q.removes_program()
+            && !(has(&["user", "account", "accounts"]) && !has(&["file", "files"]) || has(&["user account", "user accounts"])),
         "ls" => !q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text))
             || q.raw_tokens.iter().any(|t| t.text.ends_with('/') || std::path::Path::new(&t.text).is_dir()),
         "battery status" => has(&["battery", "charge", "upower"]),
@@ -1676,7 +2048,7 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         "find" => !has(&["look through", "search inside", "every line"]),
         "largest items" => !has(&["biggest to smallest", "sort", "order", "lines"])
             && has(&["space", "biggest", "largest", "taking up", "most"]),
-        "lscpu" => has(&["cpu", "processor", "core", "cores"]) && !has(&["eating", "right now", "most", "using the most"]),
+        "lscpu" => has(&["cpu", "processor", "core", "cores"]) && !has(&["eating", "right now", "most", "using the most", "hot", "temperature", "temp", "temps", "overheating"]),
         "tail" => !has(&["journald", "journal", "systemd"]) && !(has(&["docker", "service"]) && !q.has_log_file()),
         "docker logs" => !has(&["journald", "journal", "systemd"]),
         "journalctl" | "search service log" => !q.has_log_file() && !has(&["log in", "log into", "logged in", "in lines"]),
@@ -1821,7 +2193,10 @@ fn score_flag(cmd_name: &str, flag: &Flag, terms: &HashMap<String, f64>, q: &Que
         ("git push", "upstream") => Some(has(&["first time", "upstream", "-u", "track", "new branch", "for the first time"])),
         ("git push", "force") => Some(has(&["force", "--force", "overwrite", "-f"])),
         ("git diff", "staged") => Some(has(&["staged", "--staged", "cached", "about to commit"])),
-        ("ls", "long") => Some(has(&["long", "detail", "details", "size", "sizes", "owner", "permission", "permissions", "date", "dates", "-l"])),
+        ("docker rm", "force") => Some(has(&["force", "forcefully", "-f", "even if", "still running", "running container", "kill"])),
+        ("userdel", "home") => Some(has(&["home", "home folder", "home directory", "homedir", "files too", "everything of"])),
+        ("git rebase", "interactive") => Some(has(&["interactive", "interactively", "squash", "reorder", "edit", "-i", "fixup", "reword"])),
+        ("ls", "long") => Some(has(&["long", "detail", "details", "size", "sizes", "owner", "owns", "owned by", "permission", "permissions", "date", "dates", "-l"])),
         ("ls", "all") => Some(has(&["hidden", "dotfile", "dotfiles", "including hidden", "-a", "-la", "-al"])),
         ("ls", "by_time") => Some(has(&["recent", "recently", "newest", "latest", "last modified", "-t"])),
         ("chmod" | "chown", "recursive") => Some(has(&[
@@ -2050,7 +2425,7 @@ fn score_choice_slot(cmd_name: &str, slot: &Slot, entry: &IndexedCommand, q: &Qu
             ("omarchy restart", "part", "bluetooth") => if has(&["bluetooth"]) { 6.5 } else { 0.0 },
             ("omarchy restart", "part", "shell") => if has(&["shell", "top bar", "bar", "waybar", "menu", "menus"]) { 6.5 } else { 0.0 },
 
-            ("omarchy toggle idle", "mode", "stay_awake") => if has(&["awake", "stay awake", "keep", "prevent", "off", "disable", "do not let"]) { 6.5 } else { 0.0 },
+            ("omarchy toggle idle", "mode", "stay_awake") => if has(&["awake", "stay awake", "keep", "prevent", "off", "disable", "do not let", "from sleeping", "from going to sleep"]) { 6.5 } else { 0.0 },
             ("omarchy toggle idle", "mode", "allow_idle") => if has(&["allow idle", "normal", "normally", "sleep again", "enable idle"]) { 6.5 } else { 0.0 },
 
             ("omarchy toggle touchpad", "state", "on") => if has(&["on", "enable", "activate"]) && !has(&["off", "disable"]) { 6.0 } else { 0.0 },
@@ -2076,9 +2451,15 @@ fn score_choice_slot(cmd_name: &str, slot: &Slot, entry: &IndexedCommand, q: &Qu
             ("dig", "type", "text") => if has(&["txt", "text record", "text records"]) { 6.5 } else { 0.0 },
             ("dig", "type", "nameservers") => if has(&["ns", "nameserver", "nameservers", "name server", "name servers"]) { 6.5 } else { 0.0 },
 
-            ("tar", "action", "list_contents") => if has(&["without extracting", "without unpacking", "what is inside", "inside", "list", "contents", "peek", "-t"]) { 7.5 } else { 0.0 },
+            ("tar", "action", "list_contents") => if has(&["without extracting", "without unpacking", "what is inside", "what is in", "what's in", "inside", "list", "contents", "peek", "-t"]) { 7.5 } else { 0.0 },
             ("tar", "action", "create") => if has(&["pack", "create", "compress", "tar up", "bundle", "into", "-c"]) && !has(&["unpack", "extract", "without"]) { 6.5 } else { 0.0 },
             ("tar", "action", "extract") => if has(&["unpack", "extract", "untar", "decompress", "-x"]) && !has(&["without extracting", "without unpacking"]) { 6.5 } else { 0.4 },
+
+            ("nmcli radio wifi", "state", "on") => if has(&["on", "enable", "activate", "start"]) && !has(&["off", "disable"]) { 6.0 } else { 0.0 },
+            ("nmcli radio wifi", "state", "off") => if has(&["off", "disable", "deactivate", "stop"]) { 6.0 } else { 0.0 },
+
+            ("git branch delete", "mode", "merged") => 1.0,
+            ("git branch delete", "mode", "force") => if has(&["force", "unmerged", "even if", "anyway", "-d"]) { 6.5 } else { 0.0 },
 
             ("wc", "unit", "lines") => if has(&["line", "lines", "-l"]) { 6.5 } else { 0.5 },
             ("wc", "unit", "words") => if has(&["word", "words", "-w"]) { 6.5 } else { 0.0 },
@@ -3670,6 +4051,8 @@ mod tests {
                 keywords: vec!["custom-flux-widget".into()],
                 slots: vec![],
                 flags: vec![],
+                kind: None,
+                opposites: vec![],
             },
             Command {
                 name: "beta".into(),
@@ -3684,6 +4067,8 @@ mod tests {
                 keywords: vec![],
                 slots: vec![],
                 flags: vec![],
+                kind: None,
+                opposites: vec![],
             },
         ];
         let matcher = LocalMatcher::new(&cmds);
@@ -3746,6 +4131,63 @@ mod tests {
         let misses: Vec<&String> = report.lines.iter().filter(|line| line.starts_with("MISS")).collect();
         assert!(report.top1.total > 0, "no safety cases ran");
         assert!(misses.is_empty(), "safety evals must be at 100%: {misses:#?}");
+    }
+
+    #[test]
+    fn reads_the_mood_of_a_request() {
+        let mood = |request: &str| {
+            let norm = normalize_text(request).into_owned();
+            request_mood(&norm, &raw_lower_words(&norm))
+        };
+        for question in [
+            "is vlc installed",
+            "what wifi am i connected to",
+            "do i have docker",
+            "how much space is left",
+            "check if nginx is running",
+            "which process is using port 80?",
+            "who owns this file",
+        ] {
+            assert_eq!(mood(question), Mood::Question, "{question}");
+        }
+        for instruction in [
+            "can you show my disk space",
+            "please restart nginx",
+            "how do i run backup.sh",
+            "i want to install vlc",
+            "what command lists files",
+            "install vlc",
+            "which process uses port 80, and kill it",
+            "is it possible to rename a file",
+        ] {
+            assert_eq!(mood(instruction), Mood::Instruction, "{instruction}");
+        }
+    }
+
+    #[test]
+    fn opposites_ignore_negated_words() {
+        let check = |request: &str| {
+            let norm = normalize_text(request).into_owned();
+            let words = raw_lower_words(&norm);
+            let terms = extract_weighted_terms(request);
+            QueryContext::new(request, &norm, &words, &terms).names_unnegated("sleep")
+        };
+        assert!(check("put the computer to sleep"));
+        assert!(!check("stop the computer from going to sleep"));
+        assert!(!check("don't let the laptop go to sleep"));
+    }
+
+    /// Questions about state get queries, instructions get actions, opposites are never mixed up
+    /// and off-topic requests get nothing (evals/intent.toml): every case must pass.
+    #[test]
+    fn intent_evals_all_pass() {
+        let arch = vec!["arch".to_string(), "omarchy".to_string()];
+        let matcher = LocalMatcher::new(&catalog::usable(load_catalog(), &arch, false));
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals/intent.toml");
+        let report = eval::score_for(&matcher, &file, &arch).unwrap();
+        let misses: Vec<&String> = report.lines.iter().filter(|line| line.starts_with("MISS")).collect();
+        assert!(report.top1.total + report.rejected.total >= 60, "intent.toml should hold the intent cases");
+        assert!(misses.is_empty(), "intent evals must be at 100%: {misses:#?}");
     }
 
     /// Every package manager family answers package requests with its own commands and package

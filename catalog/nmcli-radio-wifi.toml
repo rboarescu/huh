@@ -1,0 +1,22 @@
+name = "nmcli radio wifi"
+description = "Switch the Wi-Fi radio on or off"
+template = "nmcli radio wifi {state}"
+kind = "action"
+keywords = ["turn wifi on", "turn wifi off", "enable wifi", "disable wifi", "switch wifi off", "switch wifi on", "wifi back on", "wireless radio", "airplane mode wifi"]
+
+[[slots]]
+id = "state"
+kind = "choice"
+question = "Should Wi-Fi be on or off?"
+
+[[slots.options]]
+name = "on"
+value = "on"
+description = "Wi-Fi should be switched on"
+opposites = ["off", "disable"]
+
+[[slots.options]]
+name = "off"
+value = "off"
+description = "Wi-Fi should be switched off"
+opposites = ["enable"]

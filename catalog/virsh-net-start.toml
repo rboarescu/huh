@@ -1,6 +1,7 @@
 name = "virsh net-start"
 description = "Start a virtual network used by virtual machines"
 template = "virsh net-start {network}"
+kind = "action"
 package = "libvirt"
 keywords = ["start virtual network", "start libvirt network", "start default network"]
 
