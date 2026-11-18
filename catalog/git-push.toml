@@ -1,6 +1,6 @@
 name = "git push"
 description = "Upload my git commits to the remote server"
-template = "git push {upstream} {force}"
+template = "git push {upstream} {force} {remote} {branch}"
 keywords = ["upload commits", "push to origin", "push branch", "send commits", "push this branch to origin", "publish a branch", "push for the first time", "set upstream", "force push"]
 
 [[flags]]
@@ -10,6 +10,20 @@ question = "Does the user want to push a branch to origin for the first time and
 
 [[flags]]
 id = "force"
-value = "--force"
+value = "--force-with-lease"
 question = "Does the user want to force the push, overwriting what is on the remote?"
-warning = "the remote history is overwritten; other people's commits can be lost."
+warning = "the remote history is overwritten; --force-with-lease refuses if someone else pushed meanwhile, but commits on the remote that you do not have are still lost."
+
+[[slots]]
+id = "remote"
+kind = "text"
+what = "the remote to push to, usually origin"
+default = ""
+extract = "sys_push_remote"
+
+[[slots]]
+id = "branch"
+kind = "text"
+what = "the branch to push"
+default = ""
+extract = "sys_push_branch"

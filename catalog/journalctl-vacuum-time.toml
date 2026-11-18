@@ -1,0 +1,15 @@
+name = "journalctl vacuum time"
+description = "Delete system log (journal) entries older than a number of days to free disk space"
+template = "sudo journalctl --vacuum-time={days}"
+kind = "action"
+destructive = true
+warning = "journal entries older than this are deleted and cannot be recovered."
+keywords = ["clear journal older than", "vacuum the journal", "delete old journal logs", "trim journal by age", "clean old system logs", "journal vacuum time"]
+
+[[slots]]
+id = "days"
+kind = "text"
+what = "how many days of log to keep"
+extract = "file_age"
+format = "{}d{abs}"
+default = "7d"

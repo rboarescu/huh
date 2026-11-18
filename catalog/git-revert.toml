@@ -1,0 +1,11 @@
+name = "git revert"
+description = "Undo one earlier commit by adding a new commit that reverses it, leaving history intact"
+template = "git revert {commit}"
+kind = "action"
+keywords = ["revert commit", "undo a pushed commit", "reverse a commit", "back out a commit", "git revert"]
+
+[[slots]]
+id = "commit"
+kind = "text"
+what = "the commit (its hash) to reverse"
+default = "HEAD"

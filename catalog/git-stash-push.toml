@@ -1,0 +1,17 @@
+name = "git stash push"
+description = "Put uncommitted changes aside under a name (a stash message) so they are easy to find later"
+template = "git stash push {untracked} {message}"
+kind = "action"
+keywords = ["stash with message", "stash changes with a message", "name a stash", "stash push message", "save a stash with a name", "label my stash"]
+
+[[flags]]
+id = "untracked"
+value = "-u"
+question = "Does the user want new files that git does not track yet (untracked) stashed too?"
+
+[[slots]]
+id = "message"
+kind = "text"
+what = "the message that names the stash"
+format = "-m {}"
+extract = "sys_stash_message"

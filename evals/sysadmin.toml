@@ -1,0 +1,648 @@
+# Sysadmin round: requests that fresh testers got wrong (missing entries, wrong-but-confident rankings) plus
+# variants. Value-binding cases (pkill names, "is docker running" filling a service, placeholders for named
+# values) live in slots*.toml, not here.
+
+# git
+
+[[case]]
+request = "cherry-pick commit abc1234"
+command = "git cherry-pick"
+expect = 'git cherry-pick abc1234'
+
+[[case]]
+request = "cherry pick a1b2c3d onto this branch"
+command = "git cherry-pick"
+expect = 'git cherry-pick a1b2c3d'
+
+[[case]]
+request = "apply commit 9f8e7d6 to my branch"
+command = "git cherry-pick"
+expect = 'git cherry-pick 9f8e7d6'
+
+[[case]]
+request = "show diff between main and develop"
+command = "git diff"
+expect = 'git diff main develop'
+
+[[case]]
+request = "compare branches main and release"
+command = "git diff"
+expect = 'git diff main release'
+
+[[case]]
+request = "what changed between v1.0 and v2.0"
+command = "git diff"
+expect = 'git diff v1.0 v2.0'
+
+[[case]]
+request = "squash the last 3 commits"
+command = "git rebase"
+expect = 'git rebase -i HEAD~3'
+warn = true
+
+[[case]]
+request = "squash last 5 commits into one"
+command = "git rebase"
+expect = 'git rebase -i HEAD~5'
+warn = true
+
+[[case]]
+request = "combine the last 2 commits"
+command = "git rebase"
+expect = 'git rebase -i HEAD~2'
+warn = true
+
+[[case]]
+request = "stash changes with message wip-auth"
+command = "git stash push"
+expect = 'git stash push -m wip-auth'
+
+[[case]]
+request = "stash my work with the message wip-login"
+command = "git stash push"
+expect = 'git stash push -m wip-login'
+
+[[case]]
+request = "stash my changes"
+command = "git stash"
+expect = 'git stash'
+
+[[case]]
+request = "create a branch called feature/login-fix from main"
+command = "git switch"
+expect = 'git switch -c feature/login-fix main'
+
+[[case]]
+request = "create new branch hotfix-12"
+command = "git switch"
+expect = 'git switch -c hotfix-12'
+
+[[case]]
+request = "make a new branch named dev-ui from develop"
+command = "git switch"
+expect = 'git switch -c dev-ui develop'
+
+[[case]]
+request = "force push to origin main"
+command = "git push"
+expect = 'git push --force-with-lease origin main'
+warn = true
+
+[[case]]
+request = "force push my branch to origin feature-x"
+command = "git push"
+expect = 'git push --force-with-lease origin feature-x'
+warn = true
+
+[[case]]
+request = "push to origin main"
+command = "git push"
+expect = 'git push origin main'
+
+[[case]]
+request = "undo git commit"
+command = "git reset"
+expect = 'git reset --soft HEAD~1'
+
+[[case]]
+request = "undo the last commit but keep my changes"
+command = "git reset"
+expect = 'git reset --soft HEAD~1'
+
+[[case]]
+request = "show commit abc1234"
+command = "git show"
+expect = 'git show abc1234'
+
+[[case]]
+request = "revert commit abc1234"
+command = "git revert"
+expect = 'git revert abc1234'
+
+# processes and files
+
+[[case]]
+request = "list open files of pid 1234"
+command = "lsof"
+expect = 'lsof -p 1234'
+
+[[case]]
+request = "what process has /var/log/app.log open"
+command = "lsof"
+expect = 'lsof /var/log/app.log'
+
+[[case]]
+request = "kill process 4242 forcefully"
+command = "kill"
+expect = 'kill -9 4242'
+warn = true
+
+[[case]]
+request = "force kill pid 999"
+command = "kill"
+expect = 'kill -9 999'
+warn = true
+
+[[case]]
+request = "kill process 4242"
+command = "kill"
+expect = 'kill 4242'
+warn = true
+
+[[case]]
+request = "how long has the system been up"
+command = "uptime"
+expect = 'uptime'
+
+[[case]]
+request = "how long has the machine been running"
+command = "uptime"
+expect = 'uptime'
+
+[[case]]
+request = "top 10 processes by memory"
+command = "ps top"
+expect = 'ps aux --sort=-%mem | head -n 11'
+
+[[case]]
+request = "top 5 processes by cpu"
+command = "ps top"
+expect = 'ps aux --sort=-%cpu | head -n 6'
+
+[[case]]
+request = "show unique ip addresses in app.log"
+command = "grep ip addresses"
+expect = "grep -oE '([0-9]{1,3}\\.){3}[0-9]{1,3}' app.log | sort -u"
+
+[[case]]
+request = "extract ip addresses from access.log"
+command = "grep ip addresses"
+expect = "grep -oE '([0-9]{1,3}\\.){3}[0-9]{1,3}' access.log"
+
+[[case]]
+request = "show disk usage of each folder in /var"
+command = "du per folder"
+expect = 'du -h --max-depth=1 /var | sort -h'
+
+[[case]]
+request = "size of every directory in /home"
+command = "du per folder"
+expect = 'du -h --max-depth=1 /home | sort -h'
+
+[[case]]
+request = "list files with permissions in logs"
+command = "ls"
+expect = 'ls -l logs'
+
+[[case]]
+request = "show file permissions in /etc"
+command = "ls"
+expect = 'ls -l /etc'
+
+[[case]]
+request = "check memory usage in human readable form"
+command = "free"
+expect = 'free -h'
+
+[[case]]
+request = "print second column of access.log"
+command = "awk column"
+expect = "awk '{print $2}' access.log"
+
+[[case]]
+request = "print the 3rd column of data.txt"
+command = "awk column"
+expect = "awk '{print $3}' data.txt"
+
+[[case]]
+request = "run sleep 600 in background with nohup"
+command = "nohup"
+expect = 'nohup sleep 600 &'
+
+[[case]]
+request = "run backup.sh in the background with nohup"
+command = "nohup"
+expect = 'nohup ./backup.sh &'
+
+# remove and clean
+
+[[case]]
+request = "remove node_modules folders recursively"
+command = "find delete dirs"
+expect = 'find . -name node_modules -type d -prune -exec rm -rf {} +'
+warn = true
+
+[[case]]
+request = "delete all __pycache__ directories"
+command = "find delete dirs"
+expect = 'find . -name __pycache__ -type d -prune -exec rm -rf {} +'
+warn = true
+
+[[case]]
+request = "clear journal older than 7 days"
+command = "journalctl vacuum time"
+expect = 'sudo journalctl --vacuum-time=7d'
+warn = true
+
+[[case]]
+request = "limit the journal to 500M"
+command = "journalctl vacuum size"
+expect = 'sudo journalctl --vacuum-size=500M'
+warn = true
+
+# copy and transfer
+
+[[case]]
+request = "copy backup.tar.gz to 10.0.0.7:/srv/backups as deploy"
+command = "scp"
+expect = 'scp backup.tar.gz deploy@10.0.0.7:/srv/backups'
+
+[[case]]
+request = "copy report.pdf to bob@web1:/tmp"
+command = "scp"
+expect = 'scp report.pdf bob@web1:/tmp'
+
+[[case]]
+request = "copy app.log into container web01 at /tmp"
+command = "docker cp"
+expect = 'docker cp app.log web01:/tmp'
+
+[[case]]
+request = "copy /var/log/app.log from container api to ."
+command = "docker cp from"
+expect = 'docker cp api:/var/log/app.log .'
+
+[[case]]
+request = "rsync src to backup-host:/data with delete"
+command = "rsync"
+expect = 'rsync -av --delete src backup-host:/data'
+warn = true
+
+[[case]]
+request = "sync photos to nas:/backup and delete extra files"
+command = "rsync"
+expect = 'rsync -av --delete photos nas:/backup'
+warn = true
+
+# ssh
+
+[[case]]
+request = "ssh reverse tunnel from port 9000 on server1 to local port 22"
+command = "ssh remote tunnel"
+expect = 'ssh -N -R 9000:localhost:22 server1'
+
+[[case]]
+request = "forward remote port 8080 to my localhost port 3000 over ssh"
+command = "ssh remote tunnel"
+
+[[case]]
+request = "forward local port 5432 to remote port 5432 on db1"
+command = "ssh tunnel"
+expect = 'ssh -N -L 5432:localhost:5432 db1'
+
+[[case]]
+request = "generate ed25519 ssh key"
+command = "ssh-keygen"
+expect = 'ssh-keygen -t ed25519'
+
+[[case]]
+request = "create a new ssh key"
+command = "ssh-keygen"
+expect = 'ssh-keygen -t ed25519'
+
+# system
+
+[[case]]
+request = "mount /dev/sdb1 on /mnt/data"
+command = "mount"
+expect = 'sudo mount /dev/sdb1 /mnt/data'
+
+[[case]]
+request = "mount /dev/sdc2 at /mnt/usb"
+command = "mount"
+expect = 'sudo mount /dev/sdc2 /mnt/usb'
+
+[[case]]
+request = "mount /dev/sdb1"
+command = "udisksctl mount"
+expect = 'udisksctl mount -b /dev/sdb1'
+
+[[case]]
+request = "change password for bob"
+command = "passwd"
+expect = 'sudo passwd bob'
+
+[[case]]
+request = "set sticky bit on /tmp/shared"
+command = "chmod"
+expect = 'chmod +t /tmp/shared'
+
+[[case]]
+request = "check filesystem on /dev/sdc1"
+command = "fsck"
+expect = 'sudo fsck /dev/sdc1'
+warn = true
+
+[[case]]
+request = "show cron jobs for user www-data"
+command = "crontab list user"
+expect = 'sudo crontab -l -u www-data'
+
+[[case]]
+request = "list my cron jobs"
+command = "crontab list"
+expect = 'crontab -l'
+
+[[case]]
+request = "schedule backup.sh every day at 3am"
+command = "crontab edit"
+expect = 'crontab -e'
+note = "0 3 * * * /path/to/backup.sh"
+
+[[case]]
+request = "run cleanup.sh every hour"
+command = "crontab edit"
+expect = 'crontab -e'
+note = "0 * * * * /path/to/cleanup.sh"
+
+[[case]]
+request = "replace foo with bar in nginx.conf"
+command = "sed replace"
+expect = "sed -i 's/foo/bar/g' nginx.conf"
+warn = true
+
+[[case]]
+request = "replace http with https in config.yml"
+command = "sed replace"
+expect = "sed -i 's/http/https/g' config.yml"
+warn = true
+
+[[case]]
+request = "tar.gz of src excluding node_modules"
+command = "tar"
+expect = 'tar -czf src.tar.gz --exclude=node_modules src'
+
+[[case]]
+request = "compress the logs folder to logs.tar.gz"
+command = "tar"
+expect = 'tar -czf logs.tar.gz logs'
+
+[[case]]
+request = "add ip 10.0.0.5/24 to eth0"
+command = "ip addr add"
+expect = 'sudo ip addr add 10.0.0.5/24 dev eth0'
+
+[[case]]
+request = "remove ip 10.0.0.5/24 from eth0"
+command = "ip addr del"
+expect = 'sudo ip addr del 10.0.0.5/24 dev eth0'
+
+# docker
+
+[[case]]
+request = "docker compose restart service web"
+command = "docker compose restart"
+expect = 'docker compose restart web'
+
+[[case]]
+request = "restart the api service in docker compose"
+command = "docker compose restart"
+expect = 'docker compose restart api'
+
+[[case]]
+request = "show logs of container api last 100 lines"
+command = "docker logs"
+expect = 'docker logs --tail 100 api'
+
+[[case]]
+request = "docker logs --tail 100 web"
+command = "docker logs"
+expect = 'docker logs --tail 100 web'
+
+[[case]]
+request = "follow logs of container api"
+command = "docker logs"
+expect = 'docker logs -f api'
+
+[[case]]
+request = "last 50 lines of container db logs"
+command = "docker logs"
+expect = 'docker logs --tail 50 db'
+
+[[case]]
+request = "restart web in docker compose"
+command = "docker compose restart"
+expect = 'docker compose restart web'
+
+# more variants
+
+[[case]]
+request = "cherry-pick abc1234 into my branch"
+command = "git cherry-pick"
+expect = 'git cherry-pick abc1234'
+
+[[case]]
+request = "git diff between main and feature/login"
+command = "git diff refs"
+expect = 'git diff main feature/login'
+
+[[case]]
+request = "squash my last 4 commits"
+command = "git rebase"
+expect = 'git rebase -i HEAD~4'
+warn = true
+
+[[case]]
+request = "stash with message 'half done'"
+command = "git stash push"
+expect = "git stash push -m 'half done'"
+
+[[case]]
+request = "create branch fix-typo from develop"
+command = "git switch"
+expect = 'git switch -c fix-typo develop'
+
+[[case]]
+request = "push origin feature-x"
+command = "git push"
+expect = 'git push origin feature-x'
+
+[[case]]
+request = "undo my last commit"
+command = "git reset"
+expect = 'git reset --soft HEAD~1'
+warn = true
+
+[[case]]
+request = "list open files for pid 999"
+command = "lsof"
+expect = 'lsof -p 999'
+
+[[case]]
+request = "kill -9 process 123"
+command = "kill"
+expect = 'kill -9 123'
+warn = true
+
+[[case]]
+request = "kill 555 with force"
+command = "kill"
+expect = 'kill -9 555'
+warn = true
+
+[[case]]
+request = "top 3 processes by cpu"
+command = "ps top"
+expect = 'ps aux --sort=-%cpu | head -n 4'
+
+[[case]]
+request = "unique ips in access.log"
+command = "grep ip addresses"
+expect = "grep -oE '([0-9]{1,3}\\.){3}[0-9]{1,3}' access.log | sort -u"
+
+[[case]]
+request = "how much space does each folder in /home use"
+command = "du per folder"
+expect = 'du -h --max-depth=1 /home | sort -h'
+
+[[case]]
+request = "list permissions of files in /etc"
+command = "ls permissions"
+expect = 'ls -l /etc'
+
+[[case]]
+request = "show me the permissions of files in /var/www"
+command = "ls permissions"
+expect = 'ls -l /var/www'
+
+[[case]]
+request = "delete node_modules recursively"
+command = "find delete dirs"
+expect = 'find . -name node_modules -type d -prune -exec rm -rf {} +'
+warn = true
+
+[[case]]
+request = "vacuum journal to 200M"
+command = "journalctl vacuum size"
+expect = 'sudo journalctl --vacuum-size=200M'
+warn = true
+
+[[case]]
+request = "clear journal older than 2 weeks"
+command = "journalctl vacuum time"
+expect = 'sudo journalctl --vacuum-time=14d'
+warn = true
+
+[[case]]
+request = "copy db.sql to admin@10.1.1.1:/backup"
+command = "scp"
+expect = 'scp db.sql admin@10.1.1.1:/backup'
+
+[[case]]
+request = "copy conf.yml into container api at /etc"
+command = "docker cp"
+expect = 'docker cp conf.yml api:/etc'
+
+[[case]]
+request = "rsync data to nas:/vol with delete"
+command = "rsync"
+expect = 'rsync -av --delete data nas:/vol'
+warn = true
+
+[[case]]
+request = "reverse ssh tunnel port 2222 to local port 22 on bastion"
+command = "ssh remote tunnel"
+expect = 'ssh -N -R 2222:localhost:22 bastion'
+
+[[case]]
+request = "forward local port 8080 to port 80 on web1"
+command = "ssh tunnel"
+expect = 'ssh -N -L 8080:localhost:80 web1'
+
+[[case]]
+request = "generate an ssh key"
+command = "ssh-keygen"
+expect = 'ssh-keygen -t ed25519'
+
+[[case]]
+request = "mount /dev/sdd1 on /mnt/usb"
+command = "mount"
+expect = 'sudo mount /dev/sdd1 /mnt/usb'
+
+[[case]]
+request = "set password for alice"
+command = "passwd user"
+expect = 'sudo passwd alice'
+
+[[case]]
+request = "change my password"
+command = "passwd"
+expect = 'passwd'
+
+[[case]]
+request = "check the filesystem on /dev/sda2"
+command = "fsck"
+expect = 'sudo fsck /dev/sda2'
+warn = true
+
+[[case]]
+request = "what cron jobs does user deploy have"
+command = "crontab list user"
+expect = 'sudo crontab -l -u deploy'
+
+[[case]]
+request = "run sync.sh every 5 minutes"
+command = "crontab edit"
+expect = 'crontab -e'
+note = "*/5 * * * * /path/to/sync.sh"
+
+[[case]]
+request = "run report.py every monday at 9am"
+command = "crontab edit"
+expect = 'crontab -e'
+note = "0 9 * * 1 /path/to/report.py"
+
+[[case]]
+request = "replace localhost with db in app.env"
+command = "sed replace"
+expect = "sed -i 's/localhost/db/g' app.env"
+warn = true
+
+[[case]]
+request = "add ip 192.168.1.50/24 to enp3s0"
+command = "ip addr add"
+expect = 'sudo ip addr add 192.168.1.50/24 dev enp3s0'
+
+[[case]]
+request = "run ./server.sh in the background with nohup"
+command = "nohup"
+expect = 'nohup ./server.sh &'
+
+[[case]]
+request = "print the 1st column of users.log"
+command = "awk column"
+expect = "awk '{print $1}' users.log"
+
+[[case]]
+request = "chmod +t /srv/share"
+command = "chmod"
+expect = 'chmod +t /srv/share'
+
+[[case]]
+request = "change sticky bit on /srv/share"
+command = "chmod"
+expect = 'chmod +t /srv/share'
+
+[[case]]
+request = "how long has this server been running"
+command = "uptime"
+expect = 'uptime'
+
+[[case]]
+request = "memory usage human readable"
+command = "free"
+expect = 'free -h'
+
+[[case]]
+request = "show commits between main and develop"
+command = "git log"

@@ -1,0 +1,20 @@
+name = "ssh-keygen"
+description = "Generate a new ssh key pair (private and public key) for logging in without a password"
+template = "ssh-keygen -t {type}"
+kind = "action"
+keywords = ["generate ssh key", "create ssh key", "new ssh key pair", "make an ssh key", "ssh keypair", "ed25519 key", "rsa key"]
+
+[[slots]]
+id = "type"
+kind = "choice"
+question = "Which key type does the user want?"
+
+[[slots.options]]
+name = "ed25519"
+value = "ed25519"
+description = "A modern, short and fast key type (the usual choice)"
+
+[[slots.options]]
+name = "rsa"
+value = "rsa -b 4096"
+description = "An RSA key of 4096 bits, for older servers that lack ed25519"

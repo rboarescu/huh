@@ -1,12 +1,20 @@
 name = "scp"
 description = "Copy a file to or from another computer over the network"
-template = "scp {source} {dest}"
+template = "scp {source} {user}{dest}"
 keywords = ["copy over ssh", "send file to server", "download from server", "remote file copy"]
 
 [[slots]]
 id = "source"
 kind = "text"
 what = "the file to copy"
+
+[[slots]]
+id = "user"
+kind = "text"
+what = "the account to log in as on the other computer"
+default = ""
+format = "{}@"
+extract = "sys_as_user"
 
 [[slots]]
 id = "dest"

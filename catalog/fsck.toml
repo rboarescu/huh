@@ -1,0 +1,13 @@
+name = "fsck"
+description = "Check a disk partition's filesystem for errors and repair it"
+template = "sudo fsck {device}"
+kind = "action"
+destructive = true
+warning = "unmount the filesystem first; running fsck on a mounted filesystem can corrupt it."
+keywords = ["check filesystem", "filesystem check", "repair filesystem", "fix disk errors", "fsck partition", "scan disk for errors"]
+
+[[slots]]
+id = "device"
+kind = "text"
+what = "the partition to check"
+extract = "device"

@@ -12,6 +12,7 @@ mod knowledge;
 mod manpage;
 mod matcher;
 mod platform;
+mod readers;
 mod render;
 mod risk;
 mod session;
@@ -127,6 +128,11 @@ fn destroys_more_than_named(suggestion: &Suggestion, request: &str) -> bool {
             || suggestion.line.contains(" -mtime ")
             || suggestion.line.contains(" -size "));
     }
+    // `find . -name node_modules -type d -prune -exec rm -rf {} +` only removes what the name matches;
+    // without a name it would remove every folder.
+    if suggestion.line.starts_with("find ") && suggestion.line.contains(" -exec rm ") {
+        return !suggestion.line.contains(" -name ") || suggestion.line.contains(" -name <");
+    }
     suggestion
         .line
         .split_whitespace()
@@ -215,12 +221,20 @@ pub fn suggest(
             );
             continue;
         }
-        let Some(details) = matcher.details(command, request, &candidates) else { continue };
+        let Some(mut details) = matcher.details(command, request, &candidates) else { continue };
+        readers::refine(command, request, &mut details);
         // Only the first suggestion is worth interrupting the user for.
         let mut silent = |_: &str| None;
         let ask: &mut dyn FnMut(&str) -> Option<bool> = if suggestions.is_empty() { &mut *decide } else { &mut silent };
         if let Some(mut suggestion) = assemble::build(command, probability, &details, ask)? {
             guard::tell_the_truth(&mut suggestion, command, &details, &candidates);
+            if command.name == "crontab edit"
+                && let Some(line) = readers::cron_line(request)
+            {
+                suggestion
+                    .notes
+                    .push(format!("in the editor that opens, add this line (use the full path of the script): {line}"));
+            }
             if destroys_more_than_named(&suggestion, request) {
                 continue;
             }

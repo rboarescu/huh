@@ -1,0 +1,5 @@
+name = "crontab list"
+description = "Show my scheduled (cron) jobs"
+template = "crontab -l"
+kind = "query"
+keywords = ["list cron jobs", "show my crontab", "scheduled jobs", "what is scheduled", "my cron jobs", "crontab -l"]

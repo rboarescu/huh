@@ -1,6 +1,6 @@
 name = "git switch"
 description = "Switch to another git branch, or create a new one"
-template = "git switch {create} {branch}"
+template = "git switch {create} {branch} {base}"
 keywords = ["change branch", "checkout branch", "new branch", "create branch", "switch git branch", "switch to main", "switch to a branch", "go to branch", "checkout main", "git checkout"]
 
 [[flags]]
@@ -12,3 +12,10 @@ question = "Does the user want a new branch created?"
 id = "branch"
 kind = "text"
 what = "the branch"
+
+[[slots]]
+id = "base"
+kind = "text"
+what = "the existing branch the new branch should start from"
+default = ""
+extract = "sys_base_branch"

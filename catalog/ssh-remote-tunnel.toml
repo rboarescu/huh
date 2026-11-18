@@ -1,0 +1,23 @@
+name = "ssh remote tunnel"
+description = "Make a port on a remote computer reach a port on this computer through an ssh connection (reverse tunnel, remote port forward)"
+template = "ssh -N -R {listen_port}:localhost:{target_port} {host}"
+kind = "action"
+keywords = ["ssh reverse tunnel", "remote port forward", "forward remote port to local", "expose local port on server", "ssh -R", "reverse port forward over ssh", "publish a local port on a remote server"]
+
+[[slots]]
+id = "listen_port"
+kind = "text"
+what = "the port to open on the remote computer"
+extract = "local_port"
+
+[[slots]]
+id = "target_port"
+kind = "text"
+what = "the port on this computer it leads to"
+extract = "remote_port"
+
+[[slots]]
+id = "host"
+kind = "text"
+what = "the remote computer to tunnel through"
+extract = "sys_host"

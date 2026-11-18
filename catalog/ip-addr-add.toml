@@ -1,0 +1,17 @@
+name = "ip addr add"
+description = "Add an IP address to a network interface"
+template = "sudo ip addr add {address} dev {interface}"
+kind = "action"
+keywords = ["add ip address to interface", "assign an ip to eth0", "give interface an extra address", "set a secondary ip", "ip addr add"]
+
+[[slots]]
+id = "address"
+kind = "text"
+what = "the address with its prefix length, such as 10.0.0.5/24"
+extract = "sys_cidr"
+
+[[slots]]
+id = "interface"
+kind = "text"
+what = "the network interface"
+extract = "sys_interface"

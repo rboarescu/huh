@@ -1,0 +1,12 @@
+name = "nohup"
+description = "Run a command in the background so it keeps going after the terminal is closed"
+template = "nohup {command} &"
+kind = "action"
+keywords = ["run in background with nohup", "keep running after logout", "run command detached", "survive closing the terminal", "background job that keeps running", "nohup"]
+
+[[slots]]
+id = "command"
+kind = "text"
+what = "the command to run in the background"
+raw = true
+extract = "sys_background_command"

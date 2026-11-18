@@ -1,0 +1,10 @@
+name = "git cherry-pick"
+description = "Copy one existing commit onto the branch you are on"
+template = "git cherry-pick {commit}"
+kind = "action"
+keywords = ["cherry pick commit", "cherry-pick", "apply a commit to this branch", "copy a commit to my branch", "bring one commit over", "take a commit from another branch"]
+
+[[slots]]
+id = "commit"
+kind = "text"
+what = "the commit (its hash) to copy onto this branch"

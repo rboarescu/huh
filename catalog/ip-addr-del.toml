@@ -1,0 +1,17 @@
+name = "ip addr del"
+description = "Remove an IP address from a network interface"
+template = "sudo ip addr del {address} dev {interface}"
+kind = "action"
+keywords = ["remove ip address from interface", "delete an ip from eth0", "drop an interface address", "unassign ip", "ip addr del"]
+
+[[slots]]
+id = "address"
+kind = "text"
+what = "the address with its prefix length, such as 10.0.0.5/24"
+extract = "sys_cidr"
+
+[[slots]]
+id = "interface"
+kind = "text"
+what = "the network interface"
+extract = "sys_interface"

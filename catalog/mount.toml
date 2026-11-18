@@ -1,0 +1,17 @@
+name = "mount"
+description = "Attach a disk partition to a folder (mount point) so its files can be used"
+template = "sudo mount {device} {mountpoint}"
+kind = "action"
+keywords = ["mount partition", "mount disk on folder", "mount device at path", "attach a drive to a folder", "mount drive to directory"]
+
+[[slots]]
+id = "device"
+kind = "text"
+what = "the partition or disk to mount"
+extract = "device"
+
+[[slots]]
+id = "mountpoint"
+kind = "path"
+what = "the existing, empty folder to mount it on"
+extract = "sys_mount_point"

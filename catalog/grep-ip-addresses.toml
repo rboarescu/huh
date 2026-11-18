@@ -1,0 +1,31 @@
+name = "grep ip addresses"
+description = "Pull the IP addresses out of a file, such as a log, optionally each address once"
+template = "grep -oE {pattern} {file} {unique}"
+kind = "query"
+keywords = ["extract ip addresses", "list ip addresses in a log", "unique ip addresses", "ips in a file", "find ip addresses in file", "distinct ip addresses"]
+
+[[slots]]
+id = "pattern"
+kind = "choice"
+question = "Which pattern finds IPv4 addresses?"
+
+[[slots.options]]
+name = "ipv4"
+value = "'([0-9]{1,3}\\.){3}[0-9]{1,3}'"
+description = "An IPv4 address: four numbers separated by dots"
+
+[[slots.options]]
+name = "ipv6"
+value = "'([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}'"
+description = "An IPv6 address: groups of hex digits separated by colons"
+
+[[slots]]
+id = "file"
+kind = "path"
+what = "the file to read"
+extract = "filename"
+
+[[flags]]
+id = "unique"
+value = "| sort -u"
+question = "Does the user want each address listed only once (unique, distinct)?"

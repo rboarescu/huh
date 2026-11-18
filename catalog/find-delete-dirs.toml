@@ -1,0 +1,35 @@
+name = "find delete dirs"
+description = "Find folders with a given name everywhere below a folder and delete them, such as node_modules or __pycache__"
+template = "find {where} -name {name} -type d {action}"
+kind = "action"
+destructive = true
+warning = "every folder with this name below the starting folder is deleted with everything inside it, and cannot be recovered."
+keywords = ["delete all node_modules", "remove node_modules folders", "remove pycache directories", "delete folders by name recursively", "recursively delete directories named", "clean build folders"]
+
+[[slots]]
+id = "where"
+kind = "path"
+what = "the folder to search below"
+default = "."
+extract = "sys_search_dir"
+
+[[slots]]
+id = "name"
+kind = "text"
+what = "the exact name of the folders to delete"
+extract = "sys_dir_name"
+
+[[slots]]
+id = "action"
+kind = "choice"
+question = "What happens to each folder found?"
+
+[[slots.options]]
+name = "remove"
+value = "-prune -exec rm -rf {} +"
+description = "Delete each folder found with everything inside it"
+
+[[slots.options]]
+name = "preview"
+value = "-print"
+description = "Only list the folders found, change nothing"

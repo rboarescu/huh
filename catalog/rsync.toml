@@ -1,7 +1,13 @@
 name = "rsync"
 description = "Make one folder match another, copying only the files that changed"
-template = "rsync -av {exclude} {source} {dest}"
+template = "rsync -av {delete} {exclude} {source} {dest}"
 keywords = ["sync folders", "mirror folder", "incremental copy", "backup folder", "copy changed files"]
+
+[[flags]]
+id = "delete"
+value = "--delete"
+question = "Does the user want files deleted from the destination when they no longer exist in the source (an exact mirror)?"
+warning = "files in the destination that are not in the source are deleted; check the destination path first (--dry-run shows what would happen)."
 
 [[slots]]
 id = "source"

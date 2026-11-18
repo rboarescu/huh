@@ -1,0 +1,18 @@
+name = "awk column"
+description = "Print one column (field) of a file whose columns are separated by spaces"
+template = "awk {field} {file}"
+kind = "query"
+keywords = ["print column", "second column", "nth column of a file", "print field", "show column of log", "space separated column"]
+
+[[slots]]
+id = "field"
+kind = "text"
+what = "the number of the column to print"
+format = "'{print ${}}'"
+extract = "sys_column"
+
+[[slots]]
+id = "file"
+kind = "path"
+what = "the file to read"
+extract = "filename"

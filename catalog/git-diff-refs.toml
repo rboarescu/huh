@@ -1,0 +1,17 @@
+name = "git diff refs"
+description = "Show what differs between two branches, tags or commits"
+template = "git diff {first} {second}"
+kind = "query"
+keywords = ["diff between branches", "compare branches", "difference between two branches", "compare two commits", "what changed between versions", "compare tags", "diff main and develop"]
+
+[[slots]]
+id = "first"
+kind = "text"
+extract = "sys_ref_first"
+what = "the first branch, tag or commit"
+
+[[slots]]
+id = "second"
+kind = "text"
+extract = "sys_ref_second"
+what = "the second branch, tag or commit to compare it with"

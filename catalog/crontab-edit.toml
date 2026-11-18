@@ -1,0 +1,5 @@
+name = "crontab edit"
+description = "Schedule a command to run on a timetable (every day, hour or minute) by editing my cron jobs"
+template = "crontab -e"
+kind = "action"
+keywords = ["schedule a script", "run every day at", "run every hour", "run every night", "cron job", "schedule a job", "run weekly", "run on a schedule", "repeat a command regularly"]

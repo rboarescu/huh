@@ -1,0 +1,11 @@
+name = "passwd user"
+description = "Set a new password for another user account"
+template = "sudo passwd {user}"
+kind = "action"
+keywords = ["change password for user", "reset a user's password", "set password for bob", "change another user's password"]
+
+[[slots]]
+id = "user"
+kind = "text"
+type = "user"
+what = "the user whose password to change"

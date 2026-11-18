@@ -1,0 +1,11 @@
+name = "crontab list user"
+description = "Show the scheduled (cron) jobs of another user"
+template = "sudo crontab -l -u {user}"
+kind = "query"
+keywords = ["cron jobs for user", "crontab of user", "show cron jobs of another user", "scheduled jobs for user", "list cron for www-data"]
+
+[[slots]]
+id = "user"
+kind = "text"
+type = "user"
+what = "the user whose cron jobs to show"

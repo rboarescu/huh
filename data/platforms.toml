@@ -105,6 +105,7 @@ userdel = "shadow"
 wl-copy = "wl-clipboard"
 wl-paste = "wl-clipboard"
 wpctl = "wireplumber"
+crontab = "cronie"
 
 # package key -> family -> package name. `*` is the name on every family without its own
 # entry; "" means the family has no such package (so huh stays quiet instead of guessing).
@@ -132,6 +133,7 @@ npm = { arch = "npm", debian = "npm", fedora = "npm", alpine = "npm", nixos = "n
 "7zip" = { arch = "7zip", debian = "p7zip-full", alpine = "7zip", nixos = "p7zip" }
 procps = { arch = "procps-ng", debian = "procps", fedora = "procps-ng", suse = "procps", alpine = "procps-ng", void = "procps-ng", nixos = "procps", gentoo = "sys-process/procps" }
 networkmanager = { arch = "networkmanager", debian = "network-manager", fedora = "NetworkManager", suse = "NetworkManager", alpine = "networkmanager-cli", void = "NetworkManager", nixos = "networkmanager", gentoo = "net-misc/networkmanager" }
+cronie = { arch = "cronie", debian = "cron", fedora = "cronie", suse = "cron", alpine = "", void = "cronie", nixos = "cron", gentoo = "sys-process/cronie" }
 systemd = { arch = "systemd", debian = "systemd", fedora = "systemd", suse = "systemd", alpine = "", void = "", nixos = "systemd", gentoo = "sys-apps/systemd" }
 shadow = { arch = "shadow", debian = "passwd", fedora = "shadow-utils", suse = "shadow", alpine = "shadow", void = "shadow", nixos = "shadow", gentoo = "sys-apps/shadow" }
 kmod = { "*" = "kmod", gentoo = "sys-apps/kmod" }
