@@ -4,7 +4,7 @@ use crate::matcher::LocalMatcher;
 use crate::suggest;
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Deserialize)]
 struct CaseFile {
@@ -161,12 +161,52 @@ struct ErrorFile {
 #[serde(deny_unknown_fields)]
 struct ErrorCase {
     command: String,
-    exit: i32,
+    /// The recorded exit code; leave it out for output that was piped in.
+    exit: Option<i32>,
     output: String,
     /// Words the explanation must contain; "a|b" accepts either.
     mention: Vec<String>,
     /// Text the `Try:` command must contain; "a|b" accepts either. "nothing" expects no command.
     fix: String,
+    /// Words the explanation must not contain.
+    #[serde(default)]
+    forbid: Vec<String>,
+    /// Files to create in a fresh folder, as "name:mode" (octal; a trailing "/" on the name makes
+    /// a folder). `$TMP` in the command and output stands for that folder.
+    #[serde(default)]
+    files: Vec<String>,
+}
+
+/// Creates a case's files in a new folder and returns its path.
+fn make_files(files: &[String], index: usize) -> Result<Option<PathBuf>> {
+    use std::os::unix::fs::PermissionsExt;
+    if files.is_empty() {
+        return Ok(None);
+    }
+    let dir = std::env::temp_dir().join(format!("huh-eval-errors-{}-{index}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    for spec in files {
+        let (name, mode) = spec.rsplit_once(':').with_context(|| format!("bad file spec {spec}"))?;
+        let mode = u32::from_str_radix(mode, 8).with_context(|| format!("bad mode in {spec}"))?;
+        let path = dir.join(name.trim_end_matches('/'));
+        if name.ends_with('/') {
+            std::fs::create_dir_all(&path)?;
+        } else {
+            std::fs::write(&path, "x\n")?;
+        }
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode))?;
+    }
+    Ok(Some(dir))
+}
+
+fn remove_files(dir: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let _ = std::fs::set_permissions(entry.path(), std::fs::Permissions::from_mode(0o755));
+        }
+    }
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 fn contains_any(text: &str, alternatives: &str) -> bool {
@@ -177,6 +217,12 @@ fn contains_any(text: &str, alternatives: &str) -> bool {
 /// `huh eval-errors`: a first-pass score only. The answers are printed in
 /// full because whether an explanation is right has to be read, not matched.
 pub fn run_errors(path: &Path) -> Result<()> {
+    score_errors(path, true).map(|_| ())
+}
+
+/// Scores the cases in `path`; returns how many explanations named the cause and how many
+/// suggested a fitting command.
+pub fn score_errors(path: &Path, verbose: bool) -> Result<(Tally, Tally)> {
     use crate::doctor;
     let text = std::fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
     let cases = toml::from_str::<ErrorFile>(&text).with_context(|| format!("invalid {}", path.display()))?.case;
@@ -186,11 +232,21 @@ pub fn run_errors(path: &Path) -> Result<()> {
     crate::platform::pin_for_eval(&["arch"]);
     let (mut cause, mut fix) = (Tally::default(), Tally::default());
     let mut total = Vec::new();
-    for case in &cases {
-        let last =
-            crate::session::Last { command: case.command.clone(), exit: Some(case.exit), output: case.output.clone() };
+    for (index, case) in cases.iter().enumerate() {
+        let dir = make_files(&case.files, index)?;
+        let fill = |text: &str| match &dir {
+            Some(dir) => text.replace("$TMP", &dir.display().to_string()),
+            None => text.to_string(),
+        };
+        let (command, output) = (fill(&case.command), fill(&case.output));
+        let last = crate::session::Last { command: command.clone(), exit: case.exit, output };
         let answer = doctor::explain(&last, &mut |_| {})?;
-        let cause_ok = case.mention.iter().all(|words| contains_any(&answer.text, words));
+        if let Some(dir) = &dir {
+            remove_files(dir);
+        }
+        let lower = answer.text.to_lowercase();
+        let cause_ok = case.mention.iter().all(|words| contains_any(&answer.text, words))
+            && !case.forbid.iter().any(|word| lower.contains(&word.to_lowercase()));
         let suggested = doctor::suggested(&answer.text);
         let fix_ok = match (case.fix.as_str(), suggested) {
             (wanted, Some(command)) => contains_any(command, wanted),
@@ -199,25 +255,44 @@ pub fn run_errors(path: &Path) -> Result<()> {
         cause.add(cause_ok);
         fix.add(fix_ok);
         total.push(answer.total.as_millis());
-        println!("=== $ {}   (exit {})", case.command, case.exit);
-        println!("{}", answer.text.trim());
-        println!(
-            "--- cause {}, fix {} (wanted: {}), {} ms\n",
-            if cause_ok { "ok" } else { "MISS" },
-            if fix_ok { "ok" } else { "MISS" },
-            case.fix,
-            answer.total.as_millis()
-        );
+        if verbose {
+            let exit = case.exit.map_or("no exit code".to_string(), |code| format!("exit {code}"));
+            println!("=== $ {command}   ({exit})");
+            println!("{}", answer.text.trim());
+            println!(
+                "--- cause {}, fix {} (wanted: {}), {} ms\n",
+                if cause_ok { "ok" } else { "MISS" },
+                if fix_ok { "ok" } else { "MISS" },
+                case.fix,
+                answer.total.as_millis()
+            );
+        }
     }
     total.sort();
-    println!("explanation names the cause: {cause}");
-    println!("suggested command fits:      {fix}");
-    if !total.is_empty() {
-        println!(
-            "time per answer:             median {} ms, slowest {} ms",
-            total[total.len() / 2],
-            total[total.len() - 1]
-        );
+    if verbose {
+        println!("explanation names the cause: {cause}");
+        println!("suggested command fits:      {fix}");
+        if !total.is_empty() {
+            println!(
+                "time per answer:             median {} ms, slowest {} ms",
+                total[total.len() / 2],
+                total[total.len() - 1]
+            );
+        }
     }
-    Ok(())
+    Ok((cause, fix))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recorded_failures_are_all_explained() {
+        for file in ["evals/errors.toml", "evals/errors-heldout.toml", "evals/errors-real.toml"] {
+            let (cause, fix) = score_errors(Path::new(file), false).unwrap();
+            assert_eq!(cause.percent(), 100, "{file}: causes {cause}");
+            assert_eq!(fix.percent(), 100, "{file}: fixes {fix}");
+        }
+    }
 }
