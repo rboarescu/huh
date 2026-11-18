@@ -10,7 +10,7 @@
 //! programs and the terminal; starting it (`start`) is the only part with side effects.
 
 use crate::platform;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Name of the private tmux server `--side` creates when there is no tmux session (`tmux -L`).
 /// It keeps the user's own tmux server, sessions and ~/.tmux.conf out of it.
@@ -51,13 +51,25 @@ fn shell_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
-/// The tutor command: `huh tutor --tty <tty>` (plus `--quiet`).
-fn tutor_command(huh: &Path, tty: &str, quiet: bool) -> Vec<String> {
+/// The tutor command: `huh tutor --tty <tty>` (plus `--quiet`), told where the recordings are
+/// (`--dir`) because a new window does not inherit this shell's environment, and to keep its
+/// window open on an error (`--hold`) so the message can be read.
+fn tutor_command(huh: &Path, tty: &str, quiet: bool, dir: Option<&Path>) -> Vec<String> {
     let mut cmd = vec![huh.display().to_string(), "tutor".into(), "--tty".into(), tty.into()];
+    if let Some(dir) = dir {
+        cmd.extend(["--dir".into(), dir.display().to_string()]);
+    }
+    cmd.push("--hold".into());
     if quiet {
         cmd.push("--quiet".into());
     }
     cmd
+}
+
+/// Where this shell's recordings are: the folder of its own recording, else huh's default.
+fn recordings_dir(env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    let own = env("HUH_SESSION_LOG").filter(|v| !v.is_empty())?;
+    Path::new(&own).parent().map(Path::to_path_buf)
 }
 
 fn joined(cmd: &[String]) -> String {
@@ -96,13 +108,16 @@ fn split_argv(pane: Option<&str>, cmd: &[String]) -> Vec<String> {
 
 /// tmux, new session on a private server with no user config: the user's shell on the left
 /// (closing it ends the session), the tutor on the right, following the left pane's tty.
-fn session_argv(huh: &Path, quiet: bool, id: u32) -> Vec<String> {
+fn session_argv(huh: &Path, quiet: bool, id: u32, dir: Option<&Path>) -> Vec<String> {
     let name = format!("huh-{id}");
     let left = format!("{name}:0.0");
     let shell = format!("\"${{SHELL:-/bin/sh}}\"; tmux kill-session -t {name}");
     // `#` and `{` are joined at run time so no tmux version can expand the format early.
     let tty = format!("\"$(tmux display -p -t {left} \"$(printf '#%s' '{{pane_tty}}')\")\"");
-    let mut right = format!("exec {} tutor --tty {tty}", shell_quote(&huh.display().to_string()));
+    let mut right = format!("exec {} tutor --tty {tty} --hold", shell_quote(&huh.display().to_string()));
+    if let Some(dir) = dir {
+        right.push_str(&format!(" --dir {}", shell_quote(&dir.display().to_string())));
+    }
     if quiet {
         right.push_str(" --quiet");
     }
@@ -142,7 +157,8 @@ pub fn decide(
             "this is already a `huh tutor --side` session: the tutor is the pane next to this one.".into(),
         );
     }
-    let cmd = tutor_command(huh, tty, quiet);
+    let dir = recordings_dir(env);
+    let cmd = tutor_command(huh, tty, quiet, dir.as_deref());
     if tmux.is_some() {
         return Plan::Split(split_argv(env("TMUX_PANE").filter(|p| !p.is_empty()).as_deref(), &cmd));
     }
@@ -162,7 +178,7 @@ pub fn decide(
         }
     }
     if have("tmux") {
-        return Plan::Session(session_argv(huh, quiet, id));
+        return Plan::Session(session_argv(huh, quiet, id, dir.as_deref()));
     }
     Plan::Unavailable { tty: tty.to_string() }
 }
@@ -270,7 +286,7 @@ mod tests {
                 "35%",
                 "-t",
                 "%3",
-                "/opt/huh/bin/huh tutor --tty /dev/pts/4"
+                "/opt/huh/bin/huh tutor --tty /dev/pts/4 --hold"
             ]))
         );
     }
@@ -280,7 +296,7 @@ mod tests {
         let env: HashMap<&str, &str> = [("TMUX", "/s,1,0"), ("SWAYSOCK", "/run/sway")].into();
         let p = decide(&|k| env.get(k).map(|v| v.to_string()), &|_| true, Some("/dev/pts/1"), Path::new(HUH), true, 1);
         let Plan::Split(argv) = p else { panic!("{p:?}") };
-        assert!(argv.last().unwrap().ends_with("--tty /dev/pts/1 --quiet"));
+        assert!(argv.last().unwrap().ends_with("--tty /dev/pts/1 --hold --quiet"));
         assert!(!argv.contains(&"-t".to_string()), "no TMUX_PANE, no target");
     }
 
@@ -367,12 +383,25 @@ mod tests {
     }
 
     #[test]
+    fn the_recording_folder_is_passed_to_the_new_window() {
+        // A window opened by the desktop does not inherit this shell's HUH_SESSION_LOG.
+        let env = [("HYPRLAND_INSTANCE_SIGNATURE", "x"), ("HUH_SESSION_LOG", "/run/user/1000/rec/42.log")];
+        let Plan::Window { argv, .. } = plan(&env, &["ghostty"], Some("/dev/pts/2")) else { panic!() };
+        let line = argv.join(" ");
+        assert!(line.contains("--tty /dev/pts/2 --dir /run/user/1000/rec --hold"), "{line}");
+        let Plan::Session(argv) = plan(&[("HUH_SESSION_LOG", "/r/1.log")], &["tmux"], Some("/dev/pts/2")) else {
+            panic!()
+        };
+        assert!(argv.iter().any(|a| a.contains("--hold --dir /r")), "{argv:?}");
+    }
+
+    #[test]
     fn dry_run_text_shows_the_command() {
         let p = plan(&[("HYPRLAND_INSTANCE_SIGNATURE", "x")], &["ghostty"], Some("/dev/pts/2"));
         assert_eq!(
             describe(&p, &[]),
             "tiling desktop: would open a ghostty window, detached\n\
-             ghostty --class=huh.tutor --title=huh-tutor -e /opt/huh/bin/huh tutor --tty /dev/pts/2"
+             ghostty --class=huh.tutor --title=huh-tutor -e /opt/huh/bin/huh tutor --tty /dev/pts/2 --hold"
         );
         let q = plan(&[("TMUX", "/s,1,0")], &[], Some("/dev/pts/2"));
         assert!(

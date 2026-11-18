@@ -145,6 +145,12 @@ enum Action {
         /// With --side: print what would be started instead of starting it (also HUH_DRY_RUN=1)
         #[arg(long, requires = "side")]
         dry_run: bool,
+        /// The folder holding the recordings (set by --side for the window it opens)
+        #[arg(long, hide = true)]
+        dir: Option<PathBuf>,
+        /// Keep the window open after an error until Enter is pressed (set by --side)
+        #[arg(long, hide = true)]
+        hold: bool,
     },
     #[command(hide = true)]
     RecordSink { file: PathBuf, pipe: PathBuf },
@@ -700,7 +706,21 @@ fn main() -> Result<()> {
         ) => {
             unreachable!("handled above")
         }
-        Some(Action::Tutor { quiet, tty, .. }) => tutor::run(&everything, quiet, tty.as_deref())?,
+        Some(Action::Tutor { quiet, tty, dir, hold, .. }) => {
+            if let Some(dir) = dir {
+                tutor::set_recording_dir(dir);
+            }
+            if let Err(error) = tutor::run(&everything, quiet, tty.as_deref()) {
+                if !hold {
+                    return Err(error);
+                }
+                // A window opened by --side closes when the tutor ends: keep the message readable.
+                eprintln!("huh tutor: {error:#}\n\nPress Enter to close this window.");
+                let mut line = String::new();
+                std::io::stdin().read_line(&mut line).ok();
+                std::process::exit(1);
+            }
+        }
         Some(Action::Check) => {
             let everything = catalog::matchable(everything);
             let total = everything.len();

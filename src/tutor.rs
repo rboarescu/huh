@@ -100,7 +100,18 @@ fn recordings(dir: &Path, own: Option<&Path>, check_alive: bool) -> Vec<PathBuf>
     found.into_iter().map(|(_, p)| p).collect()
 }
 
+/// Set by `--dir`: the folder `--side` found the recordings in, in the shell that started it. A
+/// window opened by the desktop does not inherit that shell's environment.
+static RECORDING_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+pub fn set_recording_dir(dir: PathBuf) {
+    RECORDING_DIR.set(dir).ok();
+}
+
 fn recording_dir() -> Option<PathBuf> {
+    if let Some(dir) = RECORDING_DIR.get() {
+        return Some(dir.clone());
+    }
     // The folder this pane's own recording is in: the terminals next to it are recorded there too,
     // whichever recorder set them up.
     if let Some(own) = std::env::var_os("HUH_SESSION_LOG").filter(|v| !v.is_empty())
@@ -263,7 +274,8 @@ pub fn run(catalog: &[Command], quiet: bool, tty: Option<&str>) -> Result<()> {
         paint(
             Role::Dim,
             &format!(
-                "huh tutor: following {tty_name}, the terminal that finished a command most recently (Ctrl+C stops). It only reads."
+                "huh tutor: following {tty_name}{} (Ctrl+C stops). It only reads.",
+                if tty.is_some() { "" } else { ", the terminal that finished a command most recently" }
             )
         )
     );
