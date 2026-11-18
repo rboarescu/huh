@@ -501,7 +501,13 @@ pub fn lost(request: &str, line: &str, notes: &[String]) -> Vec<Typed> {
 /// Whether a stated modifier's value ("older than 2 weeks" has the value "2") is in the line:
 /// as written, or as the same amount in another unit (`-mtime +14`).
 pub fn modifier_present(line: &str, phrase: &str, value: &str) -> bool {
-    if line.to_lowercase().contains(value) {
+    let line_l = line.to_lowercase();
+    if line_l.contains(value) {
+        return true;
+    }
+    // "pid 1234": the numbers in a several-word value are what has to show up.
+    let numeric: Vec<&str> = value.split_whitespace().filter(|w| w.chars().any(|c| c.is_ascii_digit())).collect();
+    if value.contains(' ') && !numeric.is_empty() && numeric.iter().all(|w| line_l.contains(&w.to_lowercase())) {
         return true;
     }
     match value.parse::<u64>() {

@@ -433,3 +433,8 @@ values = ["file1.txt", "file2.txt"]
 request = "sort data.csv by column 3"
 command = "any"
 values = ["data.csv", "3"]
+
+[[case]]
+request = "show process tree of pid 1234"
+command = "pstree"
+expect = "pstree -p 1234"
