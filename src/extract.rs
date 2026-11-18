@@ -34,7 +34,8 @@ pub fn extract(reader: &str, request: &str) -> Option<String> {
         "filename" => filename(request),
         "mac" => mac_address(request),
         "chmod_mode" => chmod_mode(&words),
-        _ => None,
+        // Readers for the newer, more specific entries (git refs, pids, cp paths, cron, …).
+        other => crate::readers::read(other, request),
     }
 }
 

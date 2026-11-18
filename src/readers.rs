@@ -1,10 +1,11 @@
 //! Readers for the sysadmin entries: values that sit in the wording of the request ("between main
 //! and develop", "with the message wip-auth", "as deploy", "every day at 3am") instead of in a
-//! single word the matcher could offer. A catalog slot names one with `extract = "sys_..."`; the
-//! matcher leaves such a slot empty and `refine` fills it here, after matching and before the line
-//! is built. `cron_note` writes the line to paste into `crontab -e`.
+//! single word the matcher could offer. A catalog slot names one with `extract = "sys_..."`;
+//! `extract::extract` hands those names to `read` here, so they are applied like every other
+//! reader. `refine` only holds whole-command wording fixes (tar). `cron_note` writes the line to
+//! paste into `crontab -e`.
 
-use crate::catalog::{Command, SlotKind};
+use crate::catalog::Command;
 use crate::matcher::{Details, SlotPick};
 
 /// Words of the request, with quotes, commas and sentence dots taken off. A quoted phrase stays one
@@ -544,19 +545,11 @@ pub fn read(reader: &str, request: &str) -> Option<String> {
 
 /// Fills the slots whose `extract` is a `sys_*` reader. Slots the reader finds nothing for stay empty
 /// (the default or a placeholder).
+/// Wording fixes that need a whole command's slots at once. Readers named by `extract = "sys_..."`
+/// are applied with all the others, through `extract::extract`.
 pub fn refine(command: &Command, request: &str, details: &mut Details) {
     if command.name == "tar" {
         tar_inputs_from_wording(command, request, details);
-    }
-    for (slot, pick) in command.slots.iter().zip(details.slots.iter_mut()) {
-        let Some(reader) = slot.extract.as_deref().filter(|r| r.starts_with("sys_")) else { continue };
-        if slot.kind == SlotKind::Choice {
-            continue;
-        }
-        *pick = match read(reader, request) {
-            Some(value) => SlotPick::Value { named: 0.95, value },
-            None => SlotPick::Unnamed,
-        };
     }
 }
 
