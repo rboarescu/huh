@@ -5,7 +5,7 @@
 //! normalized stems and canonical Linux/desktop concepts, structural intent
 //! disambiguators, domain-coherence fit checks, and syntactic slot-role binding.
 
-use crate::candidates::{Candidates, number_word};
+use crate::candidates::{Candidates, EntryKind, number_word};
 use crate::catalog::{Command, Flag, Slot, SlotKind};
 use crate::platform;
 use std::borrow::Cow;
@@ -191,7 +191,7 @@ impl LocalMatcher {
         let q = QueryContext::new(request, &q_norm, &q_words, &q_terms);
 
         let fit = self.score_fit(idx, entry, &q);
-        let flags =
+        let flags: Vec<f64> =
             command.flags.iter().map(|flag| score_flag(&command.name, flag, &entry.flag_terms[&flag.id], &q)).collect();
 
         // Choice slots first: which values `tar` takes depends on its action.
@@ -211,7 +211,7 @@ impl LocalMatcher {
             .filter(|(_, values)| !values.is_empty())
             .collect();
         if !offered.is_empty() {
-            for (slot_id, (named, value)) in bind_slots(command, &offered, &choice_picks, &q) {
+            for (slot_id, (named, value)) in bind_slots(command, &offered, &choice_picks, &q, candidates) {
                 if let Some(i) = command.slots.iter().position(|s| s.id == slot_id)
                     && !value.is_empty()
                 {
@@ -219,6 +219,8 @@ impl LocalMatcher {
                 }
             }
         }
+        let mut flags: Vec<f64> = flags;
+        adjust_flags_for_values(command, &slots, candidates, &mut flags);
         Some(Details { fit, flags, slots })
     }
 
@@ -1484,6 +1486,32 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
 /// How likely `flag` is wanted; `terms` are the flag's indexed words.
 // Hand-tuned keyword tables read best one rule per line.
 #[rustfmt::skip]
+/// `-r` follows what the bound value is: a folder needs it, a plain file must not get it, whatever
+/// else the request says about folders ("copy notes.txt to my projects folder").
+fn adjust_flags_for_values(command: &Command, slots: &[SlotPick], candidates: &Candidates, flags: &mut [f64]) {
+    let bound = |slot_id: &str| -> Option<&str> {
+        let i = command.slots.iter().position(|s| s.id == slot_id)?;
+        match &slots[i] {
+            SlotPick::Value { value, .. } => Some(value.as_str()),
+            _ => None,
+        }
+    };
+    let (slot_id, rule) = match command.name.as_str() {
+        "cp" | "rm" => (if command.name == "cp" { "source" } else { "target" }, "recursive"),
+        "grep" => ("where", "recursive"),
+        _ => return,
+    };
+    let Some(i) = command.flags.iter().position(|f| f.id == rule) else { return };
+    let Some(value) = bound(slot_id) else { return };
+    let kind = candidates.entry_kind(value.trim_end_matches('/'));
+    let is_folder = kind == EntryKind::Dir || value == "." || value == "~" || value.ends_with('/');
+    if is_folder {
+        flags[i] = flags[i].max(0.94);
+    } else if kind == EntryKind::File && value.contains('.') && command.name != "grep" {
+        flags[i] = flags[i].min(0.08);
+    }
+}
+
 fn score_flag(cmd_name: &str, flag: &Flag, terms: &HashMap<String, f64>, q: &QueryContext<'_>) -> f64 {
     let flag_id = flag.id.as_str();
     let has = |terms: &[&str]| q.has_any(terms);
@@ -2160,6 +2188,56 @@ fn is_non_value_english_word(lower: &str) -> bool {
                 | "application"
                 | "omarchy"
                 | "using"
+                | "working"
+                | "respond"
+                | "responding"
+                | "responds"
+                | "wont"
+                | "won't"
+                | "doesnt"
+                | "see"
+                | "quit"
+                | "exit"
+                | "each"
+                | "previous"
+                | "go"
+                | "going"
+                | "usb"
+                | "drive"
+                | "stick"
+                | "pendrive"
+                | "sizes"
+                | "size"
+                | "taking"
+                | "tell"
+                | "know"
+                | "display"
+                | "view"
+                | "work"
+                | "works"
+                | "happen"
+                | "happening"
+                | "happened"
+                | "sorted"
+                | "times"
+                | "twice"
+                | "once"
+                | "please"
+                | "now"
+                | "also"
+                | "both"
+                | "same"
+                | "other"
+                | "another"
+                | "own"
+                | "way"
+                | "ways"
+                | "kind"
+                | "type"
+                | "types"
+                | "thing"
+                | "things"
+                | "stuff"
         )
 }
 
@@ -2194,17 +2272,25 @@ fn indirect_file_match_score(cand: &str, q: &QueryContext<'_>) -> f64 {
     }
     let lower_cand = cand.to_lowercase();
     let (stem_part, ext_part) = lower_cand.rsplit_once('.').unwrap_or((&lower_cand, ""));
-    let stem_words: Vec<&str> = stem_part.split(['-', '_', ' ']).filter(|p| !p.is_empty()).collect();
-
-    let mut score = 0.0f64;
-    for sw in &stem_words {
-        if sw.len() >= 2 && q.words.iter().any(|w| w == sw) {
-            score += 5.5;
-        }
-    }
-    if score == 0.0 {
+    let stem_part = stem_part.strip_suffix(".tar").unwrap_or(stem_part);
+    // Only the distinctive words of a name count: never "my", "the" and the like.
+    let stem_words: Vec<&str> = stem_part
+        .split(['-', '_', ' ', '.'])
+        .filter(|p| p.len() >= 2 && !STOPWORDS.contains(p) && !matches!(*p, "file" | "files" | "folder" | "copy"))
+        .collect();
+    if stem_words.is_empty() {
         return 0.0;
     }
+    // A name the request only half spells ("projects" for projects-download.zip) is not that entry.
+    if !stem_words.iter().all(|sw| q.words.iter().any(|w| w == sw)) {
+        return 0.0;
+    }
+    // "a file named notes" is a name to look for, not the entry notes.txt.
+    if stem_words.iter().any(|sw| q.raw_tokens.iter().any(|rt| rt.lower == *sw && matches!(rt.prev_word.as_str(), "named" | "called" | "name"))) {
+        return 0.0;
+    }
+
+    let mut score = 5.5 * stem_words.len() as f64;
 
     match ext_part {
         "sh" | "bash" | "py" | "rb" | "pl" if q.has_any(&["script", "runnable", "executable"]) => score += 2.5,
@@ -2218,6 +2304,8 @@ fn indirect_file_match_score(cand: &str, q: &QueryContext<'_>) -> f64 {
 }
 
 fn find_raw_token<'a>(cand: &str, q: &'a QueryContext<'a>) -> Option<&'a RawToken> {
+    // "~" stands for "my home folder".
+    let cand = if cand == "~" { "home" } else { cand };
     q.raw_tokens
         .iter()
         .find(|rt| rt.text == cand)
@@ -2232,9 +2320,9 @@ fn bind_slots(
     slot_picks: &HashMap<String, BTreeSet<&str>>,
     choice_picks: &HashMap<String, String>,
     q: &QueryContext<'_>,
+    candidates: &Candidates,
 ) -> HashMap<String, (f64, String)> {
     let cmd_name = cmd.name.as_str();
-    let text_cands = cmd.slots.iter().find(|s| s.kind == SlotKind::Text).and_then(|s| slot_picks.get(&s.id));
 
     let ordered_slots: Vec<(String, SlotKind)> = cmd
         .slots
@@ -2257,8 +2345,8 @@ fn bind_slots(
         let mut cands_scored = Vec::new();
 
         for &cand in &slot_picks[slot_id] {
-            let is_from_files = *kind == SlotKind::Path && text_cands.is_some_and(|tc| !tc.contains(cand));
-            let s = score_candidate_for_role(cmd_name, cand, role, *kind, is_from_files, to_split_pos, q);
+            let entry = if *kind == SlotKind::Path { candidates.entry_kind(cand) } else { EntryKind::NotEntry };
+            let s = score_candidate_for_role(cmd_name, cand, role, *kind, entry, to_split_pos, q);
             if s > 0.5 {
                 cands_scored.push((cand.to_string(), s));
             }
@@ -2290,13 +2378,29 @@ fn bind_slots(
             } else {
                 0.50
             };
-            result.insert(slot_id.clone(), (named_prob, cand.clone()));
+            let role = infer_slot_role(cmd_name, slot_id, ordered_slots[idx].1);
+            result.insert(slot_id.clone(), (named_prob, shape_value(role, cand, candidates, q)));
         } else {
             result.insert(slot_id.clone(), (0.05, String::new()));
         }
     }
 
     result
+}
+
+/// The text that goes into the line for a picked value: a folder that receives a copy ends in `/`,
+/// and a bare name to look for ("a file named notes") becomes a pattern that also finds `notes.txt`.
+fn shape_value(role: SlotRole, cand: &str, candidates: &Candidates, q: &QueryContext<'_>) -> String {
+    match role {
+        SlotRole::DestPath if candidates.entry_kind(cand) == EntryKind::Dir => format!("{cand}/"),
+        SlotRole::NamePattern
+            if cand.chars().all(|c| c.is_alphabetic())
+                && find_raw_token(cand, q).is_some_and(|rt| matches!(rt.prev_word.as_str(), "named" | "called" | "name")) =>
+        {
+            format!("{cand}*")
+        }
+        _ => cand.to_string(),
+    }
 }
 
 fn role_priority(role: SlotRole) -> u8 {
@@ -2361,20 +2465,68 @@ fn is_adjective_or_determiner(lower: &str) -> bool {
                 | "virtual"
                 | "whole"
                 | "entire"
+                | "each"
+                | "see"
+                | "view"
+                | "show"
+                | "display"
+                | "list"
+                | "find"
+                | "open"
+                | "go"
+                | "previous"
+                | "next"
+                | "another"
+                | "both"
+                | "sorted"
         )
 }
 
-// Hand-tuned keyword tables read best one rule per line.
-#[rustfmt::skip]
+/// How well `cand` fills a slot with this role, adjusted for what the current folder says about it:
+/// an entry named exactly beats one that merely shares a word, and "folder" asks for a folder.
 fn score_candidate_for_role(
     cmd_name: &str,
     cand: &str,
     role: SlotRole,
     kind: SlotKind,
-    is_from_files: bool,
+    entry: EntryKind,
     to_split_pos: Option<usize>,
     q: &QueryContext<'_>,
 ) -> f64 {
+    let mut score = score_by_role(cmd_name, cand, role, kind, entry, to_split_pos, q);
+    if score <= 0.0 || entry == EntryKind::NotEntry {
+        return score;
+    }
+    let token = find_raw_token(cand, q);
+    let next = token.map_or("", |t| t.next_word.as_str());
+    if token.is_some() {
+        score += 6.0;
+    }
+    if matches!(next, "folder" | "directory" | "dir" | "folders") {
+        if entry == EntryKind::Dir {
+            score += 1.5;
+        } else if cand.contains('.') {
+            score = 0.0;
+        }
+    }
+    score
+}
+
+// Hand-tuned keyword tables read best one rule per line.
+#[rustfmt::skip]
+fn score_by_role(
+    cmd_name: &str,
+    cand: &str,
+    role: SlotRole,
+    kind: SlotKind,
+    entry: EntryKind,
+    to_split_pos: Option<usize>,
+    q: &QueryContext<'_>,
+) -> f64 {
+    let is_from_files = entry != EntryKind::NotEntry;
+    if cand == "." {
+        return if role == SlotRole::SearchWhere { 3.0 } else { 0.0 };
+    }
     let rt_opt = find_raw_token(cand, q);
     let phrase_match = if rt_opt.is_none() && cand.contains(' ') {
         find_phrase_match(cand, q)
@@ -2383,7 +2535,10 @@ fn score_candidate_for_role(
     };
     let is_ext_glob_cand = role == SlotRole::NamePattern
         && cand.starts_with("*.")
-        && q.raw_tokens.iter().any(|rt| rt.lower == cand.trim_start_matches('*').to_lowercase());
+        && q.raw_tokens.iter().any(|rt| {
+            let ext = cand.trim_start_matches("*.").to_lowercase();
+            rt.lower == format!(".{ext}") || rt.lower == ext
+        });
     let is_size_cand = role == SlotRole::SizeSpec && is_size_spec(cand);
     let indirect = if kind == SlotKind::Path { indirect_file_match_score(cand, q) } else { 0.0 };
 
@@ -2521,8 +2676,8 @@ fn score_candidate_for_role(
             if let Some(split) = to_split_pos {
                 if pos > split || matches!(prev, "to" | "into" | "as") {
                     s += 4.5;
-                } else if pos < split && !is_multi_phrase {
-                    s -= 3.5;
+                } else if pos < split {
+                    return 0.0;
                 }
             }
             s.max(0.0)
@@ -2544,8 +2699,8 @@ fn score_candidate_for_role(
         SlotRole::NamePattern => {
             if is_ext_glob_cand {
                 if q.raw_tokens.iter().any(|rt| {
-                    rt.lower == cand.trim_start_matches('*').to_lowercase()
-                        && matches!(rt.next_word.as_str(), "file" | "files")
+                    let ext = cand.trim_start_matches("*.").to_lowercase();
+                    (rt.lower == format!(".{ext}") || rt.lower == ext) && matches!(rt.next_word.as_str(), "file" | "files")
                 }) {
                     10.5
                 } else {

@@ -1,0 +1,193 @@
+# Slot filling: values must land in the right slot, or stay a <placeholder>.
+# Group folder: files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "how do i delete the projects folder"
+command = "rm"
+expect = "rm -r projects"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "go to the projects folder"
+command = "cd"
+expect = "cd projects"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "compress the projects folder into a tar.gz"
+command = "tar"
+expect = "tar -czf projects.tar.gz projects"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "delete the projects-download.zip file"
+command = "rm"
+expect = "rm projects-download.zip"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "remove the projects directory"
+command = "rm"
+expect = "rm -r projects"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "how much space does the projects folder take"
+command = "du"
+expect = "du -sh projects"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "copy notes.txt to my projects folder"
+command = "cp"
+expect = "cp notes.txt projects/"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "whats taking up all the space in my home folder"
+command = "du"
+expect = "du -sh ~/*"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "find all my jpg files"
+command = "find"
+expect = "find . -type f -name '*.jpg'"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "show me my files"
+command = "ls"
+expect = "ls"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "copy the Vacation Photos folder to a usb"
+command = "cp"
+expect = "cp -r 'Vacation Photos' <dest>"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "delete the Vacation Photos folder"
+command = "rm"
+expect = "rm -r 'Vacation Photos'"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "go to the Vacation Photos folder"
+command = "cd"
+expect = "cd 'Vacation Photos'"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "open my resume"
+command = "xdg-open"
+expect = "xdg-open 'My Resume.pdf'"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "search for the word password in notes.txt"
+command = "grep"
+expect = "grep password notes.txt"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "search my files for the word invoice"
+command = "grep"
+expect = "grep -r invoice ."
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "is the internet working"
+command = "ping"
+expect = "ping -c 4 1.1.1.1"
+
+[[case]]
+request = "search for a package called gimp"
+command = "package search"
+
+[[case]]
+request = "how do i see file sizes in this folder"
+command = "ls"
+expect = "ls -l"
+
+[[case]]
+request = "how do i close a program that wont respond"
+command = "pkill"
+expect = "pkill <name>"
+
+[[case]]
+request = "force quit spotify"
+command = "pkill"
+expect = "pkill -9 spotify"
+
+[[case]]
+request = "find a file named notes"
+command = "find"
+expect = "find . -name 'notes*'"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "disk usage of each folder here sorted"
+command = "du"
+
+[[case]]
+request = "go back to the previous folder"
+command = "cd"
+expect = "cd -"
+
+[[case]]
+request = "ssh to web1 as deploy"
+command = "ssh"
+expect = "ssh deploy@web1"
+
+[[case]]
+request = "ssh to web1 on port 2222"
+command = "ssh"
+expect = "ssh -p 2222 web1"
+
+[[case]]
+request = "chown -R www-data /var/www"
+command = "chown"
+expect = "sudo chown -R www-data /var/www"
+
+[[case]]
+request = "add user alice to docker group"
+command = "add user to group"
+expect = "sudo usermod -aG docker alice"
+
+[[case]]
+request = "grep -ri TODO in src"
+command = "grep"
+expect = "grep -ri TODO src"
+
+[[case]]
+request = "ping 8.8.8.8 5 times"
+command = "ping"
+expect = "ping -c 5 8.8.8.8"
+
+[[case]]
+request = "extract backup.tar.gz to /opt/app"
+command = "tar"
+expect = "tar -xzf backup.tar.gz -C /opt/app"
+
+[[case]]
+request = "tar up ./build excluding node_modules"
+command = "tar"
+expect = "tar -czf build.tar.gz --exclude=node_modules ./build"
+
+[[case]]
+request = "journal for nginx since 1 hour ago"
+command = "journalctl"
+expect = "journalctl -u nginx --since \"1 hour ago\""
+
+[[case]]
+request = "git log oneline last 10"
+command = "git log"
+expect = "git log --oneline -10"
+
+[[case]]
+request = "tail nginx error log /var/log/nginx/error.log"
+command = "tail"
+expect = "tail -n 10 /var/log/nginx/error.log"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
