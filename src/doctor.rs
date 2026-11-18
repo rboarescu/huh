@@ -199,6 +199,9 @@ fn diagnose(last: &Last) -> String {
         return diagnose_exit_zero(last);
     }
 
+    if let Some(ans) = diagnose_round3(last) {
+        return ans;
+    }
     if let Some(ans) = diagnose_measured(last) {
         return ans;
     }
@@ -444,9 +447,8 @@ fn diagnose_not_executable(last: &Last) -> Option<String> {
     if trimmed_cmd.is_empty() && last.exit != Some(126) && target.starts_with('/') && under_system_dir(&target) {
         return Some(format_answer(
             &format!(
-                "`{target}` could not be written or run (`Permission denied`), and without the command huh cannot tell which. \
-                 A path under /etc, /var, /usr and the like needs administrator rights to change, and its files are not meant to be made executable; \
-                 if you were writing to it, `sudo tee {target}` writes as administrator (for example `echo text | sudo tee {target}`)."
+                "The shell was refused access to `{target}` (`Permission denied`). The output does not say what the command was doing to it (replacing it, appending to it, reading it or starting it) and huh was not given the command, so it cannot name an exact fix. \
+                 A path under /etc, /var, /usr and the like can only be changed by an administrator: run the same command again with sudo (when it is a `>` or `>>` redirect, the redirect itself is not covered by sudo; pipe the text into `sudo tee -a <file>` to append, or `sudo tee <file>`, which replaces the whole file)."
             ),
             "nothing",
         ));
@@ -544,21 +546,36 @@ fn diagnose_command_not_found(last: &Last) -> Option<String> {
         Found::Missing => {}
     }
 
+    // A file of that name in the current folder: the shell does not look there.
+    if !missing.contains('/') && Path::new(&missing).is_file() {
+        let runnable = platform::is_executable_file(Path::new(&missing));
+        let fix = if runnable { format!("./{missing}") } else { format!("chmod +x {missing} && ./{missing}") };
+        let note = if runnable { "" } else { " It is not marked executable yet." };
+        return Some(format_answer(
+            &format!(
+                "The shell does not look in the current folder for programs: `{missing}` is a file in this folder, so run it by its path (`command not found`{code}).{note}"
+            ),
+            &fix,
+        ));
+    }
+
     let platforms = platform::detect();
     let advice = platform::install_advice(&missing, None, &platforms);
-    let typo = |max_dist: usize, with_common: bool| {
-        if missing.chars().count() < 2 || (max_dist > 1 && missing.chars().count() < 3) {
+    // A name that is a known program, a package manager tool or a common command is a missing
+    // program, never a typo; so is a file name such as `run.sh` (not a command at all).
+    let known = platform::is_known_program(&missing)
+        || platform::is_system_tool(&missing)
+        || COMMON_COMMANDS.contains(&missing.as_str())
+        || common_package_command(&missing).is_some();
+    let looks_like_file = missing.rsplit_once('.').is_some_and(|(stem, ext)| {
+        !stem.is_empty() && (1..=4).contains(&ext.len()) && ext.chars().all(|c| c.is_ascii_alphanumeric())
+    });
+    // Only an installed command can be what was meant.
+    let typo = |max_dist: usize| {
+        if known || looks_like_file || missing.chars().count() < 2 || (max_dist > 1 && missing.chars().count() < 3) {
             return None;
         }
-        let mut candidates = scan_path_executables();
-        if with_common {
-            for &common in COMMON_COMMANDS {
-                if !candidates.iter().any(|c| c == common) {
-                    candidates.push(common.to_string());
-                }
-            }
-        }
-        closest_typo(&missing, &candidates, max_dist)
+        closest_typo(&missing, &scan_path_executables(), max_dist)
     };
     let typo_answer = |correction: String| {
         format_answer(
@@ -567,12 +584,28 @@ fn diagnose_command_not_found(last: &Last) -> Option<String> {
         )
     };
 
-    // A name that is not a known program and is one edit from an installed command is a typo
-    // (`sl` for `ls`), even if some package happens to ship a program of that name.
-    let known = platform::is_known_program(&missing);
-    if !known && let Some(correction) = typo(1, false) {
+    if let Some(correction) = typo(1) {
         return Some(typo_answer(correction));
     }
+    // One edit from a very common command that is not installed here: say so rather than
+    // suggest running something that would fail the same way.
+    if !known && !looks_like_file && missing.chars().count() >= 3 {
+        let common: Vec<String> = COMMON_COMMANDS.iter().map(|c| (*c).to_string()).collect();
+        if let Some(correction) = closest_typo(&missing, &common, 1) {
+            let install = install_command(&correction).or_else(|| common_package_command(&correction));
+            return Some(format_answer(
+                &format!(
+                    "The command `{missing}` was not found{code_paren}, which looks like a typo for `{correction}`, but `{correction}` is not installed on this machine either."
+                ),
+                install.as_deref().unwrap_or("nothing"),
+            ));
+        }
+    }
+    let advice = match (advice, common_package_command(&missing)) {
+        (Some(a), _) if a.installs => Some(a),
+        (_, Some(command)) => Some(platform::Advice { command, installs: true, package: None, note: None }),
+        (other, None) => other,
+    };
     if let Some(advice) = advice.as_ref().filter(|a| a.installs) {
         let package = advice.package.as_deref().unwrap_or(&missing);
         let mut note = if package == missing {
@@ -586,7 +619,7 @@ fn diagnose_command_not_found(last: &Last) -> Option<String> {
         }
         return Some(format_answer(&note, &advice.command));
     }
-    if !known && let Some(correction) = typo(2, true) {
+    if let Some(correction) = typo(2) {
         return Some(typo_answer(correction));
     }
     if let Some(advice) = advice {
@@ -1092,6 +1125,41 @@ fn diagnose_fallback(last: &Last) -> String {
 // Which lines are errors, and what does successful output look like
 // ---------------------------------------------------------------------------
 
+/// A row of a table (`docker images`, `free`, `ps`): at least three cells separated by runs of
+/// spaces. Words such as "failed" in a cell are data, not an error message.
+fn is_table_row(line: &str) -> bool {
+    let t = line.trim();
+    let lower = t.to_lowercase();
+    if lower.starts_with("error") || lower.starts_with("fatal") || lower.contains("traceback") {
+        return false;
+    }
+    let mut gaps = 0;
+    let mut spaces = 0;
+    for c in t.chars() {
+        if c == ' ' || c == '\t' {
+            spaces += 1;
+        } else {
+            if spaces >= 2 {
+                gaps += 1;
+            }
+            spaces = 0;
+        }
+    }
+    gaps >= 3
+}
+
+/// A sentence that talks about errors (`Permission denied responses should be logged`) rather
+/// than reporting one.
+fn is_prose(line: &str) -> bool {
+    let lower = line.to_lowercase();
+    [" should ", " responses ", " would ", " will be ", " can be ", " per hour", " per day", " must be logged"]
+        .iter()
+        .any(|w| lower.contains(w))
+        && !lower.starts_with("error")
+        && !lower.starts_with("fatal")
+        && !lower.contains(": ")
+}
+
 /// True for a line of `ls -l` output (`-rw-r--r-- 1 user group ...`).
 fn is_long_listing_line(line: &str) -> bool {
     let Some(mode) = line.split_whitespace().next() else { return false };
@@ -1106,7 +1174,7 @@ fn is_long_listing_line(line: &str) -> bool {
 /// error" is worse than a wrong "this might be".
 fn is_error_line(line: &str) -> bool {
     let t = line.trim();
-    if t.is_empty() || is_long_listing_line(t) {
+    if t.is_empty() || is_long_listing_line(t) || is_table_row(t) || is_prose(t) {
         return false;
     }
     let mut lower = t.to_lowercase();
@@ -1233,6 +1301,10 @@ fn describe_output(output: &str) -> &'static str {
         "a finished `cargo` build"
     } else if has(&["installing ", "total installed size", "proceed with installation"]) {
         "the log of a package installation"
+    } else if lower.starts_with("repository ") && lower.contains("image id") {
+        "the table printed by `docker images`"
+    } else if lower.contains("\nmem:") && lower.contains("swap:") {
+        "the memory table printed by `free`"
     } else if output.lines().any(is_long_listing_line) || lower.trim_start().starts_with("total ") {
         "a directory listing"
     } else {
@@ -1361,6 +1433,14 @@ fn file_failures(output: &str) -> Vec<FileFailure> {
                 }
             }
         }
+        // `useradd: Permission denied.` names the program that was refused, not a file.
+        if let Some((_, path)) = &hit
+            && t.split(':').next().is_some_and(|prefix| prefix.trim() == path)
+            && !path.contains('/')
+            && !Path::new(path).exists()
+        {
+            hit = None;
+        }
         if let Some((problem, path)) = hit
             && !found.iter().any(|f| f.path == path)
         {
@@ -1376,7 +1456,8 @@ fn file_failures(output: &str) -> Vec<FileFailure> {
                 "cannot unlink",
             ]
             .iter()
-            .any(|w| lower.contains(w));
+            .any(|w| lower.contains(w))
+                || lower.starts_with("tee:");
             found.push(FileFailure { path, problem, writing });
         }
     }
@@ -1406,6 +1487,27 @@ fn under_system_dir(path: &str) -> bool {
     ["/etc", "/var", "/usr", "/root", "/sys", "/proc", "/dev", "/boot"]
         .iter()
         .any(|dir| absolute == *dir || absolute.starts_with(&format!("{dir}/")))
+}
+
+/// Says whether a refused write appends to the file or replaces all of it, when the command
+/// shows which. `>` and plain `tee` replace the whole file, so the fix does too.
+fn write_mode_note(command: &str, path: &str) -> &'static str {
+    let tee_stage = command.split('|').map(str::trim).find(|s| s.starts_with("tee ") || s.starts_with("sudo tee "));
+    if let Some(stage) = tee_stage {
+        return if stage.split_whitespace().any(|w| w == "-a" || w == "--append") {
+            " `tee -a` appends, so the existing content is kept."
+        } else {
+            " `tee` without `-a` replaces the whole file, so the existing content is lost."
+        };
+    }
+    let squeezed: String = command.split_whitespace().collect::<Vec<_>>().join("");
+    if squeezed.contains(&format!(">>{path}")) {
+        " The command appends (`>>`), so the fix below uses `tee -a` and keeps the existing content."
+    } else if squeezed.contains(&format!(">{path}")) {
+        " The command replaces the whole file (`>` overwrites it), and the fix below does too; to add a line to it, use `>>` instead."
+    } else {
+        ""
+    }
 }
 
 /// What a refused access to `path` most likely means, from the file itself (read-only checks),
@@ -1443,11 +1545,14 @@ fn permission_advice(path: &str, writing: bool, command: &str) -> (String, Strin
     };
     let what = if creating || meta.is_dir() { "folder" } else { "file" };
     if system {
+        let trimmed = command.trim();
+        let note = write_mode_note(trimmed, path);
+        let fix = if trimmed.is_empty() { "nothing".to_string() } else { sudo };
         return (
             format!(
-                "`{path}` is a system path (under /etc, /var, /usr and the like), which ordinary users cannot {action}, so administrator rights are needed."
+                "`{path}` is a system path (under /etc, /var, /usr and the like), which ordinary users cannot {action}, so administrator rights are needed.{note}"
             ),
-            sudo,
+            fix,
         );
     }
     if me.is_some() && meta.uid() != me.unwrap_or(0) && me != Some(0) {
@@ -2196,7 +2301,7 @@ fn sudo_form(command: &str, path: &str) -> String {
 /// ends in a well-known reason (`Permission denied`, `command not found`).
 fn error_shaped(line: &str) -> bool {
     let t = line.trim();
-    if t.is_empty() || is_long_listing_line(t) {
+    if t.is_empty() || is_long_listing_line(t) || is_table_row(t) || is_prose(t) {
         return false;
     }
     let lower = t.to_lowercase();
@@ -2210,7 +2315,8 @@ fn error_shaped(line: &str) -> bool {
         "e: ",
         "fatal",
         "traceback",
-        "failed",
+        "failed ",
+        "failed:",
         "cannot ",
         "can't ",
         "could not ",
@@ -2406,7 +2512,7 @@ fn measured_git(last: &Last, lower: &str) -> Option<String> {
     {
         if lower.contains("working tree clean") {
             return Some(format_answer(
-                "`git commit` had nothing to commit: the working tree is clean, so no file has changed since the last commit. Change a file first, then `git add` it; `git status` shows the state.",
+                "`git commit` made no commit because there was nothing to commit: the working tree is clean, so no file has changed since the last commit. That is not a problem with the repository. Change a file first, then `git add` it; `git status` shows the state.",
                 "nothing",
             ));
         }
@@ -3431,6 +3537,625 @@ fn closest_typo(target: &str, candidates: &[String], max_dist: usize) -> Option<
     best.map(|(.., cand)| cand)
 }
 
+// ---------------------------------------------------------------------------
+// Round 3: causes that used to be mislabelled or missed ("never mislead")
+// ---------------------------------------------------------------------------
+
+/// The first line of `output` whose lower-case form contains `needle`, trimmed.
+fn first_line_with<'a>(output: &'a str, needle: &str) -> Option<&'a str> {
+    output.lines().map(str::trim).find(|l| l.to_lowercase().contains(needle))
+}
+
+/// Specific, unmistakable messages: each rule needs a line only that failure prints.
+fn diagnose_round3(last: &Last) -> Option<String> {
+    diagnose_python_setup(last)
+        .or_else(|| diagnose_script_line_endings(last))
+        .or_else(|| diagnose_git_round3(last))
+        .or_else(|| diagnose_admin(last))
+        .or_else(|| diagnose_tests_and_builds(last))
+        .or_else(|| diagnose_system_errors(last))
+        .or_else(|| diagnose_remote_errors(last))
+}
+
+/// A package-manager command for `package` on this system, if the platform is known.
+fn install_command(program: &str) -> Option<String> {
+    let platforms = crate::platform::detect();
+    crate::platform::install_advice(program, None, &platforms).filter(|a| a.installs).map(|a| a.command)
+}
+
+fn diagnose_python_setup(last: &Last) -> Option<String> {
+    let out = last.output.as_str();
+    let lower = out.to_lowercase();
+    if lower.split_whitespace().collect::<Vec<_>>().join(" ").contains("ensurepip is not available") {
+        let words: Vec<&str> = out
+            .split_whitespace()
+            .map(|w| w.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '-'))
+            .collect();
+        let is_venv_package = |w: &&str| w.starts_with("python3") && w.ends_with("-venv");
+        // The package in the command the message prints (`apt install python3.11-venv`) is the one
+        // that matches this Python's version.
+        let package = words
+            .windows(2)
+            .find(|pair| pair[0] == "install" && is_venv_package(&pair[1]))
+            .map(|pair| pair[1])
+            .or_else(|| words.iter().copied().find(is_venv_package))
+            .unwrap_or("python3-venv");
+        return Some(format_answer(
+            &format!(
+                "Python could not create the virtual environment because its `ensurepip` module is missing: Debian and Ubuntu ship it in a separate package, `{package}`. Install that package, then run the `venv` command again."
+            ),
+            &format!("sudo apt install {package}"),
+        ));
+    }
+    let pip_missing = out.lines().map(str::trim).any(|l| {
+        let low = l.to_lowercase();
+        low.contains("python") && low.trim_end_matches('.').ends_with(": no module named pip")
+    });
+    if pip_missing {
+        let fix = install_command("pip").unwrap_or_else(|| "python3 -m ensurepip --user".to_string());
+        return Some(format_answer(
+            "This Python has no `pip` module (`No module named pip`), so `python3 -m pip` cannot run. The distribution's pip package adds it; where Python ships `ensurepip`, `python3 -m ensurepip --user` also does. A virtual environment cannot help: it needs pip from one of those sources too.",
+            &fix,
+        ));
+    }
+    None
+}
+
+/// The script named in a shell's exec error: `bash: line 1: ./x.sh: ...` gives `./x.sh`.
+fn script_in_exec_error(line: &str) -> Option<String> {
+    line.split(": ")
+        .map(str::trim)
+        .find(|part| {
+            !part.is_empty()
+                && !matches!(*part, "bash" | "-bash" | "sh" | "zsh" | "dash" | "fish")
+                && !is_line_prefix(part)
+                && !part.contains(char::is_whitespace)
+        })
+        .map(str::to_string)
+}
+
+fn diagnose_script_line_endings(last: &Last) -> Option<String> {
+    let line = last.output.lines().map(str::trim).find(|l| {
+        let low = l.to_lowercase();
+        (low.contains("bad interpreter") && (l.contains("^M") || l.contains('\r')))
+            || low.contains("cannot execute: required file not found")
+    })?;
+    let script = script_in_exec_error(line)?;
+    let fix = format!("sed -i 's/\\r$//' {script}");
+    if line.contains("^M") || line.contains('\r') {
+        return Some(format_answer(
+            &format!(
+                "`{script}` has Windows line endings (CRLF): the carriage return at the end of its `#!` line became part of the interpreter's name, so the system looks for a program called `...^M`, which is not a real program. Converting the file to Unix line endings fixes it (`dos2unix {script}` does the same)."
+            ),
+            &fix,
+        ));
+    }
+    // "required file not found": either the interpreter named on the `#!` line is missing, or
+    // that line ends in a carriage return. A script on disk tells which.
+    let first_line_has_cr = std::fs::read(&script).ok().is_some_and(|bytes| {
+        let head = &bytes[..bytes.len().min(256)];
+        head.iter().position(|b| *b == b'\n').is_some_and(|end| end > 0 && head[end - 1] == b'\r')
+    });
+    if first_line_has_cr {
+        return Some(format_answer(
+            &format!(
+                "`{script}` has Windows line endings (CRLF): its `#!` line ends in a carriage return, so the system cannot find an interpreter with that name (`required file not found`). `dos2unix {script}` does the same as the command below."
+            ),
+            &fix,
+        ));
+    }
+    Some(format_answer(
+        &format!(
+            "The system could not run `{script}` (`required file not found`): the file exists, but the interpreter named on its first (`#!`) line does not, or that line ends in a Windows carriage return (CRLF). The first line shown with `cat -A` tells which: `^M` at its end means CRLF."
+        ),
+        &format!("head -n1 {script} | cat -A"),
+    ))
+}
+
+fn diagnose_git_round3(last: &Last) -> Option<String> {
+    let out = last.output.as_str();
+    let lower = out.to_lowercase();
+    if lower.contains("could not apply") && (lower.contains("git rebase --continue") || lower.contains("rebasing")) {
+        let files = conflicted_files(out);
+        let which = match files.as_slice() {
+            [] => "the files git lists as conflicted".to_string(),
+            [one] => format!("`{one}`"),
+            many => many.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", "),
+        };
+        return Some(format_answer(
+            &format!(
+                "A `git rebase` stopped because replaying one of your commits conflicts with the new base. This is a rebase, not a merge: fix the conflict markers (`<<<<<<<` ... `>>>>>>>`) in {which}, run `git add` on each file, then `git rebase --continue`. `git rebase --skip` drops that commit and `git rebase --abort` returns to how things were before the rebase."
+            ),
+            "git status",
+        ));
+    }
+    if lower.contains("no tracking information for the current branch") {
+        let branch = out
+            .lines()
+            .find(|l| l.contains("--set-upstream-to="))
+            .and_then(|l| l.split_whitespace().last())
+            .filter(|b| !b.contains(['<', '=']))
+            .map(str::to_string);
+        return Some(match branch {
+            Some(b) => format_answer(
+                &format!(
+                    "`git pull` does not know which remote branch `{b}` follows (`There is no tracking information for the current branch`). `git branch --set-upstream-to=origin/{b} {b}` records it if `origin/{b}` exists; for a branch that exists only here, `git push -u origin {b}` creates it on the remote and sets the link."
+                ),
+                &format!("git branch --set-upstream-to=origin/{b} {b}"),
+            ),
+            None => format_answer(
+                "`git pull` does not know which remote branch this branch follows (`There is no tracking information for the current branch`). `git branch --set-upstream-to=origin/<branch>` records it, or name the remote branch: `git pull origin <branch>`.",
+                "nothing",
+            ),
+        });
+    }
+    None
+}
+
+const ADMIN_TOOLS: &[&str] = &[
+    "useradd",
+    "userdel",
+    "usermod",
+    "groupadd",
+    "groupdel",
+    "groupmod",
+    "passwd",
+    "chpasswd",
+    "mount",
+    "umount",
+    "fdisk",
+    "parted",
+    "modprobe",
+    "iptables",
+    "ufw",
+    "apt",
+    "apt-get",
+    "dpkg",
+    "dnf",
+    "yum",
+    "zypper",
+    "apk",
+    "systemctl",
+    "hostnamectl",
+    "timedatectl",
+    "visudo",
+];
+
+fn is_admin_tool(name: &str) -> bool {
+    ADMIN_TOOLS.contains(&name) || name.starts_with("mkfs")
+}
+
+/// System-administration commands refused for lack of privileges need `sudo`: the filename
+/// logic for ordinary files does not apply to them.
+fn diagnose_admin(last: &Last) -> Option<String> {
+    let out = last.output.as_str();
+    let lower = out.to_lowercase();
+    let trimmed = last.command.trim();
+    if trimmed.starts_with("sudo ") || trimmed.starts_with("doas ") {
+        return None;
+    }
+    // sed -i writes a temporary file next to the one it edits.
+    if let Some(line) = first_line_with(out, "couldn't open temporary file")
+        && lower.contains("permission denied")
+    {
+        let path = line.split("file ").nth(1)?.split(':').next()?.trim();
+        let dir = Path::new(path).parent()?.display().to_string();
+        if under_system_dir(&dir) {
+            let (_, prog, _) = extract_command_parts(trimmed);
+            let fix = if matches!(prog, "sed" | "gsed") { format!("sudo {trimmed}") } else { "nothing".to_string() };
+            return Some(format_answer(
+                &format!(
+                    "`sed -i` edits a file by writing a temporary file next to it, in `{dir}`, and only an administrator (root) can create files there (`{}`). Run the same edit with sudo.",
+                    line.trim()
+                ),
+                &fix,
+            ));
+        }
+        return None;
+    }
+    let denial_words = [
+        "permission denied",
+        "are you root",
+        "only root",
+        "must be root",
+        "must be superuser",
+        "unless you are root",
+        "you may not view or modify",
+        "interactive authentication required",
+        "operation not permitted",
+    ];
+    let denial = out.lines().map(str::trim).find(|l| {
+        let low = l.to_lowercase();
+        denial_words.iter().any(|w| low.contains(w))
+    })?;
+    let (_, prog, _) = extract_command_parts(trimmed);
+    let prefix = denial.split(':').next().unwrap_or("").trim();
+    let apt_lock = lower.contains("/var/lib/dpkg/lock")
+        || lower.contains("/var/lib/apt/lists/lock")
+        || lower.contains("/var/cache/apt/archives/lock");
+    let from_output = if apt_lock { "apt" } else { prefix };
+    let tool = if is_admin_tool(prog) { prog } else { from_output };
+    if !is_admin_tool(tool) || (tool == "systemctl" && trimmed.split_whitespace().any(|w| w == "--user")) {
+        return None;
+    }
+    let fix = if prog == tool { format!("sudo {trimmed}") } else { "nothing".to_string() };
+    let rerun = if fix == "nothing" { "Run the same command again with sudo in front of it." } else { "" };
+    Some(format_answer(
+        format!(
+            "`{tool}` changes the system itself (accounts, packages, mounts or services), so only an administrator (root) may run it, and your user is refused (`{denial}`). {rerun}"
+        )
+        .trim_end(),
+        &fix,
+    ))
+}
+
+/// The number written before `word` on a line (`1 failed, 2 passed` gives 1 for "failed").
+fn count_before(line: &str, word: &str) -> Option<u32> {
+    let at = line.find(word)?;
+    line[..at].split_whitespace().next_back()?.trim_matches(',').parse().ok()
+}
+
+fn diagnose_tests_and_builds(last: &Last) -> Option<String> {
+    let out = last.output.as_str();
+    let lower = out.to_lowercase();
+    let lines: Vec<&str> = out.lines().map(str::trim).collect();
+
+    if let Some(answer) = diagnose_makefile(last) {
+        return Some(answer);
+    }
+    // Go: `FAIL example.com/app [build failed]`
+    if let Some(fail) = lines.iter().find(|l| l.contains("[build failed]") || l.contains("[setup failed]")) {
+        let package = fail.split_whitespace().nth(1).unwrap_or("a package");
+        let first = lines.iter().find(|l| {
+            l.split(':').nth(1).is_some_and(|n| n.chars().all(|c| c.is_ascii_digit()) && !n.is_empty())
+                && l.split(':').next().is_some_and(|f| f.ends_with(".go"))
+        });
+        let detail = first.map_or(String::new(), |l| format!(" The first compiler error is {}.", quote_line(l)));
+        return Some(format_answer(
+            &format!(
+                "Go could not compile `{package}` (`[build failed]`), so none of its tests ran.{detail} The code has to change; the compiler lines above the `FAIL` line say where."
+            ),
+            "nothing",
+        ));
+    }
+    // Jest and friends: `Tests:       1 failed, 1 total`
+    let jest_line =
+        lines.iter().find(|l| l.starts_with("Tests:") && count_before(l, "failed").is_some_and(|n| n > 0)).or_else(
+            || lines.iter().find(|l| l.starts_with("Test Suites:") && count_before(l, "failed").is_some_and(|n| n > 0)),
+        );
+    if let Some(summary) = jest_line {
+        let files: Vec<&str> = lines
+            .iter()
+            .filter_map(|l| l.strip_prefix("FAIL "))
+            .map(|f| f.split_whitespace().next().unwrap_or(f))
+            .collect();
+        let named = if files.is_empty() {
+            String::new()
+        } else {
+            format!(" Failing: {}.", files.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", "))
+        };
+        return Some(format_answer(
+            &format!(
+                "Some tests failed (`{summary}`).{named} The summary only counts them: the expected and received values are printed above it, next to the line of each assertion."
+            ),
+            "nothing",
+        ));
+    }
+    // pytest: `FAILED test_a.py::test_a - assert 1 == 2`, `1 failed in 0.01s`
+    let pytest_summary = lines.iter().find(|l| {
+        let l = l.trim_matches('=').trim();
+        l.contains(" in ")
+            && l.ends_with('s')
+            && (count_before(l, "failed").is_some_and(|n| n > 0) || l.contains("error"))
+    });
+    let pytest_failed: Vec<&str> =
+        lines.iter().filter_map(|l| l.strip_prefix("FAILED ").or_else(|| l.strip_prefix("ERROR "))).collect();
+    if lower.contains("short test summary info") || (pytest_summary.is_some() && !pytest_failed.is_empty()) {
+        let summary = pytest_summary.map(|s| s.trim_matches('=').trim().to_string()).unwrap_or_default();
+        let names: Vec<String> =
+            pytest_failed.iter().map(|f| format!("`{}`", f.split(" - ").next().unwrap_or(f).trim())).take(5).collect();
+        let named = if names.is_empty() { String::new() } else { format!(" Failing: {}.", names.join(", ")) };
+        let counted = if summary.is_empty() { String::new() } else { format!(" (`{summary}`)") };
+        return Some(format_answer(
+            &format!(
+                "pytest ran the tests and some failed{counted}.{named} The assertion that did not hold is shown above the summary, with the values that were compared."
+            ),
+            "nothing",
+        ));
+    }
+    if lower.contains("npm err! test failed") || lower.contains("npm error test failed") {
+        return Some(format_answer(
+            "`npm test` ran the package's test script and that script exited with an error. npm only reports it (`Test failed. See above for more details`): what failed is printed above those npm lines.",
+            "nothing",
+        ));
+    }
+    if let Some(line) = first_line_with(out, "pkgbuild does not exist") {
+        return Some(format_answer(
+            &format!(
+                "`makepkg` builds the package described by a file named `PKGBUILD` in the current folder, and there is none here (`{line}`). Change into the folder that holds it first."
+            ),
+            "nothing",
+        ));
+    }
+    // make: `make: *** [Makefile:2: all] Error 1` (a recipe command failed)
+    if !lower.contains("missing separator")
+        && let Some(at) =
+            lines.iter().position(|l| l.starts_with("make") && l.contains("*** [") && l.contains("Error "))
+    {
+        let make_line = lines[at];
+        let inner = make_line.split("*** [").nth(1).and_then(|r| r.split(']').next()).unwrap_or("");
+        let (place, target) = match inner.split_once(": ") {
+            Some((loc, target)) => (Some(loc), target),
+            None => (None, inner),
+        };
+        let place = place
+            .and_then(|loc| loc.rsplit_once(':'))
+            .map_or(String::new(), |(file, line)| format!(" (`{file}` line {line})"));
+        let above = lines[..at].iter().rev().find(|l| !l.is_empty() && !l.starts_with("make"));
+        let said = above.map_or(String::new(), |l| format!(" The output just above it is {}.", quote_line(l)));
+        let status = make_line.rsplit("Error ").next().unwrap_or("").trim();
+        return Some(format_answer(
+            &format!(
+                "A command in the recipe for the target `{target}`{place} failed, so make stopped. `Error {status}` is only that command's exit status: what went wrong is printed by the command itself, above the make line.{said}"
+            ),
+            "nothing",
+        ));
+    }
+    if let Some(line) = lines.iter().find(|l| l.to_lowercase().starts_with("grep: unmatched")) {
+        let open = lower.contains("unmatched ( or");
+        let hint = if open {
+            "an unescaped `(` starts a group that is never closed; write `\\(` to search for a literal parenthesis, or use `grep -F` for plain text"
+        } else {
+            "a bracket or brace in the pattern is never closed; escape it with a backslash to search for the character itself, or use `grep -F` for plain text"
+        };
+        return Some(format_answer(
+            &format!("`grep` could not read its pattern as a regular expression (`{line}`): {hint}."),
+            "nothing",
+        ));
+    }
+    if let Some(line) = lines.iter().find(|l| {
+        let low = l.to_lowercase();
+        low.contains("file format not recognized")
+            && (low.starts_with("xz:") || low.starts_with("unxz:") || low.starts_with("lzma:"))
+    }) {
+        let file = line.split(": ").nth(1).unwrap_or("the file");
+        return Some(format_answer(
+            &format!(
+                "`{file}` is not in the xz format (`{line}`): it is not an xz archive, or the download or copy is damaged. `file` says what it really is."
+            ),
+            &format!("file {file}"),
+        ));
+    }
+    if let Some(line) = lines.iter().find(|l| l.to_lowercase().contains("requires an argument")) {
+        let option = if let Some(at) = line.find("-- '") {
+            line[at + 4..].chars().next().map(|c| format!("-{c}"))
+        } else {
+            quoted_after(line, "option").map(|c| format!("-{c}"))
+        };
+        let which = option.map_or(String::new(), |o| format!(" `{o}`"));
+        return Some(format_answer(
+            &format!(
+                "An option{which} was given without the value it needs (`{line}`): put the value right after it. A value that starts with a dash or a missing shell variable is a common reason it looks absent."
+            ),
+            "nothing",
+        ));
+    }
+    if let Some(line) = lines.iter().find(|l| l.starts_with("parse error:") && l.contains(" at line ")) {
+        return Some(format_answer(
+            &format!(
+                "`jq` could not parse its input as JSON (`{line}`): what was piped into it is not valid JSON at that line and column. Typical causes are a trailing comma, single quotes, or an error page or message instead of the data. Look at the input itself, just before jq."
+            ),
+            "nothing",
+        ));
+    }
+    if lower.contains("multiple definition of") {
+        let mut symbols: Vec<String> = Vec::new();
+        for line in out.lines().filter(|l| l.contains("multiple definition of")) {
+            if let Some(s) = quoted_after(line, "multiple definition of")
+                && !symbols.contains(&s)
+            {
+                symbols.push(s);
+            }
+        }
+        let names = symbols.iter().map(|s| format!("`{s}`")).collect::<Vec<_>>().join(", ");
+        return Some(format_answer(
+            &format!(
+                "The linker found {names} defined more than once (`multiple definition`) in the object files being joined. Usual causes: a variable or function defined (not just declared) in a header included by several .c files, or the same source file listed twice."
+            ),
+            "nothing",
+        ));
+    }
+    None
+}
+
+fn diagnose_system_errors(last: &Last) -> Option<String> {
+    let out = last.output.as_str();
+    let lower = out.to_lowercase();
+    if let Some(line) = first_line_with(out, "is not in the sudoers file") {
+        return Some(format_answer(
+            &format!(
+                "Your account is not allowed to use sudo (`{line}`). Only an administrator of this machine can grant that: ask them to give your account sudo rights. Nothing you run as yourself can do it."
+            ),
+            "nothing",
+        ));
+    }
+    if lower.contains("system has not been booted with systemd") {
+        return Some(format_answer(
+            "systemd is not running here (`System has not been booted with systemd as init system`), so `systemctl` has nothing to talk to. That is normal inside a Docker container and in WSL without systemd enabled. Run the service's own program directly, or in WSL turn systemd on in `/etc/wsl.conf` (`[boot]` then `systemd=true`) and restart WSL.",
+            "nothing",
+        ));
+    }
+    if let Some(line) = first_line_with(out, "too many levels of symbolic links") {
+        let at = line.to_lowercase().find(": too many levels")?;
+        let path = path_in(&line[..at]);
+        let (shown, fix) = match path {
+            Some(p) => (format!("`{p}`"), format!("ls -l {p}")),
+            None => ("A path in the command".to_string(), "nothing".to_string()),
+        };
+        return Some(format_answer(
+            &format!(
+                "{shown} runs into a symbolic link loop (`Too many levels of symbolic links`): following the links leads back to where it started, or is chained too deep. `ls -l` shows where each link points."
+            ),
+            &fix,
+        ));
+    }
+    if let Some(line) = out.lines().map(str::trim).find(|l| {
+        let low = l.to_lowercase();
+        low.contains("already exists") && low.contains("not overwritten")
+    }) {
+        let prog = line.split(':').next().unwrap_or("the program");
+        let file = line.split(": ").nth(1).and_then(|r| r.split(" already exists").next()).unwrap_or("the output file");
+        return Some(format_answer(
+            &format!(
+                "`{prog}` refused to overwrite `{file}`, which already exists (`already exists; not overwritten`). Move or rename the old file if you want to keep it; `-f` makes {prog} overwrite it, and the old content is lost."
+            ),
+            "nothing",
+        ));
+    }
+    let memory_error = ["double free", "free(): invalid", "corrupted", "munmap_chunk", "malloc(): "]
+        .iter()
+        .find(|m| lower.contains(*m));
+    if let Some(m) = memory_error {
+        let line = first_line_with(out, m).unwrap_or(m);
+        return Some(format_answer(
+            &format!(
+                "The program stopped itself after the C library found a memory error (`{line}`): it freed memory twice or damaged the heap. That is a bug in the program, not in your system. Running it under `valgrind`, or building with `-fsanitize=address`, points at the line."
+            ),
+            "nothing",
+        ));
+    }
+    let other_cause = lower.contains("out of memory") || lower.contains("fatal error") || lower.contains("assert");
+    if !other_cause
+        && (lower.contains("aborted") && lower.contains("(core dumped)")
+            || (last.exit == Some(134) && lower.contains("abort")))
+    {
+        return Some(format_answer(
+            "The program aborted itself (SIGABRT, `Aborted (core dumped)`), usually after a failed assertion or an unrecoverable error; it is a crash of the program, not of the system. Any message printed just before the line `Aborted` says why.",
+            "nothing",
+        ));
+    }
+    if lower.contains("too many open files") && !lower.contains("in system") {
+        return Some(format_answer(
+            "The program hit the limit on files it may have open at once (`Too many open files`). `ulimit -n` shows the limit for this shell; either raise it (`ulimit -n 4096`, for this shell and what it starts) or fix the program so it closes files and sockets it no longer needs.",
+            "ulimit -n",
+        ));
+    }
+    None
+}
+
+fn diagnose_remote_errors(last: &Last) -> Option<String> {
+    let out = last.output.as_str();
+    let lower = out.to_lowercase();
+    if let Some(line) = first_line_with(out, " are too open") {
+        let low = line.to_lowercase();
+        if low.starts_with("permissions ") {
+            let path = quoted_after(line, "for")?;
+            return Some(format_answer(
+                &format!(
+                    "ssh refuses to use the private key `{path}` because other users can read it (`{line}`), and it then falls back to other ways to log in. A private key must be readable by its owner only."
+                ),
+                &format!("chmod 600 {path}"),
+            ));
+        }
+    }
+    if lower.contains("curl: (60)") && lower.contains("expired") {
+        return Some(format_answer(
+            "curl refused the connection because the server's TLS certificate has expired (`curl: (60)`). Either the site's owner has not renewed it, or this computer's clock is wrong, which makes valid certificates look expired: `date` shows the clock. Turning certificate checks off would hide the problem, not fix it.",
+            "nothing",
+        ));
+    }
+    if lower.contains("curl: (56)") {
+        let line = first_line_with(out, "curl: (56)").unwrap_or("curl: (56)");
+        return Some(format_answer(
+            &format!(
+                "The connection was cut while curl was receiving the answer (`{line}`): the server, or a proxy or firewall in between, closed it abruptly. It may be temporary; if it repeats, the server is overloaded or rejecting this kind of request."
+            ),
+            "nothing",
+        ));
+    }
+    if lower.contains("protected branch") || lower.contains("gh006") {
+        return Some(format_answer(
+            "The server refused the push because the branch is protected (`Protected branch update failed`): direct pushes to it are blocked. Push your work to a new branch and open a pull request, as the message says.",
+            "nothing",
+        ));
+    }
+    if lower.contains("requested url returned error: 403")
+        || (lower.contains("permission to ") && lower.contains(" denied to "))
+    {
+        let line = first_line_with(out, " denied to ").or_else(|| first_line_with(out, "error: 403")).unwrap_or("403");
+        return Some(format_answer(
+            &format!(
+                "The server answered 403: it knows who you are but that account has no write access to this repository (`{line}`). Check which account the credentials belong to (a saved token or SSH key of another user is the usual cause) and ask the owner for access."
+            ),
+            "nothing",
+        ));
+    }
+    if lower.contains("could not get lock") && lower.contains("dpkg") {
+        let pid = lower.split("held by process ").nth(1).and_then(|r| r.split_whitespace().next());
+        let (held, fix) = match pid {
+            Some(p) => (format!(" (process {p})"), format!("ps -p {p}")),
+            None => (String::new(), "nothing".to_string()),
+        };
+        return Some(format_answer(
+            &format!(
+                "Another package manager is running{held} and holds the dpkg lock, so apt cannot start (`Could not get lock`). Often it is an automatic update: wait for it to finish, then run the command again. Do not remove the lock files by hand; that can corrupt the package database."
+            ),
+            &fix,
+        ));
+    }
+    if let Some(line) = first_line_with(out, "unable to locate package") {
+        let name = line.rsplit("package ").next().unwrap_or("it");
+        let update = if last.command.contains("apt-get") { "sudo apt-get update" } else { "sudo apt update" };
+        return Some(format_answer(
+            &format!(
+                "apt has no package called `{name}` in its lists (`{line}`): the name is misspelled, the package list is out of date, or the package lives in a repository that is not enabled. Refreshing the lists is the first thing to try; `apt-cache search` finds the right name."
+            ),
+            update,
+        ));
+    }
+    if let Some(line) = first_line_with(out, "the connection to the server")
+        && lower.contains("was refused")
+    {
+        return Some(format_answer(
+            &format!(
+                "kubectl could not reach a cluster (`{line}`). With `localhost:8080` it usually has no kubeconfig at all, so it fell back to its default address; otherwise the cluster is down. `kubectl config current-context` shows which cluster kubectl is set to use, and `echo $KUBECONFIG` where it looks for the settings."
+            ),
+            "kubectl config current-context",
+        ));
+    }
+    None
+}
+
+/// Programs people expect on any system whose package name differs from the command, as
+/// (command, Arch, Debian, Fedora).
+const COMMON_PACKAGES: &[(&str, &str, &str, &str)] = &[
+    ("ping", "iputils", "iputils-ping", "iputils"),
+    ("ip", "iproute2", "iproute2", "iproute"),
+    ("ss", "iproute2", "iproute2", "iproute"),
+    ("ifconfig", "net-tools", "net-tools", "net-tools"),
+    ("netstat", "net-tools", "net-tools", "net-tools"),
+    ("sudo", "sudo", "sudo", "sudo"),
+    ("traceroute", "traceroute", "traceroute", "traceroute"),
+    ("nc", "openbsd-netcat", "netcat-openbsd", "nmap-ncat"),
+    ("lsof", "lsof", "lsof", "lsof"),
+    ("dig", "bind", "dnsutils", "bind-utils"),
+    ("nslookup", "bind", "dnsutils", "bind-utils"),
+];
+
+/// How to install a very common command that the platform data does not describe.
+fn common_package_command(program: &str) -> Option<String> {
+    let (_, arch, debian, fedora) = COMMON_PACKAGES.iter().find(|(name, ..)| *name == program)?;
+    let platforms = crate::platform::detect();
+    let family = crate::platform::manager(&platforms)?;
+    let package = match family.as_str() {
+        "arch" | "omarchy" => arch,
+        "debian" => debian,
+        "fedora" => fedora,
+        _ => return None,
+    };
+    Some(crate::platform::fill(&crate::platform::fact(&platforms, "pkg_install")?, package))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3505,7 +4230,7 @@ mod tests {
         let answer = explain(&last, &mut |piece| streamed.push_str(piece)).unwrap();
         assert_eq!(answer.text, streamed);
         assert!(answer.text.contains("htop"));
-        assert_eq!(suggested(&answer.text), Some("htop"));
+        assert!(suggested(&answer.text).is_some_and(|c| c.contains("htop")));
     }
 
     #[test]
@@ -3583,7 +4308,7 @@ mod tests {
             Last { command: String::new(), exit: None, output: "bash: line 1: htpo: command not found".into() };
         let ans = diagnose(&bash_line_typo);
         assert!(ans.contains("htop"), "got: {ans}");
-        assert_eq!(suggested(&ans), Some("htop"));
+        assert!(suggested(&ans).is_some_and(|c| c.contains("htop")));
 
         // bash: line 1: ./Cargo.toml: Permission denied (piped, exit None -> checks metadata +x)
         let bash_line_noexec =
