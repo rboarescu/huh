@@ -1,6 +1,6 @@
 name = "docker run"
 description = "Create and start a new Docker container from an image"
-template = "docker run {detached} {interactive} {ports} {name} {image}"
+template = "docker run {detached} {interactive} {privileged} {ports} {name} {image}"
 keywords = ["start new container", "launch image", "run container", "detached", "interactive shell"]
 
 [[flags]]
@@ -13,6 +13,13 @@ id = "interactive"
 value = "-it"
 question = "Does the user want an interactive shell or session in the new container?"
 
+[[flags]]
+id = "privileged"
+value = "--privileged"
+question = "Does the user ask for privileged mode?"
+warning = "the container gets nearly full access to the host and can act as root on this computer."
+risk = "gives away access"
+
 [[slots]]
 id = "ports"
 kind = "text"
@@ -20,6 +27,8 @@ what = "the port mapping, host port then container port (8080:80)"
 default = ""
 format = "-p {}"
 extract = "sys_port_map"
+warning = "a published port is open on every network interface, so other computers can reach it, not just this one. Write 127.0.0.1:8080:80 to keep it local."
+risk = "exposes a service"
 
 [[slots]]
 id = "name"

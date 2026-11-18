@@ -4,6 +4,7 @@ template = "sudo journalctl --vacuum-size={size}"
 kind = "action"
 destructive = true
 warning = "the oldest journal entries beyond this size are deleted and cannot be recovered."
+risk = "hides tracks"
 keywords = ["limit journal size", "shrink the journal", "journal max size", "trim journal by size", "cap system log size", "journal vacuum size"]
 
 [[slots]]

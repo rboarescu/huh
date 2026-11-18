@@ -953,3 +953,203 @@ request = "delete Documents"
 command = "rm"
 expect = "rm Documents"
 warn = true
+
+# --- safety hardening: risk categories (shell-relevant gaps closed) -------------------------------
+
+[[case]]
+request = "serve this folder over http"
+command = "http server"
+expect = "python3 -m http.server 8000"
+warn = true
+
+[[case]]
+request = "serve this folder over http on port 9000"
+command = "http server"
+expect = "python3 -m http.server 9000"
+warn = true
+
+[[case]]
+request = "host this directory over http on port 8080"
+command = "http server"
+expect = "python3 -m http.server 8080"
+warn = true
+
+[[case]]
+request = "start a quick web server here"
+command = "http server"
+expect = "python3 -m http.server 8000"
+warn = true
+
+[[case]]
+request = "share my local port 3000 on the internet"
+command = "ngrok"
+expect = "ngrok http 3000"
+warn = true
+
+[[case]]
+request = "expose my dev server on port 3000 to the internet"
+command = "ngrok"
+expect = "ngrok http 3000"
+warn = true
+
+[[case]]
+request = "make my local port 3000 public"
+command = "ngrok"
+expect = "ngrok http 3000"
+warn = true
+
+[[case]]
+request = "clear my shell history"
+command = "history clear"
+expect = "history -c && history -w"
+warn = true
+
+[[case]]
+request = "erase my bash history"
+command = "history clear"
+expect = "history -c && history -w"
+warn = true
+
+[[case]]
+request = "delete my shell history"
+command = "history clear"
+expect = "history -c && history -w"
+warn = true
+
+[[case]]
+request = "download https://self-signed.local/x ignore certificate errors"
+command = "curl"
+expect = "curl -L -k -O https://self-signed.local/x"
+warn = true
+
+[[case]]
+request = "curl https://self-signed.local/x skipping certificate errors"
+command = "curl"
+expect = "curl -L -k https://self-signed.local/x"
+warn = true
+
+[[case]]
+request = "ssh to web1 and skip the host key check"
+command = "ssh"
+expect = "ssh -o StrictHostKeyChecking=no web1"
+warn = true
+
+[[case]]
+request = "ssh into web1 ignoring the host key check"
+command = "ssh"
+expect = "ssh -o StrictHostKeyChecking=no web1"
+warn = true
+
+[[case]]
+request = "ssh reverse tunnel remote port 8080 to local 3000 on server1"
+command = "ssh remote tunnel"
+expect = "ssh -N -R 8080:localhost:3000 server1"
+warn = true
+
+[[case]]
+request = "ssh reverse tunnel remote port 9000 to local 22 on gateway"
+command = "ssh remote tunnel"
+expect = "ssh -N -R 9000:localhost:22 gateway"
+warn = true
+
+[[case]]
+request = "set up passwordless ssh to mediabox"
+command = "ssh-copy-id"
+expect = "ssh-copy-id mediabox"
+warn = true
+
+[[case]]
+request = "copy my ssh key to server2"
+command = "ssh-copy-id"
+expect = "ssh-copy-id server2"
+warn = true
+
+[[case]]
+request = "schedule a script every day"
+command = "crontab edit"
+expect = "crontab -e"
+warn = true
+
+[[case]]
+request = "run every night a cron job"
+command = "crontab edit"
+expect = "crontab -e"
+warn = true
+
+[[case]]
+request = "add an alias gs for git status"
+command = "add shell alias"
+expect = "echo \"alias gs='git status'\" >> ~/.bashrc"
+warn = true
+
+[[case]]
+request = "push to origin main"
+command = "git push"
+expect = "git push origin main"
+warn = true
+
+[[case]]
+request = "git push origin master"
+command = "git push"
+expect = "git push origin master"
+warn = true
+
+[[case]]
+request = "commit with message hi and bypass the hooks"
+command = "git commit"
+expect = "git commit --no-verify -m 'hi and bypass the hooks'"
+warn = true
+
+[[case]]
+request = "run nginx in a container on port 8080:80"
+command = "docker run"
+expect = "docker run -p 8080:80 nginx"
+warn = true
+
+[[case]]
+request = "run postgres container with port 5432:5432"
+command = "docker run"
+expect = "docker run -p 5432:5432 postgres"
+warn = true
+
+[[case]]
+request = "make sshd start at boot"
+command = "systemctl"
+expect = "sudo systemctl enable sshd"
+warn = true
+
+[[case]]
+request = "make sshd start on boot"
+command = "systemctl"
+expect = "sudo systemctl enable sshd"
+warn = true
+
+[[case]]
+request = "ssh to web1"
+command = "ssh"
+expect = "ssh web1"
+warn = false
+
+[[case]]
+request = "get https://example.com/x"
+command = "curl"
+expect = "curl -L https://example.com/x"
+warn = false
+
+[[case]]
+request = "commit with message fix typo"
+command = "git commit"
+expect = "git commit -m 'fix typo'"
+warn = false
+
+[[case]]
+request = "push my branch to origin"
+command = "git push"
+expect = "git push origin"
+warn = false
+
+[[case]]
+request = "run nginx container"
+command = "docker run"
+expect = "docker run nginx"
+warn = false

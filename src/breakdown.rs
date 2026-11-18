@@ -6,7 +6,8 @@ use crate::catalog::Command;
 use crate::decode;
 use crate::knowledge::{ArgKind, Knowledge, RoleKind, Section};
 use crate::manpage::{self, ManPage};
-use crate::risk::{self, INTERPRETERS, Inv, PosArg, SHELLS, Warning};
+use crate::risk::{self, INTERPRETERS, Inv, PosArg, Risk, SHELLS, Warning};
+use crate::risk_extra;
 use crate::shell::{self, Cmd, Conn, Pipeline, Redir, Script, Sep, Simple, SubKind, Word};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -456,6 +457,7 @@ impl<'a> Engine<'a> {
                             "downloads a script from the internet and runs it immediately{}, without you seeing what it does first. If the server is hacked or the address is wrong, whatever it serves runs on this machine. Download it to a file, read it, then run it.",
                             if root { " as root (sudo)" } else { "" }
                         ),
+                        risk: Risk::RunsInternetCode,
                     });
                 }
             }
@@ -609,6 +611,7 @@ impl<'a> Engine<'a> {
                         part: ":(){ ... }".into(),
                         context: String::new(),
                         text: "this shape (a function named `:` that calls itself) is the classic fork bomb: it multiplies processes until the machine freezes.".into(),
+                        risk: Risk::KillsWork,
                     });
                 }
                 let inner = self.explain_script(body, env);
@@ -793,11 +796,12 @@ impl<'a> Engine<'a> {
                 piece: shorten(&format!("{name}={}", value.raw), 50),
                 meaning: self.decorate(meaning, value),
             });
-            if let Some(text) = risk::secret_assignment(name, &value.text) {
+            if let Some((risk, text)) = risk_extra::assignment_warning(name, &value.text) {
                 self.push_warning(Warning {
                     part: shorten(&format!("{name}=..."), 50),
                     context: shorten(&s.raw, 90),
                     text,
+                    risk,
                 });
             }
             self.sub_inners(value, env, &mut out);
@@ -928,6 +932,7 @@ impl<'a> Engine<'a> {
                             part: shorten(&w.raw, 60),
                             context: shorten(&s.raw, 90),
                             text: "downloads a script from the internet and runs it immediately, without you seeing what it does first. Download it to a file, read it, then run it.".into(),
+                            risk: Risk::RunsInternetCode,
                         });
                     }
                 }
@@ -1082,11 +1087,12 @@ impl<'a> Engine<'a> {
             }
             if matches!(st.key.as_str(), "env" | "export") && is_assignment(&w.raw) {
                 let (name, value) = w.text.split_once('=').unwrap_or((&w.text, ""));
-                if let Some(text) = risk::secret_assignment(name, value) {
+                if let Some((risk, text)) = risk_extra::assignment_warning(name, value) {
                     self.push_warning(Warning {
                         part: shorten(&format!("{name}=..."), 50),
                         context: shorten(&out.raw, 90),
                         text,
+                        risk,
                     });
                 }
             }

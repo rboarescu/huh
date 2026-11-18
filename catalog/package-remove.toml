@@ -3,6 +3,7 @@ description = "Uninstall a program or package"
 template = "{pkg_remove}"
 destructive = true
 warning = "the program is uninstalled, and packages that depend on it may go with it."
+risk = "big system change"
 keywords = ["uninstall program", "remove app", "delete package", "uninstall software", "remove package", "drop app", "pacman -R", "omarchy uninstall"]
 
 [[slots]]

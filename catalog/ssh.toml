@@ -1,7 +1,14 @@
 name = "ssh"
 description = "Log in to another computer over the network"
-template = "ssh {port} {user}{host}"
+template = "ssh {no_host_check} {port} {user}{host}"
 keywords = ["remote login", "connect to server", "remote shell", "ssh into"]
+
+[[flags]]
+id = "no_host_check"
+value = "-o StrictHostKeyChecking=no"
+question = "Does the user say to skip, ignore or turn off the host key check?"
+warning = "this skips the check of the server's identity: you cannot tell if someone is impersonating it."
+risk = "weakens security"
 
 [[slots]]
 id = "host"

@@ -3,6 +3,7 @@ description = "Stop a running Docker container"
 template = "docker stop {container}"
 destructive = true
 warning = "this stops the container and the program running in it."
+risk = "kills work"
 keywords = ["stop container", "halt running container", "shut down container"]
 
 [[slots]]

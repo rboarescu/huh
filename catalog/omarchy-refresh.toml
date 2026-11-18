@@ -3,6 +3,7 @@ description = "Reset a broken Omarchy, Hyprland, shell bar, tmux, or pacman conf
 template = "omarchy refresh {part}"
 destructive = true
 warning = "your configuration for this part is replaced with the defaults (a backup is kept)."
+risk = "destroys data"
 platform = "omarchy"
 keywords = ["reset config", "restore default config", "fix broken config", "omarchy reset", "reset hyprland", "reset top bar", "reset shell", "reset tmux", "reset pacman", "reset hyprsunset", "reset chromium", "default configuration"]
 

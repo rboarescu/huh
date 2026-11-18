@@ -609,6 +609,7 @@ mod tests {
             description: String::new(),
             destructive: false,
             warning: None,
+            risk: None,
             notes: vec![],
             parts: vec![],
         };

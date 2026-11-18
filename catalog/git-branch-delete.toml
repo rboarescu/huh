@@ -4,6 +4,7 @@ template = "git branch {mode} {branch}"
 kind = "action"
 destructive = true
 warning = "this deletes the branch; commits that exist only on it become hard to find."
+risk = "destroys data"
 keywords = ["delete branch", "remove branch", "delete a git branch", "get rid of a branch", "drop branch", "remove local branch"]
 
 [[slots]]
@@ -21,6 +22,7 @@ name = "force"
 value = "-D"
 description = "Force-delete the branch even if it has unmerged commits"
 warning = "this force-deletes the branch even if it has commits that are not merged anywhere else."
+risk = "destroys data"
 opposites = ["merged"]
 
 [[slots]]

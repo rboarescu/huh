@@ -14,15 +14,18 @@ name = "keep_changes"
 value = "--soft HEAD~1"
 description = "Undo the last commit but keep its changes staged"
 warning = "this removes the last commit from the branch (rewrites history); its changes stay staged."
+risk = "rewrites history"
 
 [[slots.options]]
 name = "discard_all_changes"
 value = "--hard"
 description = "Throw away every uncommitted change and go back to the last commit"
 warning = "all uncommitted changes in the repository are lost and cannot be recovered."
+risk = "destroys data"
 
 [[slots.options]]
 name = "drop_last_commit"
 value = "--hard HEAD~1"
 description = "Remove the last commit and everything it changed"
 warning = "the last commit and all uncommitted changes are lost (rewrites history)."
+risk = "destroys data"

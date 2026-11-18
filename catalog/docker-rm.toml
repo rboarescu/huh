@@ -9,6 +9,7 @@ id = "force"
 value = "-f"
 question = "Does the user want the container removed even if it is running?"
 warning = "this force-removes the container even while it runs: whatever it is doing stops at once."
+risk = "kills work"
 
 [[slots]]
 id = "container"

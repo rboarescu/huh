@@ -1,5 +1,8 @@
 name = "add shell alias"
 description = "Create a permanent short name (alias) for a long command"
+destructive = true
+warning = "this changes your shell startup file: the alias applies to every new shell, and a name that is also a real command hides that command."
+risk = "persists"
 template = "echo \"alias {name}='{command}'\" >> {shell_rc}"
 keywords = ["alias", "shortcut command", "abbreviate command", "custom command", "command alias", "bashrc alias", "zshrc alias"]
 

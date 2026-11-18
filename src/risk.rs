@@ -1,6 +1,7 @@
 //! Risk analysis: what could go wrong if this command were run. Pure text analysis, nothing runs.
 
 use crate::decode;
+pub use crate::risk_kinds::Risk;
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -10,6 +11,8 @@ pub struct Warning {
     /// The command it belongs to (shown when different from `part`).
     pub context: String,
     pub text: String,
+    /// Which kind of danger this is (see risk_kinds.rs); shown as `[kind]` in front of the part.
+    pub risk: Risk,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -142,8 +145,8 @@ fn expand_empty(arg: &PosArg, assigned: &HashSet<String>) -> Option<(String, Str
 
 /// Warns about the things `inv` could do.
 pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
-    let mut warn = |part: &str, text: String| {
-        let w = Warning { part: part.to_string(), context: inv.raw.clone(), text };
+    let mut warn = |risk: Risk, part: &str, text: String| {
+        let w = Warning { part: part.to_string(), context: inv.raw.clone(), text, risk };
         if !out.contains(&w) {
             out.push(w);
         }
@@ -155,25 +158,28 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
     };
     let recursive = inv.has(&["-r", "-R", "--recursive"]);
     secret_warnings(inv, &mut warn);
+    crate::risk_extra::check(inv, &mut warn);
 
     match prog {
         "sudo" | "doas" | "su" => check_priv(inv, &on, &mut warn),
         "rm" => {
             let kind = if recursive { "deletes folders and everything inside them" } else { "deletes files" };
             let force = if inv.has(&["-f", "--force"]) { ", without asking and ignoring missing files" } else { "" };
-            warn(prog, format!("{kind} permanently{force}{on}: there is no trash and no undo."));
+            warn(Risk::DestroysData, prog, format!("{kind} permanently{force}{on}: there is no trash and no undo."));
             for arg in &inv.pos {
                 if recursive && is_system_path(&arg.text) {
                     warn(
+                        Risk::DestroysData,
                         &arg.text,
                         format!("recursively deletes a system or home folder{on}: this would wreck the machine."),
                     );
                 }
                 if let Some((var, expanded)) = expand_empty(arg, assigned) {
-                    warn(&arg.text, unset_text(&var, &expanded, "deletes"));
+                    warn(Risk::DestroysData, &arg.text, unset_text(&var, &expanded, "deletes"));
                 }
                 if arg.glob && arg.text == "*" && recursive {
                     warn(
+                        Risk::DestroysData,
                         &arg.text,
                         "the wildcard * matches everything in the current folder; all of it is deleted.".to_string(),
                     );
@@ -181,6 +187,7 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
             }
             if inv.has(&["--no-preserve-root"]) {
                 warn(
+                    Risk::WeakensSecurity,
                     &inv.part_for(&["--no-preserve-root"]),
                     "switches off the safety check that stops `rm -r /`.".to_string(),
                 );
@@ -188,7 +195,7 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
         }
         "find" => {
             if inv.has(&["-delete"]) {
-                warn("-delete", "deletes every match permanently, with no confirmation (no trash). Run the same command without -delete first to see what would go.".to_string());
+                warn(Risk::DestroysData, "-delete", "deletes every match permanently, with no confirmation (no trash). Run the same command without -delete first to see what would go.".to_string());
             }
         }
         "xargs" => {
@@ -204,6 +211,7 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                     (None, false) => "whatever arrives on standard input".to_string(),
                 };
                 warn(
+                    Risk::DestroysData,
                     "xargs",
                     format!(
                         "feeds {source} straight into `{inner}`. Check that input first (put `echo` in front of `{inner}` to preview the commands)."
@@ -221,19 +229,24 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                     .find(|(c, _)| c == "-KILL" || c == "-9")
                     .map(|(_, r)| r.clone())
                     .unwrap_or_else(|| prog.to_string());
-                warn(&part, "signal 9 (KILL) stops the process immediately and it cannot clean up: unsaved data can be lost and lock or temp files left behind. Try plain `kill` (signal 15) first.".to_string());
+                warn(Risk::KillsWork, &part, "signal 9 (KILL) stops the process immediately and it cannot clean up: unsaved data can be lost and lock or temp files left behind. Try plain `kill` (signal 15) first.".to_string());
             }
             if inv.pos.iter().any(|p| p.has_sub) || inv.piped_in {
-                warn(prog, "the process IDs are worked out when the line runs, not written here; if the lookup matches more than you expect, unrelated programs are stopped.".to_string());
+                warn(Risk::KillsWork, prog, "the process IDs are worked out when the line runs, not written here; if the lookup matches more than you expect, unrelated programs are stopped.".to_string());
             }
             if prog != "kill" {
                 warn(
+                    Risk::KillsWork,
                     prog,
                     "stops every process whose name matches, including ones you did not start on purpose.".to_string(),
                 );
             }
             if inv.pos.iter().any(|p| p.text == "-1" || p.text == "1" || p.text == "0") && prog == "kill" {
-                warn("kill", "a process ID of 1, 0 or -1 targets init or every process you may signal.".to_string());
+                warn(
+                    Risk::KillsWork,
+                    "kill",
+                    "a process ID of 1, 0 or -1 targets init or every process you may signal.".to_string(),
+                );
             }
         }
         "git" => check_git(inv, &mut warn),
@@ -246,13 +259,14 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                         && !target.starts_with("/dev/std")
                     {
                         warn(
+                            Risk::DestroysData,
                             &arg.text,
                             format!(
                                 "writes raw data straight onto the device {target}, destroying everything on it (files and partition table). Check the device name with `lsblk` first: the wrong letter wipes the wrong disk."
                             ),
                         );
                     } else if target != "/dev/null" {
-                        warn(&arg.text, format!("overwrites {target} if it exists."));
+                        warn(Risk::DestroysData, &arg.text, format!("overwrites {target} if it exists."));
                     }
                 }
             }
@@ -260,6 +274,7 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
         "mkfs" | "mkswap" | "wipefs" | "shred" | "blkdiscard" | "sgdisk" | "fdisk" | "parted" | "cfdisk" => {
             if prog.starts_with("mk") || prog == "wipefs" || prog == "shred" || prog == "blkdiscard" {
                 warn(
+                    Risk::DestroysData,
                     prog,
                     format!(
                         "destroys the existing data on {}.",
@@ -267,31 +282,39 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                     ),
                 );
             } else if !inv.has(&["-l", "--list"]) {
-                warn(prog, "edits the partition table: a wrong change can make a disk unreadable.".to_string());
+                warn(
+                    Risk::DestroysData,
+                    prog,
+                    "edits the partition table: a wrong change can make a disk unreadable.".to_string(),
+                );
             }
         }
         _ if prog.starts_with("mkfs.") => {
             warn(
+                Risk::DestroysData,
                 prog,
                 format!("destroys the existing data on {}.", inv.pos_texts().first().copied().unwrap_or("its target")),
             );
         }
-        "truncate" => {
-            warn(prog, "cuts or extends the file to the given size: data beyond the new size is lost.".to_string())
-        }
+        "truncate" => warn(
+            Risk::DestroysData,
+            prog,
+            "cuts or extends the file to the given size: data beyond the new size is lost.".to_string(),
+        ),
         "tee" => {
             let append = inv.has(&["-a", "--append"]);
             for arg in &inv.pos {
                 if arg.text == "/dev/null" || arg.text.starts_with("/dev/std") {
                     continue;
                 }
-                if let Some(text) =
+                if let Some((risk, text)) =
                     persistence_text(&arg.text, if append { Write::Append } else { Write::Replace }, on.as_str())
-                    && (append || !arg.text.starts_with("/etc/"))
+                    && (append || !arg.text.starts_with("/etc/") || risk == Risk::GivesAwayAccess)
                 {
-                    warn("tee", text);
+                    warn(risk, "tee", text);
                 } else if !append {
                     warn(
+                        Risk::DestroysData,
                         "tee",
                         format!("replaces the current contents of {}{on} (use `tee -a` to append instead).", arg.text),
                     );
@@ -314,16 +337,17 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                     " The list of files comes from a command substitution: check what it matches before running.",
                 );
             }
-            warn(&part, text);
+            warn(Risk::DestroysData, &part, text);
             for arg in &inv.pos {
-                if let Some(text) = persistence_text(&arg.text, Write::Edit, on.as_str()) {
-                    warn("-i", text);
+                if let Some((risk, text)) = persistence_text(&arg.text, Write::Edit, on.as_str()) {
+                    warn(risk, "-i", text);
                 }
             }
         }
         "ln" if inv.has(&["-f", "--force"]) && inv.pos.len() >= 2 => {
             let name = inv.pos.last().map(|p| p.text.as_str()).unwrap_or("");
             warn(
+                Risk::DestroysData,
                 &inv.part_for(&["-f", "--force"]),
                 format!("replaces an existing file or link named `{name}` without asking."),
             );
@@ -332,16 +356,20 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
             if !inv.has(&["-n", "--no-clobber", "-i", "--interactive", "-b", "--backup"]) && inv.pos.len() >= 2 =>
         {
             let dest = inv.pos.last().map(|p| p.text.as_str()).unwrap_or("");
-            warn(prog, format!("if `{dest}` (or a file inside it) already exists, it is replaced without asking."));
-            if let Some(text) = persistence_text(dest, Write::Replace, on.as_str()) {
-                warn(prog, text);
+            warn(
+                Risk::DestroysData,
+                prog,
+                format!("if `{dest}` (or a file inside it) already exists, it is replaced without asking."),
+            );
+            if let Some((risk, text)) = persistence_text(dest, Write::Replace, on.as_str()) {
+                warn(risk, prog, text);
             }
             if prog == "mv" && inv.pos.iter().any(|p| is_system_path(&p.text) && p.text != "/") {
-                warn(prog, "moves a system folder, which can break the machine.".to_string());
+                warn(Risk::BigSystemChange, prog, "moves a system folder, which can break the machine.".to_string());
             }
             for arg in &inv.pos {
                 if let Some((var, expanded)) = expand_empty(arg, assigned) {
-                    warn(&arg.text, unset_text(&var, &expanded, "moves"));
+                    warn(Risk::DestroysData, &arg.text, unset_text(&var, &expanded, "moves"));
                 }
             }
         }
@@ -350,12 +378,12 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                 && let Some(mode) = inv.pos.first()
             {
                 if decode::chmod_world_writable(&mode.text) {
-                    warn(&mode.text, "lets every user on the machine modify these files; anything running on the machine, or any compromised account, can change or replace them. 755 (folders, programs) or 644 (plain files) is usually what is wanted.".to_string());
+                    warn(Risk::GivesAwayAccess, &mode.text, "lets every user on the machine modify these files; anything running on the machine, or any compromised account, can change or replace them. 755 (folders, programs) or 644 (plain files) is usually what is wanted.".to_string());
                 }
                 if mode.text.contains('s') && mode.text.contains('+')
                     || mode.text.len() == 4 && mode.text.starts_with(['4', '2', '6'])
                 {
-                    warn(&mode.text, "sets the setuid/setgid bit: the program then runs with its owner's rights, a classic privilege-escalation risk.".to_string());
+                    warn(Risk::GivesAwayAccess, &mode.text, "sets the setuid/setgid bit: the program then runs with its owner's rights, a classic privilege-escalation risk.".to_string());
                 }
             }
             if recursive {
@@ -363,6 +391,7 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                 for arg in inv.pos.iter().skip(skip) {
                     if is_system_path(&arg.text) {
                         warn(
+                            Risk::BigSystemChange,
                             &inv.part_for(&["-R", "-r", "--recursive"]),
                             format!(
                                 "changes {} on everything under `{}`{on}: on system folders this can break the machine.",
@@ -372,7 +401,7 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                         );
                     }
                     if let Some((var, expanded)) = expand_empty(arg, assigned) {
-                        warn(&arg.text, unset_text(&var, &expanded, "changes"));
+                        warn(Risk::DestroysData, &arg.text, unset_text(&var, &expanded, "changes"));
                     }
                 }
                 if prog != "chmod" || inv.pos.len() > 1 {
@@ -380,6 +409,7 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                     let target = inv.pos.last().map(|p| p.text.as_str()).unwrap_or("");
                     if !target.is_empty() && !is_system_path(target) {
                         warn(
+                            Risk::DestroysData,
                             &inv.part_for(&["-R", "-r", "--recursive"]),
                             format!(
                                 "applies to everything under `{target}`, not just the folder itself; the previous {} are not recorded anywhere, so it is hard to undo.",
@@ -393,18 +423,24 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
         "curl" | "wget" => {
             if inv.has(&["-k", "--insecure", "--no-check-certificate"]) {
                 warn(
+                    Risk::WeakensSecurity,
                     &inv.part_for(&["-k", "--insecure", "--no-check-certificate"]),
                     "turns off the check that the server is who it claims to be: the download can be tampered with."
                         .to_string(),
                 );
             }
         }
-        "eval" => warn("eval", "runs the given text as shell code; whatever it contains will be executed.".to_string()),
+        "eval" => warn(
+            Risk::RunsUnreadCode,
+            "eval",
+            "runs the given text as shell code; whatever it contains will be executed.".to_string(),
+        ),
         "ssh" => {
             if inv.values.iter().any(|(f, v)| {
                 f == "-o" && v.replace(' ', "").to_ascii_lowercase().starts_with("stricthostkeychecking=no")
             }) {
                 warn(
+                    Risk::WeakensSecurity,
                     "StrictHostKeyChecking=no",
                     "skips the check of the server's identity: you cannot tell if someone is impersonating it."
                         .to_string(),
@@ -412,25 +448,27 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
             }
         }
         "rsync" if inv.has(&["--delete"]) => {
-            warn("--delete", "deletes files at the destination that do not exist in the source. Add -n (dry run) first to see what would go.".to_string());
+            warn(Risk::DestroysData, "--delete", "deletes files at the destination that do not exist in the source. Add -n (dry run) first to see what would go.".to_string());
         }
         "tar"
             if inv.has(&["-x", "--extract", "--get"]) && !inv.has(&["-k", "--keep-old-files", "--skip-old-files"]) =>
         {
             warn(
+                Risk::DestroysData,
                 &inv.part_for(&["-x", "--extract", "--get"]),
                 format!("files in the archive replace files of the same name already in the target folder{on}."),
             );
         }
         "crontab" => {
             if inv.has(&["-r"]) {
-                warn("-r", "deletes ALL your scheduled jobs without asking.".to_string());
+                warn(Risk::DestroysData, "-r", "deletes ALL your scheduled jobs without asking.".to_string());
             } else if !inv.has(&["-l", "-e"])
                 && let Some(src) = inv.pos.first()
             {
                 let from =
                     if src.text == "-" { "what is piped in".to_string() } else { format!("the file {}", src.text) };
                 warn(
+                    Risk::Persists,
                     "crontab",
                     format!(
                         "replaces your WHOLE list of scheduled jobs{on} with {from}: any job that is not in it is lost, and the new jobs then run on their own schedule without you being there."
@@ -439,6 +477,7 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
             }
         }
         "reboot" | "poweroff" | "halt" => warn(
+            Risk::KillsWork,
             prog,
             format!(
                 "{} the machine{on}: running programs are stopped and connections are lost.",
@@ -446,6 +485,7 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
             ),
         ),
         "shutdown" => warn(
+            Risk::KillsWork,
             prog,
             format!("shuts down or restarts the machine{on}: running programs are stopped and connections are lost."),
         ),
@@ -455,6 +495,7 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                 match sub {
                     "stop" | "restart" | "kill" | "disable" | "mask" | "reload" | "try-restart" => {
                         warn(
+                            Risk::KillsWork,
                             sub,
                             format!(
                                 "{} the service {units}{on}; anything using it is interrupted.",
@@ -469,6 +510,7 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                         );
                     }
                     "enable" => warn(
+                        Risk::Persists,
                         sub,
                         format!(
                             "makes {units}{on} start automatically at every boot{}; it keeps coming back until it is disabled.",
@@ -476,14 +518,18 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                         ),
                     ),
                     "poweroff" | "reboot" | "halt" | "suspend" | "isolate" => {
-                        warn(sub, format!("changes the power state of the machine{on}."))
+                        warn(Risk::KillsWork, sub, format!("changes the power state of the machine{on}."))
                     }
                     _ => {}
                 }
             }
         }
         "usermod" | "useradd" | "userdel" | "passwd" | "groupadd" | "gpasswd" => {
-            warn(prog, "changes user accounts or their permissions on this machine.".to_string());
+            warn(
+                Risk::GivesAwayAccess,
+                prog,
+                "changes user accounts or their permissions on this machine.".to_string(),
+            );
         }
         "ufw" | "iptables" | "nft" | "ip6tables" => check_firewall(inv, &mut warn),
         "pip" | "pip3" | "python" | "python3" | "uv" | "poetry" => check_python(inv, &mut warn),
@@ -495,7 +541,7 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                 || inv.values.iter().any(|(f, v)| f == "--target" && v == "install")
                 || inv.pos.iter().any(|p| p.text == "install");
             if installs {
-                warn(
+                warn(Risk::BigSystemChange,
                     if inv.has(&["--install"]) { "--install" } else { "--build" },
                     "also installs: copies the build results into the install folder (system folders such as /usr/local need root)."
                         .to_string(),
@@ -503,10 +549,13 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
             }
         }
         "cargo" => match inv.sub() {
-            Some("install") => {
-                warn("install", "downloads, compiles and installs a program into ~/.cargo/bin.".to_string())
-            }
+            Some("install") => warn(
+                Risk::BigSystemChange,
+                "install",
+                "downloads, compiles and installs a program into ~/.cargo/bin.".to_string(),
+            ),
             Some("clean") => warn(
+                Risk::DestroysData,
                 "clean",
                 "deletes the whole `target/` build folder; the next build starts from scratch.".to_string(),
             ),
@@ -515,12 +564,15 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
         "kubectl" => check_kubectl(inv, &mut warn),
         "helm" => match inv.sub() {
             Some("install" | "upgrade") => warn(
+                Risk::AffectsOthers,
                 inv.sub().unwrap_or("install"),
                 "changes what runs on the cluster: it creates or updates real resources.".to_string(),
             ),
-            Some("uninstall" | "delete") => {
-                warn("uninstall", "removes the release and the resources it created on the cluster.".to_string())
-            }
+            Some("uninstall" | "delete") => warn(
+                Risk::AffectsOthers,
+                "uninstall",
+                "removes the release and the resources it created on the cluster.".to_string(),
+            ),
             _ => {}
         },
         "terraform" => {
@@ -532,24 +584,29 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                 };
                 if inv.has(&["-auto-approve"]) {
                     warn(
+                        Risk::AffectsOthers,
                         "-auto-approve",
                         format!(
                             "{what} without asking you to confirm the plan first. Run `terraform plan` and read it before this."
                         ),
                     );
                 } else {
-                    warn(sub, format!("{what} (it shows the plan and asks before doing it)."));
+                    warn(Risk::AffectsOthers, sub, format!("{what} (it shows the plan and asks before doing it)."));
                 }
             }
         }
         "gh" if inv.path.get(1).is_some_and(|p| p == "pr") && inv.path.get(2).is_some_and(|p| p == "merge") => {
             if inv.has(&["--admin"]) {
-                warn(
+                warn(Risk::AffectsOthers,
                     "--admin",
                     "merges even when required checks or reviews have not passed, bypassing the branch protection rules.".to_string(),
                 );
             } else {
-                warn("merge", "merges the pull request into its target branch on GitHub.".to_string());
+                warn(
+                    Risk::AffectsOthers,
+                    "merge",
+                    "merges the pull request into its target branch on GitHub.".to_string(),
+                );
             }
         }
         "psql" | "mysql" | "mariadb" | "sqlite3" => check_sql(inv, &mut warn),
@@ -561,7 +618,7 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                 _ => true,
             };
             if changes {
-                warn(prog, "changes the software installed on the whole system.".to_string());
+                warn(Risk::BigSystemChange, prog, "changes the software installed on the whole system.".to_string());
             }
         }
         "apt" | "apt-get" | "dnf" | "yum" | "zypper" => {
@@ -581,6 +638,7 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
                 )
             {
                 warn(
+                    Risk::BigSystemChange,
                     sub,
                     format!(
                         "changes the software installed on {}the whole system.",
@@ -593,6 +651,7 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
             let upgrade = inv.has(&["-u", "--sysupgrade"]);
             let remove = inv.has(&["-R", "--remove"]);
             warn(
+                Risk::BigSystemChange,
                 &inv.part_for(&["-S", "-R", "-U", "--sync", "--remove", "--upgrade"]),
                 if remove {
                     "removes packages from the whole system.".to_string()
@@ -605,24 +664,31 @@ pub fn check(inv: &Inv, assigned: &HashSet<String>, out: &mut Vec<Warning>) {
         }
         "tail" | "journalctl" if inv.has(&["-f", "-F", "--follow"]) => {
             warn(
+                Risk::HeadsUp,
                 &inv.part_for(&["-f", "-F", "--follow"]),
                 "keeps running and printing new lines until you press Ctrl+C.".to_string(),
             );
         }
         "ping" if !inv.has(&["-c", "-w"]) => {
-            warn("ping", "keeps sending until you press Ctrl+C (add -c N to stop after N).".to_string())
+            warn(Risk::HeadsUp, "ping", "keeps sending until you press Ctrl+C (add -c N to stop after N).".to_string())
         }
-        "watch" => warn("watch", "re-runs the command every couple of seconds until you press Ctrl+C.".to_string()),
-        "top" | "htop" | "btop" => warn(prog, "stays open and updates live until you press q.".to_string()),
-        "yes" => warn("yes", "prints forever until interrupted.".to_string()),
+        "watch" => warn(
+            Risk::HeadsUp,
+            "watch",
+            "re-runs the command every couple of seconds until you press Ctrl+C.".to_string(),
+        ),
+        "top" | "htop" | "btop" => {
+            warn(Risk::HeadsUp, prog, "stays open and updates live until you press q.".to_string())
+        }
+        "yes" => warn(Risk::HeadsUp, "yes", "prints forever until interrupted.".to_string()),
         _ => {}
     }
     if prog == "umount" && inv.has(&["-f", "--force", "-l", "--lazy"]) {
-        warn("umount", "forces a disk to be detached even if programs still use it.".to_string());
+        warn(Risk::DestroysData, "umount", "forces a disk to be detached even if programs still use it.".to_string());
     }
 }
 
-fn check_kubectl(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
+fn check_kubectl(inv: &Inv, warn: &mut dyn FnMut(Risk, &str, String)) {
     let Some(sub) = inv.sub() else { return };
     let all = inv.has(&["--all", "-A", "--all-namespaces"]);
     match sub {
@@ -632,23 +698,37 @@ fn check_kubectl(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
             } else {
                 ""
             };
-            warn(sub, format!("removes cluster resources, which may take running applications down.{sweeping}"));
+            warn(
+                Risk::AffectsOthers,
+                sub,
+                format!("removes cluster resources, which may take running applications down.{sweeping}"),
+            );
         }
         "apply" | "create" | "scale" | "rollout" => {
             let rollout_view = sub == "rollout" && inv.pos.get(1).is_some_and(|p| p.text == "status");
             if !rollout_view && !inv.has(&["--dry-run"]) {
-                warn(sub, "changes the live cluster (the current kubectl context decides which one).".to_string());
+                warn(
+                    Risk::AffectsOthers,
+                    sub,
+                    "changes the live cluster (the current kubectl context decides which one).".to_string(),
+                );
             }
         }
-        "exec" => warn(sub, "runs a command inside a running container of the cluster.".to_string()),
+        "exec" => {
+            warn(Risk::AffectsOthers, sub, "runs a command inside a running container of the cluster.".to_string())
+        }
         "get" | "logs" | "describe" if all && sub == "logs" => {
-            warn("--all", "reads logs from every matching pod, which can be a lot of output.".to_string());
+            warn(
+                Risk::HeadsUp,
+                "--all",
+                "reads logs from every matching pod, which can be a lot of output.".to_string(),
+            );
         }
         _ => {}
     }
 }
 
-fn check_low_level_pkg(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
+fn check_low_level_pkg(inv: &Inv, warn: &mut dyn FnMut(Risk, &str, String)) {
     let prog = inv.prog.as_str();
     let install = if prog == "dpkg" {
         inv.has(&["-i", "--install"])
@@ -658,20 +738,21 @@ fn check_low_level_pkg(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
     let remove =
         if prog == "dpkg" { inv.has(&["-r", "--remove", "-P", "--purge"]) } else { inv.has(&["-e", "--erase"]) };
     if install {
-        warn(
+        warn(Risk::RunsUnreadCode,
             &inv.part_for(&["-i", "--install", "-U", "--upgrade", "-F", "--freshen"]),
             "installs a package as root and runs its maintainer scripts, which are arbitrary commands that execute on this machine before and after the files are copied.".to_string(),
         );
     }
     if remove {
         warn(
+            Risk::BigSystemChange,
             &inv.part_for(&["-r", "--remove", "-P", "--purge", "-e", "--erase"]),
             "removes the package from the whole system (its removal scripts run as root).".to_string(),
         );
     }
 }
 
-fn check_firewall(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
+fn check_firewall(inv: &Inv, warn: &mut dyn FnMut(Risk, &str, String)) {
     let prog = inv.prog.as_str();
     if prog == "ufw" {
         match inv.sub() {
@@ -682,6 +763,7 @@ fn check_firewall(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
                     ""
                 };
                 warn(
+                    Risk::BigSystemChange,
                     "enable",
                     format!(
                         "turns the firewall on and keeps it on at every boot. Over SSH this can lock you out unless ssh is already allowed (`ufw allow ssh` first).{forced}"
@@ -689,11 +771,17 @@ fn check_firewall(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
                 );
             }
             Some("disable" | "reset") => warn(
+                Risk::WeakensSecurity,
                 inv.sub().unwrap_or("disable"),
                 "turns the firewall off or deletes its rules: services become reachable from the network.".to_string(),
             ),
-            Some("allow" | "deny" | "delete" | "limit" | "reject") => warn(
-                inv.sub().unwrap_or("allow"),
+            Some(sub @ ("allow" | "deny" | "delete" | "limit" | "reject")) => warn(
+                match sub {
+                    "allow" => Risk::ExposesService,
+                    "delete" => Risk::WeakensSecurity,
+                    _ => Risk::BigSystemChange,
+                },
+                sub,
                 "changes the firewall rules, which can lock you out or expose services.".to_string(),
             ),
             _ => {}
@@ -701,13 +789,14 @@ fn check_firewall(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
         return;
     }
     if inv.has(&["-F", "--flush"]) {
-        warn(
+        warn(Risk::WeakensSecurity,
             &inv.part_for(&["-F", "--flush"]),
             "flushes (deletes) every firewall rule: the protection they gave is gone, and if the default policy is DROP all traffic, your ssh included, is cut off.".to_string(),
         );
     }
     if inv.has(&["-X", "--delete-chain"]) {
         warn(
+            Risk::WeakensSecurity,
             &inv.part_for(&["-X", "--delete-chain"]),
             "deletes user-made firewall chains and the rules in them.".to_string(),
         );
@@ -726,18 +815,24 @@ fn check_firewall(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
                 format!("changes the default policy of {chain}, which decides what happens to traffic no rule matches.")
             }
         };
-        warn(&inv.part_for(&["-P", "--policy"]), text);
+        let risk = if target == "ACCEPT" { Risk::WeakensSecurity } else { Risk::BigSystemChange };
+        warn(risk, &inv.part_for(&["-P", "--policy"]), text);
     }
     if !inv.has(&["-F", "--flush", "-X", "--delete-chain", "-P", "--policy"])
         && (inv.has(&["-A", "--append", "-I", "--insert", "-D", "--delete"])
             || inv.sub().is_some_and(|s| matches!(s, "flush" | "delete" | "add")))
     {
-        warn(prog, "changes the firewall rules, which can lock you out or expose services.".to_string());
+        let opens = inv.raw.to_ascii_lowercase().contains("accept");
+        warn(
+            if opens { Risk::ExposesService } else { Risk::BigSystemChange },
+            prog,
+            "changes the firewall rules, which can lock you out or expose services.".to_string(),
+        );
     }
 }
 
 /// SQL given on the command line that destroys or rewrites data.
-fn check_sql(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
+fn check_sql(inv: &Inv, warn: &mut dyn FnMut(Risk, &str, String)) {
     let (flags, from_pos): (&[&str], bool) = match inv.prog.as_str() {
         "psql" => (&["-c", "--command"], false),
         "mysql" | "mariadb" => (&["-e", "--execute"], false),
@@ -775,6 +870,7 @@ fn check_sql(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
             };
             if let Some(what) = text {
                 warn(
+                    Risk::DestroysData,
                     &part,
                     format!(
                         "runs the SQL statement `{named}` straight away: this {what}. There is no confirmation and often no undo."
@@ -794,7 +890,7 @@ enum Write {
     Edit,
 }
 
-fn persistence_text(path: &str, how: Write, on: &str) -> Option<String> {
+fn persistence_text(path: &str, how: Write, on: &str) -> Option<(Risk, String)> {
     let verb = match how {
         Write::Append => "adds to",
         Write::Replace => "replaces the current contents of",
@@ -815,27 +911,90 @@ fn persistence_text(path: &str, how: Write, on: &str) -> Option<String> {
     .iter()
     .any(|f| p == *f || p.ends_with(&format!("/{f}")));
     if startup {
-        return Some(format!(
-            "{verb} the shell startup file {path}{on}: whatever is in it runs every time a new shell starts, which is a common way to make code or changes persist.{}",
-            match how {
-                Write::Append => " Existing settings in it are kept.",
-                Write::Replace => " Existing settings in it are lost.",
-                Write::Edit => "",
-            }
+        return Some((
+            Risk::Persists,
+            format!(
+                "{verb} the shell startup file {path}{on}: whatever is in it runs every time a new shell starts, which is a common way to make code or changes persist.{}",
+                match how {
+                    Write::Append => " Existing settings in it are kept.",
+                    Write::Replace => " Existing settings in it are lost.",
+                    Write::Edit => "",
+                }
+            ),
+        ));
+    }
+    if p.starts_with("/etc/sudoers") {
+        return Some((
+            Risk::GivesAwayAccess,
+            format!(
+                "{verb} {path}{on}, the file that says who may run commands as root: a wrong or too generous line gives someone full control of the machine."
+            ),
+        ));
+    }
+    if p.ends_with(".ssh/authorized_keys") || p.ends_with(".ssh/authorized_keys2") {
+        return Some((
+            Risk::GivesAwayAccess,
+            format!("{verb} {path}{on}: every key listed there can log in to this account without a password."),
+        ));
+    }
+    let autostart = [
+        "/etc/cron",
+        "/var/spool/cron",
+        "/etc/systemd/",
+        "/etc/profile.d/",
+        "/etc/rc.local",
+        "/etc/init.d/",
+        "/etc/ld.so.preload",
+        "/etc/xdg/autostart",
+    ]
+    .iter()
+    .any(|d| p.starts_with(d))
+        || [".config/autostart/", ".config/systemd/user/", ".xinitrc", ".xprofile", ".xsession"]
+            .iter()
+            .any(|d| p.contains(d));
+    if autostart {
+        return Some((
+            Risk::Persists,
+            format!(
+                "{verb} {path}{on}, a place where programs are set up to start again by themselves (at boot, on a schedule or at login)."
+            ),
         ));
     }
     if p.contains(".git/hooks/") || p.ends_with(".git/hooks") {
-        return Some(format!(
-            "writes into the git hooks folder ({path}): hook scripts run automatically on later git commands (commit, push, checkout, ...)."
+        return Some((
+            Risk::Persists,
+            format!(
+                "writes into the git hooks folder ({path}): hook scripts run automatically on later git commands (commit, push, checkout, ...)."
+            ),
         ));
     }
     if p.starts_with("/etc/") {
-        return Some(format!(
-            "{verb} the system file {path}{on}: it changes how the whole machine behaves{}.",
-            if how == Write::Replace { " (what was there is lost)" } else { "" }
+        return Some((
+            Risk::BigSystemChange,
+            format!(
+                "{verb} the system file {path}{on}: it changes how the whole machine behaves{}.",
+                if how == Write::Replace { " (what was there is lost)" } else { "" }
+            ),
         ));
     }
     None
+}
+
+/// Is `path` a shell history file or a system log? Writing to it erases the record of what happened.
+pub(crate) fn trace_wipe_text(path: &str) -> Option<String> {
+    let p = path.trim_end_matches('/');
+    let name = p.rsplit('/').next().unwrap_or(p);
+    let history = matches!(
+        name,
+        ".bash_history" | ".zsh_history" | ".history" | ".python_history" | ".lesshst" | ".viminfo" | "fish_history"
+    );
+    let log = p.starts_with("/var/log/") || p.starts_with("/run/log/");
+    (history || log).then(|| {
+        format!(
+            "{path} is {}: emptying or replacing it erases the record of what was run or what happened.",
+            if history { "a shell or program history file" } else { "a system log" }
+        )
+    })
 }
 
 /// A secret passed as a plain value on the command line or in an assignment.
@@ -874,7 +1033,7 @@ pub const SECRET_OPTIONS: [&str; 9] = [
     "--access-token",
 ];
 
-const SECRET_PATTERNS: [&str; 9] = [
+const SECRET_PATTERNS: [&str; 14] = [
     "authorization: bearer ",
     "authorization: basic ",
     "token=",
@@ -884,23 +1043,27 @@ const SECRET_PATTERNS: [&str; 9] = [
     "api_key=",
     "apikey=",
     "access_token=",
+    "x-api-key:",
+    "api-key:",
+    "x-auth-token:",
+    "private-token:",
+    "x-access-token:",
 ];
 
-fn secret_warnings(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
+fn secret_warnings(inv: &Inv, warn: &mut dyn FnMut(Risk, &str, String)) {
     const TEXT: &str = "puts a password or token right on the command line: it is saved in your shell history and any user on the machine can read it in the process list while this runs. Leave the value out to be prompted, or read it from a file or an environment variable set elsewhere.";
     let mut seen: Vec<String> = Vec::new();
-    let mut hit = |part: &str, warn: &mut dyn FnMut(&str, String)| {
+    let mut hit = |part: &str, warn: &mut dyn FnMut(Risk, &str, String)| {
         if !seen.iter().any(|s| s == part) {
             seen.push(part.to_string());
-            warn(part, TEXT.to_string());
+            warn(Risk::LeaksSecrets, part, TEXT.to_string());
         }
     };
     let mysql_like = matches!(inv.prog.as_str(), "mysql" | "mariadb" | "mysqldump" | "mysqladmin");
     for (flag, value) in &inv.values {
         let lower = flag.to_ascii_lowercase();
         let secret_flag = SECRET_OPTIONS.contains(&lower.as_str())
-            || (matches!(flag.as_str(), "-p" | "--password")
-                && (mysql_like || matches!(inv.prog.as_str(), "sshpass" | "docker")))
+            || (matches!(flag.as_str(), "-p" | "--password") && mysql_like)
             || (matches!(flag.as_str(), "-u" | "--user") && inv.prog == "curl" && value.contains(':'));
         if secret_flag && !value.is_empty() {
             let names = [flag.as_str()];
@@ -923,7 +1086,7 @@ fn secret_warnings(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
     }
 }
 
-fn check_priv(inv: &Inv, on: &str, warn: &mut dyn FnMut(&str, String)) {
+fn check_priv(inv: &Inv, on: &str, warn: &mut dyn FnMut(Risk, &str, String)) {
     let prog = inv.prog.as_str();
     let su = prog == "su";
     let login_marker = inv.pos.iter().any(|p| p.text == "-");
@@ -963,7 +1126,7 @@ fn check_priv(inv: &Inv, on: &str, warn: &mut dyn FnMut(&str, String)) {
             }
         }
     };
-    warn(prog, text);
+    warn(Risk::BigSystemChange, prog, text);
 }
 
 fn unset_text(var: &str, expanded: &str, verb: &str) -> String {
@@ -974,13 +1137,13 @@ fn unset_text(var: &str, expanded: &str, verb: &str) -> String {
     )
 }
 
-fn check_git(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
+fn check_git(inv: &Inv, warn: &mut dyn FnMut(Risk, &str, String)) {
     let Some(sub) = inv.path.get(1).map(String::as_str) else { return };
     let pos: Vec<&str> = inv.pos.iter().map(|p| p.text.as_str()).collect();
     match sub {
         "reset" if inv.has(&["--hard"]) => {
-            warn("--hard", "throws away every uncommitted change in tracked files and moves the branch to the given commit. Work that was never committed cannot be recovered.".to_string());
-            warn("reset", "rewrites where the branch points: commits after the target disappear from this branch (they stay reachable through `git reflog` for a while).".to_string());
+            warn(Risk::DestroysData, "--hard", "throws away every uncommitted change in tracked files and moves the branch to the given commit. Work that was never committed cannot be recovered.".to_string());
+            warn(Risk::RewritesHistory, "reset", "rewrites where the branch points: commits after the target disappear from this branch (they stay reachable through `git reflog` for a while).".to_string());
         }
         "clean" if inv.has(&["-f", "--force"]) && !inv.has(&["-n", "--dry-run"]) => {
             let mut what = "deletes files git does not track".to_string();
@@ -991,33 +1154,37 @@ fn check_git(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
                 what.push_str(", including ignored files such as .env, build output and local settings");
             }
             warn(
+                Risk::DestroysData,
                 "clean",
                 format!("{what}: they are gone for good (not in trash, not in git). Use -n first to list them."),
             );
         }
         "push" => {
             if inv.has(&["-f", "--force"]) {
-                warn(&inv.part_for(&["-f", "--force"]), "overwrites the remote branch with yours, discarding commits others may have pushed. Prefer --force-with-lease.".to_string());
+                warn(Risk::RewritesHistory, &inv.part_for(&["-f", "--force"]), "overwrites the remote branch with yours, discarding commits others may have pushed. Prefer --force-with-lease.".to_string());
             }
             if inv.has(&["--force-with-lease"]) {
                 warn(
+                    Risk::RewritesHistory,
                     "--force-with-lease",
                     "rewrites the remote branch (but refuses if someone pushed since you last fetched).".to_string(),
                 );
             }
             if let Some(spec) = pos.iter().skip(1).find(|p| p.starts_with('+')) {
-                warn(
+                warn(Risk::RewritesHistory,
                     spec,
                     "a refspec starting with + is a force push: it overwrites the remote branch with yours, discarding commits others may have pushed. Prefer --force-with-lease.".to_string(),
                 );
             }
             if inv.has(&["--delete", "-d"]) {
                 warn(
+                    Risk::AffectsOthers,
                     &inv.part_for(&["--delete", "-d"]),
                     "deletes a branch or tag on the remote for everyone.".to_string(),
                 );
             } else if let Some(spec) = pos.iter().find(|p| p.starts_with(':') && p.len() > 1) {
                 warn(
+                    Risk::AffectsOthers,
                     spec,
                     format!(
                         "pushing an empty source to `{}` deletes that branch or tag on the remote for everyone.",
@@ -1027,6 +1194,7 @@ fn check_git(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
             }
             if inv.has(&["--mirror"]) {
                 warn(
+                    Risk::RewritesHistory,
                     "--mirror",
                     "makes the remote an exact copy of this repository, deleting anything it has that you do not."
                         .to_string(),
@@ -1036,7 +1204,7 @@ fn check_git(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
         "config" => {
             let key = pos.first().map(|k| k.to_ascii_lowercase()).unwrap_or_default();
             if key == "core.hookspath" && pos.len() > 1 && !inv.has(&["--unset"]) {
-                warn(
+                warn(Risk::Persists,
                     "core.hooksPath",
                     "points git at another folder of hook scripts: the programs in it run automatically on later git commands (commit, push, checkout, ...), in this repository or every one if --global.".to_string(),
                 );
@@ -1044,14 +1212,18 @@ fn check_git(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
             if matches!(key.as_str(), "core.fsmonitor" | "core.sshcommand" | "core.pager" | "core.editor")
                 && pos.len() > 1
             {
-                warn(pos[0], "sets a program that git itself starts later during ordinary git commands.".to_string());
+                warn(
+                    Risk::Persists,
+                    pos[0],
+                    "sets a program that git itself starts later during ordinary git commands.".to_string(),
+                );
             }
         }
         "rebase" => {
-            warn("rebase", "rewrites history: your commits are replaced by new copies on a new base. Never do this to commits others already have.".to_string());
+            warn(Risk::RewritesHistory, "rebase", "rewrites history: your commits are replaced by new copies on a new base. Never do this to commits others already have.".to_string());
         }
         "commit" if inv.has(&["--amend"]) => {
-            warn("--amend", "replaces the previous commit instead of adding a new one (rewrites history; matters if it was already pushed).".to_string());
+            warn(Risk::RewritesHistory, "--amend", "replaces the previous commit instead of adding a new one (rewrites history; matters if it was already pushed).".to_string());
         }
         "checkout" | "restore" | "switch" => {
             let discards = pos.iter().any(|p| matches!(*p, "." | "*") || p.ends_with("/."))
@@ -1059,34 +1231,43 @@ fn check_git(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
                 || (sub == "switch" && inv.has(&["-f", "--force", "--discard-changes"]));
             if discards && !(sub == "restore" && inv.has(&["--staged", "-S"]) && !inv.has(&["--worktree", "-W"])) {
                 warn(
+                    Risk::DestroysData,
                     sub,
                     "throws away uncommitted changes in the working folder; they cannot be recovered.".to_string(),
                 );
             }
         }
-        "branch" if inv.has(&["-D"]) => {
-            warn("-D", "deletes the branch even if its commits were never merged anywhere.".to_string())
-        }
+        "branch" if inv.has(&["-D"]) => warn(
+            Risk::DestroysData,
+            "-D",
+            "deletes the branch even if its commits were never merged anywhere.".to_string(),
+        ),
         "stash" if pos.first().is_some_and(|p| matches!(*p, "drop" | "clear")) => {
-            warn(pos[0], "permanently drops stashed changes.".to_string());
+            warn(Risk::DestroysData, pos[0], "permanently drops stashed changes.".to_string());
         }
-        "filter-branch" | "filter-repo" => warn(sub, "rewrites the entire history of the repository.".to_string()),
+        "filter-branch" | "filter-repo" => {
+            warn(Risk::RewritesHistory, sub, "rewrites the entire history of the repository.".to_string())
+        }
         "reflog" if pos.first().is_some_and(|p| matches!(*p, "expire" | "delete")) => {
-            warn(pos[0], "removes the safety net that lets you recover lost commits.".to_string());
+            warn(Risk::DestroysData, pos[0], "removes the safety net that lets you recover lost commits.".to_string());
         }
         "gc" if inv.value(&["--prune"]).is_some() => {
-            warn("--prune", "permanently deletes unreferenced objects (lost commits).".to_string())
+            warn(Risk::DestroysData, "--prune", "permanently deletes unreferenced objects (lost commits).".to_string())
         }
-        "rm" if !inv.has(&["--cached"]) => warn("rm", "deletes the files from disk and from git.".to_string()),
-        "pull" if inv.has(&["--rebase"]) => {
-            warn("--rebase", "rewrites your local commits on top of what was downloaded.".to_string())
+        "rm" if !inv.has(&["--cached"]) => {
+            warn(Risk::DestroysData, "rm", "deletes the files from disk and from git.".to_string())
         }
+        "pull" if inv.has(&["--rebase"]) => warn(
+            Risk::RewritesHistory,
+            "--rebase",
+            "rewrites your local commits on top of what was downloaded.".to_string(),
+        ),
         "clone" | "submodule" => {}
         _ => {}
     }
 }
 
-fn check_docker(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
+fn check_docker(inv: &Inv, warn: &mut dyn FnMut(Risk, &str, String)) {
     let path: Vec<&str> = inv.path.iter().map(String::as_str).collect();
     let last = path.last().copied().unwrap_or("");
     let pos: Vec<&str> = inv.pos.iter().map(|p| p.text.as_str()).collect();
@@ -1099,6 +1280,7 @@ fn check_docker(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
             "containers"
         };
         warn(
+            Risk::DestroysData,
             last,
             format!(
                 "deletes the {what} named here{}.",
@@ -1113,20 +1295,26 @@ fn check_docker(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
         } else {
             ""
         };
-        warn("prune", format!("deletes all unused docker data:{extra} stopped containers, unused networks{vol}."));
+        warn(
+            Risk::DestroysData,
+            "prune",
+            format!("deletes all unused docker data:{extra} stopped containers, unused networks{vol}."),
+        );
     }
     if path.get(1) == Some(&"compose") && last == "down" && inv.has(&["-v", "--volumes"]) {
         warn(
+            Risk::DestroysData,
             &inv.part_for(&["-v", "--volumes"]),
             "also deletes the named volumes: the data stored in them is lost.".to_string(),
         );
     }
     if path.get(1) == Some(&"compose") && last == "down" {
-        warn("down", "stops and removes the containers and networks of this project.".to_string());
+        warn(Risk::KillsWork, "down", "stops and removes the containers and networks of this project.".to_string());
     }
     if last == "run" || path.get(1) == Some(&"container") && path.get(2) == Some(&"run") {
         if inv.has(&["--privileged"]) {
             warn(
+                Risk::GivesAwayAccess,
                 "--privileged",
                 "gives the container nearly full access to the host: it can act as root on this machine.".to_string(),
             );
@@ -1146,6 +1334,7 @@ fn check_docker(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
                     || src == "/root"
                 {
                     warn(
+                        Risk::GivesAwayAccess,
                         &format!("{flag} {v}"),
                         format!(
                             "shares {src} with the container, which gives it the power to read or change the host (the docker socket is the same as root access)."
@@ -1159,6 +1348,7 @@ fn check_docker(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
                 && v.contains(':')
             {
                 warn(
+                    Risk::ExposesService,
                     &format!("{flag} {v}"),
                     format!(
                         "publishes the port on every network interface, so other computers can reach it, not just this one. Use 127.0.0.1:{v} to keep it local."
@@ -1168,32 +1358,41 @@ fn check_docker(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
         }
         if inv.has(&["-d", "--detach"]) {
             warn(
+                Risk::HeadsUp,
                 "-d",
                 "starts a container that keeps running in the background until you stop it (`docker stop`)."
                     .to_string(),
             );
         } else {
-            warn("run", "starts a container, which keeps running until the program inside it ends.".to_string());
+            warn(
+                Risk::HeadsUp,
+                "run",
+                "starts a container, which keeps running until the program inside it ends.".to_string(),
+            );
         }
     }
     if last == "build" {
-        warn("build", "starts building an image (can take a while and downloads data).".to_string());
+        warn(Risk::HeadsUp, "build", "starts building an image (can take a while and downloads data).".to_string());
     }
     if path.get(1) == Some(&"compose") && last == "up" && !inv.has(&["-d", "--detach"]) {
-        warn("up", "starts the services and stays attached to their output until you press Ctrl+C.".to_string());
+        warn(
+            Risk::HeadsUp,
+            "up",
+            "starts the services and stays attached to their output until you press Ctrl+C.".to_string(),
+        );
     }
     if path.get(1) == Some(&"compose") && last == "up" && inv.has(&["--build"]) {
-        warn("--build", "builds the images first (can take a while).".to_string());
+        warn(Risk::HeadsUp, "--build", "builds the images first (can take a while).".to_string());
     }
     if matches!(last, "logs") && inv.has(&["-f", "--follow"]) {
-        warn("-f", "keeps running and printing new lines until you press Ctrl+C.".to_string());
+        warn(Risk::HeadsUp, "-f", "keeps running and printing new lines until you press Ctrl+C.".to_string());
     }
     if matches!(last, "stop" | "kill" | "restart") && !pos.is_empty() {
-        warn(last, format!("interrupts the container(s) {}.", pos.join(", ")));
+        warn(Risk::KillsWork, last, format!("interrupts the container(s) {}.", pos.join(", ")));
     }
 }
 
-fn check_python(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
+fn check_python(inv: &Inv, warn: &mut dyn FnMut(Risk, &str, String)) {
     check_inline_code(inv, warn);
     let prog = inv.prog.as_str();
     let pip_like = matches!(prog, "pip" | "pip3")
@@ -1206,18 +1405,22 @@ fn check_python(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
     }
     let install = tool_install || inv.sub_is(&["install"]) || inv.pos.iter().any(|p| p.text == "install");
     if inv.has(&["--break-system-packages"]) {
-        warn("--break-system-packages", "tells pip to ignore your operating system's protection and install into the system-wide Python. That can break system tools that depend on specific versions. A virtualenv (`python -m venv`) or `pipx` is the safe way.".to_string());
+        warn(Risk::WeakensSecurity, "--break-system-packages", "tells pip to ignore your operating system's protection and install into the system-wide Python. That can break system tools that depend on specific versions. A virtualenv (`python -m venv`) or `pipx` is the safe way.".to_string());
     }
     if install {
-        warn("install", "installs packages (can run their setup code on this machine).".to_string());
+        warn(
+            Risk::RunsUnreadCode,
+            "install",
+            "installs packages (can run their setup code on this machine).".to_string(),
+        );
     }
     if inv.sub_is(&["uninstall"]) || inv.pos.iter().any(|p| p.text == "uninstall") {
-        warn("uninstall", "removes the packages.".to_string());
+        warn(Risk::BigSystemChange, "uninstall", "removes the packages.".to_string());
     }
 }
 
 /// Code given on the command line (`python3 -c`, `perl -e`, `node -e`) that shells out.
-fn check_inline_code(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
+fn check_inline_code(inv: &Inv, warn: &mut dyn FnMut(Risk, &str, String)) {
     let flags: &[&str] = match inv.prog.as_str() {
         "python" | "python3" => &["-c"],
         "perl" | "ruby" => &["-e", "-E"],
@@ -1247,6 +1450,7 @@ fn check_inline_code(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
     }
     if let Some(hit) = needles.iter().find(|n| low.contains(**n)) {
         warn(
+            Risk::RunsUnreadCode,
             &inv.part_for(flags),
             format!(
                 "the code given can run shell commands (it uses `{}`), and huh does not look inside it: read it before running.",
@@ -1256,27 +1460,35 @@ fn check_inline_code(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
     }
 }
 
-fn check_node(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
+fn check_node(inv: &Inv, warn: &mut dyn FnMut(Risk, &str, String)) {
     let sub = inv.sub().unwrap_or("");
     let is_install = matches!(sub, "install" | "i" | "add" | "ci" | "update" | "up" | "upgrade");
     let global = inv.has(&["-g", "--global"]);
     if global {
-        warn(&inv.part_for(&["-g", "--global"]), "installs or removes packages system-wide (shared by every project, often needs root) instead of in this project.".to_string());
+        warn(Risk::BigSystemChange, &inv.part_for(&["-g", "--global"]), "installs or removes packages system-wide (shared by every project, often needs root) instead of in this project.".to_string());
     }
     if is_install || (inv.prog == "yarn" && inv.pos.is_empty()) {
-        warn(sub, "installs packages (can run their install scripts on this machine).".to_string());
+        warn(
+            Risk::RunsUnreadCode,
+            sub,
+            "installs packages (can run their install scripts on this machine).".to_string(),
+        );
     } else if matches!(sub, "run" | "start" | "test" | "build" | "dev" | "exec" | "dlx" | "x") {
-        warn(sub, "runs a script that package.json defines (huh does not read that file).".to_string());
+        warn(
+            Risk::RunsUnreadCode,
+            sub,
+            "runs a script that package.json defines (huh does not read that file).".to_string(),
+        );
     }
     if matches!(sub, "uninstall" | "remove" | "rm") {
-        warn(sub, "removes packages.".to_string());
+        warn(Risk::BigSystemChange, sub, "removes packages.".to_string());
     }
     if sub == "publish" {
-        warn(sub, "uploads this package to a public registry.".to_string());
+        warn(Risk::AffectsOthers, sub, "uploads this package to a public registry.".to_string());
     }
 }
 
-fn check_make(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
+fn check_make(inv: &Inv, warn: &mut dyn FnMut(Risk, &str, String)) {
     if inv.has(&["-n", "--just-print", "--dry-run", "-q", "-p"]) {
         return;
     }
@@ -1284,6 +1496,7 @@ fn check_make(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
     if targets.iter().any(|t| *t == "install" || t.starts_with("install-") || *t == "uninstall") {
         let t = targets.iter().find(|t| t.contains("install")).copied().unwrap_or("install");
         warn(
+            Risk::BigSystemChange,
             t,
             format!(
                 "runs the Makefile's `{t}` recipe, which normally copies files into system folders such as /usr/local{}. Huh does not read the Makefile, so it cannot tell you exactly what it does.",
@@ -1293,6 +1506,7 @@ fn check_make(inv: &Inv, warn: &mut dyn FnMut(&str, String)) {
     } else if targets.iter().any(|t| matches!(*t, "clean" | "distclean" | "mrproper")) {
         let t = targets.iter().find(|t| matches!(**t, "clean" | "distclean" | "mrproper")).copied().unwrap_or("clean");
         warn(
+            Risk::DestroysData,
             t,
             "runs the Makefile's clean recipe, which deletes build output (the Makefile decides exactly what)."
                 .to_string(),
@@ -1311,7 +1525,12 @@ pub fn check_redir(op: &str, fd: Option<&str>, target: &str, raw: &str, context:
         return;
     }
     let mut text = None;
-    if let Some(p) = persistence_text(target, if appends { Write::Append } else { Write::Replace }, "") {
+    let mut risk = Risk::DestroysData;
+    if let Some(trace) = trace_wipe_text(target) {
+        risk = Risk::HidesTracks;
+        text = Some(trace);
+    } else if let Some((r, p)) = persistence_text(target, if appends { Write::Append } else { Write::Replace }, "") {
+        risk = r;
         text = Some(p);
     } else if target.starts_with("/dev/") {
         text = Some(format!("writes raw data straight onto the device {target}, which destroys what is stored on it."));
@@ -1321,6 +1540,9 @@ pub fn check_redir(op: &str, fd: Option<&str>, target: &str, raw: &str, context:
         let dotfile = target.contains("/.")
             || target.starts_with("~/.") && !target.contains(".config/") && !target.contains(".local/");
         let which = if fd == Some("2") { "error output" } else { "output" };
+        if system {
+            risk = Risk::BigSystemChange;
+        }
         text = Some(if system {
             format!("replaces the current contents of the system file {target} (if it exists) with the {which}.")
         } else if dotfile {
@@ -1331,10 +1553,11 @@ pub fn check_redir(op: &str, fd: Option<&str>, target: &str, raw: &str, context:
             format!("replaces the current contents of {target} if it already exists (use >> to append instead).")
         });
     } else if ["/etc/", "/boot/", "/usr/", "/bin/", "/sbin/"].iter().any(|p| target.starts_with(p)) {
+        risk = Risk::BigSystemChange;
         text = Some(format!("adds to the system file {target}."));
     }
     if let Some(text) = text {
-        let w = Warning { part: raw.to_string(), context: context.to_string(), text };
+        let w = Warning { part: raw.to_string(), context: context.to_string(), text, risk };
         if !out.contains(&w) {
             out.push(w);
         }

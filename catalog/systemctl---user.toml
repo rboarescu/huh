@@ -19,12 +19,14 @@ name = "stop"
 value = "stop"
 description = "Stop a running service"
 warning = "this stops the service: whatever depends on it stops working until it is started again."
+risk = "kills work"
 
 [[slots.options]]
 name = "restart"
 value = "restart"
 description = "Stop the service and start it again"
 warning = "this restarts the service: connections to it are dropped for a moment."
+risk = "kills work"
 
 [[slots.options]]
 name = "status"
@@ -36,12 +38,15 @@ description = "See whether the service is running and whether it reported errors
 name = "enable"
 value = "enable"
 description = "Make the service start by itself at every login"
+warning = "this makes the service start by itself at every boot; it keeps coming back until it is disabled."
+risk = "persists"
 
 [[slots.options]]
 name = "disable"
 value = "disable"
 description = "Stop the service from starting by itself"
 warning = "this stops the service from starting at boot, which can break whatever depends on it."
+risk = "persists"
 
 [[slots]]
 id = "service"

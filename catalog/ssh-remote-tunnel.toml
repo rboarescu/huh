@@ -2,6 +2,9 @@ name = "ssh remote tunnel"
 description = "Make a port on a remote computer reach a port on this computer through an ssh connection (reverse tunnel, remote port forward)"
 template = "ssh -N -R {listen_port}:localhost:{target_port} {host}"
 kind = "action"
+destructive = true
+warning = "this opens a port on the remote computer that leads back to this one: anyone who can reach that remote port can reach your local service."
+risk = "exposes a service"
 keywords = ["ssh reverse tunnel", "remote port forward", "forward remote port to local", "expose local port on server", "ssh -R", "reverse port forward over ssh", "publish a local port on a remote server"]
 
 [[slots]]

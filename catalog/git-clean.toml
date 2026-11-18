@@ -3,4 +3,5 @@ description = "Delete files and folders that git does not track"
 template = "git clean -fd"
 destructive = true
 warning = "untracked files and folders are deleted permanently, not moved to the trash."
+risk = "destroys data"
 keywords = ["remove untracked files", "delete untracked files", "clean the repo", "clean untracked", "get rid of untracked files", "clean working tree"]

@@ -221,7 +221,10 @@ pub const PLACEHOLDER_CONFIDENCE: f64 = 0.6;
 /// Marks a suggestion that overwrites a file, and caps the confidence of placeholder-only lines.
 pub fn tell_the_truth(suggestion: &mut Suggestion, command: &Command, details: &Details, candidates: &Candidates) {
     if let Some(why) = overwrite_warning(command, details, candidates) {
-        suggestion.warning.get_or_insert(why);
+        if suggestion.warning.is_none() {
+            suggestion.warning = Some(why);
+            suggestion.risk = Some(crate::risk_kinds::Risk::DestroysData);
+        }
         suggestion.destructive = true;
     }
     if only_placeholders(command, details) {

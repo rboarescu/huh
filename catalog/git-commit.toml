@@ -1,7 +1,14 @@
 name = "git commit"
 description = "Record the staged changes as a new git commit"
-template = "git commit -m {message}"
+template = "git commit {no_verify} -m {message}"
 keywords = ["save commit", "commit changes", "commit message", "record snapshot"]
+
+[[flags]]
+id = "no_verify"
+value = "--no-verify"
+question = "Does the user say to bypass the hooks?"
+warning = "this skips the pre-commit hooks, the checks (tests, lint, secret scans) the project set up to run first."
+risk = "weakens security"
 
 [[slots]]
 id = "message"

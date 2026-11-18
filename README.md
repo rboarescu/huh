@@ -150,9 +150,9 @@ Part by part:
    -delete        DELETE every match, permanently
 
 WARNINGS
-  ! `-delete` (in `find . -name '*.log' -mtime +7 -delete`): deletes every match
-    permanently, with no confirmation (no trash). Run the same command without
-    -delete first to see what would go.
+  ! [destroys data] `-delete` (in `find . -name '*.log' -mtime +7 -delete`):
+    deletes every match permanently, with no confirmation (no trash). Run the
+    same command without -delete first to see what would go.
 ```
 
 ```bash
@@ -164,8 +164,35 @@ pbpaste | huh explain              # no argument and piped input: reads standard
 - **Parser**: pipes (`|`, `|&`), lists (`&&`, `||`, `;`, `&`), `$(...)`, backticks, `${VAR}`, `$((...))`, `<(...)`, subshells, `{ ...; }`, `for`/`while`/`until`/`if`/`case`, functions, `[[ ... ]]`, assignments (`A=1 cmd`), all redirections (`>`, `>>`, `2>&1`, `&>`, `<`, `<<`, `<<<`, `>|`), heredocs (bodies are captured, not run) and `\` line continuations. It never panics: unbalanced quotes and brackets are parsed best-effort and reported under NOTES.
 - **Recursion**: the inner command of `$(...)`, `bash -c '...'`, `sh -c`, `sudo`, `env`, `xargs`, `nohup`, `time`, `watch`, `timeout`, `find -exec`, `docker run/exec` (marked "inside the container") and `ssh host '...'` (marked "on the remote computer") is explained too, indented below.
 - **Flags are explained per program**, from three sources in order: the curated table (`src/knowledge.txt`, about 150 programs and subcommands: git, docker, find with `+N`/`-N` decoded, tar, ssh, sed, awk, chmod with octal and symbolic modes decoded, kill signals, systemctl, ...), then the catalog, then the program's **man page read from disk** (`/usr/share/man/man{1,8}`, plain or `.gz`; `.TP`, `.IP`, `.PP` and mdoc `.It` layouts), which is marked "(from the man page)". Combined short flags (`-xzvf`) are split per program; single-dash long options (`find -name`) are not.
-- **Warnings**: deletes (`rm`, `find -delete`, `git clean`, `docker prune`, `dd of=`, `mkfs`, ...), overwrites (`>`, `sed -i`, `tee`, `cp`/`mv`), history rewrites (`git reset --hard`, `push --force`, `rebase`), privilege (`sudo`, `chmod 777`, `chown -R` on system folders), remote code (`curl | sh`, `bash <(curl ...)`), package installs (`pip --break-system-packages`, `npm -g`, `make install`), `kill -9` of computed PIDs, an unset variable in `rm "$DIR"/*`, and things that start a long build or run until Ctrl+C.
+- **Warnings** (each one names its category, see [Warnings](#warnings)): deletes (`rm`, `find -delete`, `git clean`, `docker prune`, `dd of=`, `mkfs`, ...), overwrites (`>`, `sed -i`, `tee`, `cp`/`mv`), history rewrites (`git reset --hard`, `push --force`, `rebase`), privilege (`sudo`, `chmod 777`, `chown -R` on system folders), remote code (`curl | sh`, `bash <(curl ...)`), package installs (`pip --break-system-packages`, `npm -g`, `make install`), `kill -9` of computed PIDs, an unset variable in `rm "$DIR"/*`, and things that start a long build or run until Ctrl+C. Also turned-off checks (`curl -k`, `git config http.sslVerify false`, `StrictHostKeyChecking=no`, `setenforce 0`, `ufw disable`, `--no-verify`), services opened to the network (`python3 -m http.server`, `--host 0.0.0.0`, `ngrok`, `ssh -R`, `nc -l`), secrets on the command line or printed (`cat ~/.ssh/id_rsa`, `export TOKEN=...`), erased traces (`history -c`, `unset HISTFILE`, `journalctl --vacuum-*`, truncating `/var/log`), things set up to run later (`crontab -e`, shell startup files, `systemctl enable`), changes to shared things (`npm publish`, `docker push`, `git push origin main`, `kubectl apply`, `terraform apply`, cloud `delete`s), and rights handed out (`usermod -aG docker`, `visudo`, `ssh -A`, `docker run --privileged`).
 - huh does not open scripts or Makefiles named in the command, so for `./run.sh` or `make install` it says so instead of guessing.
+
+### Warnings
+
+A warning informs; it never forbids. huh shows it and you decide. Every warning names one of these 14 categories, spelled the same way in all three places:
+
+- a request: `WARNING (weakens security): turns off ...`
+- `huh explain`: `! [weakens security] ...` under WARNINGS
+- `huh why`, when the `Try:` command is itself risky: `Note (gives away access): ...` under the `Try:` line (plain package installs, `sudo` itself and long-running commands get no note)
+
+| Category | Meaning |
+|---|---|
+| destroys data | deletes or overwrites data in a way you cannot undo |
+| rewrites history | changes git history, so earlier commits can be lost or differ from what others have |
+| runs code from the internet | downloads code and runs it before you have read it |
+| runs unread code | runs code that huh cannot see into: eval, inline scripts, installer scripts |
+| gives away access | hands someone or something more rights: permissions, groups, root, sudoers |
+| weakens security | turns off a check or protection: certificates, host keys, firewall, SELinux |
+| exposes a service | makes a service reachable from other computers or the internet |
+| leaks secrets | puts a password, token or private key where others or logs can see it |
+| hides tracks | erases history or logs that would show what happened |
+| persists | makes something run again later: cron, startup files, services at boot |
+| affects other people or production | changes something shared: a shared branch, a registry, a cluster, production |
+| kills work | stops programs or the whole machine, losing unsaved work |
+| big system change | changes the whole system: packages, kernel, system settings, admin rights |
+| heads-up | does not end by itself or prints a lot: a note, not a danger |
+
+The list lives in `src/risk_kinds.rs`. In the catalog a warning is written as `warning = "..."` plus `risk = "weakens security"` (on the entry, an option, a flag, or a text slot); a test fails when a catalog warning has no `risk`, and another when this table misses a category.
 
 ### Explain a failed command (`huh why` or bare `huh`)
 
@@ -319,7 +346,7 @@ nmcli = { mylinux = "nm-cli" }         # package name where it differs (omit a f
 - Catalog entries can set `platform` to any family name (or an os-release ID). Only entries matching this system are offered by default; `huh --all-commands` offers the rest.
 - **Questions and instructions** (`kind`, `opposites`). huh reads the opening of the request: "is/are/do i have/what/which/who/where/how much/check if" is a question about state; "can you", "please", "how do i", "i want", "what command" and plain imperatives are instructions. A question about state strongly demotes entries that change the system, so "is vlc installed" gets `pacman -Q vlc` and not an install, and "what wifi am i connected to" gets a query and not `nmcli ... connect`; an instruction mildly demotes a bare query when an action fits as well (unless it asks to show, list or check). Each entry has `kind = "query"` (shows, lists, checks) or `kind = "action"` (starts, stops, sets, installs, deletes, connects). Left out, it is derived from the name and template (destructive entries and names or templates with words like start, stop, set, install, toggle, connect, power are actions); set it where the guess is wrong. `kind = "mixed"` marks an entry whose options are both (`tar` lists or creates) and is never demoted. `opposites = ["sleep", ...]` on an entry, or on a choice option, lists words that rule it out when the request says them without a negation ("put it to sleep" rules out `stay-awake`; "stop it from going to sleep" does not): the entry is dropped when the option the matcher would pick has an opposite in the request. A minimum-evidence floor rejects a match that rests only on generic words ("order" for `sort`, "make" for `cp`, "last" for `tail`) or on a program name many entries share ("git"). `evals/intent.toml` holds these cases and must stay at 100% in `cargo test`.
 - All 289 catalog entries (`catalog/*.toml`) are embedded into the binary at compile time via `build.rs`, so `huh` runs from any directory. Override lookup order: `--catalog`, `$HUH_CATALOG`, `~/.config/huh/catalog`, then the embedded catalog.
-- **Safety**: a suggestion that deletes data, powers off or restarts the machine, stops services or processes, or rewrites git history prints a `WARNING:` line saying what is lost. A catalog entry sets `destructive = true` and `warning = "..."`; a single option (`[[slots.options]]`) or flag can carry its own `warning`, so `systemctl status` is quiet while `systemctl stop` warns. `shutdown` and `reboot` honour a time ("reboot in 10 minutes", "shut down at 23:00", "cancel the shutdown"). Requests to undo or recover something are never answered with a delete, and "what does rm -rf do" points to `huh explain "rm -rf"` instead of suggesting `rm`. `evals/safety.toml` (cases may set `warn = true/false`) must stay at 100% in `cargo test`.
+- **Safety**: a suggestion that deletes data, powers off or restarts the machine, stops services or processes, or rewrites git history prints a `WARNING (category):` line saying what is lost or opened up. A catalog entry sets `destructive = true` and `warning = "..."`; a single option (`[[slots.options]]`) or flag can carry its own `warning`, so `systemctl status` is quiet while `systemctl stop` warns. `shutdown` and `reboot` honour a time ("reboot in 10 minutes", "shut down at 23:00", "cancel the shutdown"). Requests to undo or recover something are never answered with a delete, and "what does rm -rf do" points to `huh explain "rm -rf"` instead of suggesting `rm`. `evals/safety.toml` (cases may set `warn = true/false`) must stay at 100% in `cargo test`.
 - Slot readers (`extract = "..."` on a slot, `src/extract.rs`) now also include `percent` (`50%`), `device` (`/dev/sdb1`), `mac`, `filename`, `local_port`/`remote_port`, `json`, `user_name`, `image_tag`, `rebase_target`, `context_dir` and `versioned_program`.
 - **Never mislead** (`src/guard.rs`, `evals/mislead.toml`): a wrong answer is worse than "No suggestion", so huh abstains, with a short reason, in these cases. (1) A question about state ("is ssh running", "what's my volume", "sound isnt working") is never answered with an action entry; if no query fits, nothing is suggested. (2) A dangerous suggestion (one that prints a WARNING) needs the verb and something to act on: a named value, a typed pattern or mode, or at least the kind of thing ("close a program"); "delete stuff" and "remove it" get nothing. (3) A common word the request does not present as a name ("slow", "synced", `PATH` as a file, the command's own name) stays a `<placeholder>`. (4) A copy or move onto a file that exists warns that it overwrites; `chmod 777` and `-R 777` warn that everyone can change it; a typed mode (777, 755, 600) is kept and "only i can read it" means 600. (5) "is X dangerous", "is it safe to run X" and "should i run X" point to `huh explain "X"`; hacking someone else's wifi or account, formatting or wiping a drive, and installing an operating system get no command. (6) A line made only of placeholders never claims more than 60%.
 - `evals/platforms.toml` holds the package requests for every non-Arch family (`platform = "debian"` on each case); `cargo test` runs all of them, or `huh eval --cases evals/platforms.toml --platform <family>`.
@@ -346,7 +373,9 @@ nmcli = { mylinux = "nm-cli" }         # package name where it differs (omit a f
 | `src/knowledge.rs`, `src/knowledge.txt` | Curated per-program table of options, subcommands and argument roles |
 | `src/manpage.rs` | Reads option descriptions from man pages on disk (`flate2` for `.gz`) |
 | `src/decode.rs` | chmod modes, `find` tests, signals, docker ports/volumes, sed/awk programs, git refs |
-| `src/risk.rs` | Warnings: deletes, overwrites, history rewrites, privilege, remote code, installs, long builds |
+| `src/risk.rs` | Warnings for `huh explain`: deletes, overwrites, history rewrites, privilege, remote code, installs, long builds |
+| `src/risk_extra.rs` | More warnings, read from the plain words of the line (so they work without a knowledge section): TLS and host-key checks, exposed services, secrets, traces, shared things |
+| `src/risk_kinds.rs` | The 14 risk categories and their one-line meanings |
 | `src/render.rs` | 80-column output of the explanation |
 | `evals/explain.toml` | 70+ real-world command lines with expected text and warnings (run by `cargo test`) |
 | `src/session.rs` | Terminal recording (`script` + `record-sink`), shell hooks, readline binding |

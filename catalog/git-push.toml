@@ -1,6 +1,6 @@
 name = "git push"
 description = "Upload my git commits to the remote server"
-template = "git push {upstream} {force} {remote} {branch}"
+template = "git push {upstream} {force} {no_verify} {remote} {branch}"
 keywords = ["upload commits", "push to origin", "push branch", "send commits", "push this branch to origin", "publish a branch", "push for the first time", "set upstream", "force push"]
 
 [[flags]]
@@ -13,6 +13,14 @@ id = "force"
 value = "--force-with-lease"
 question = "Does the user want to force the push, overwriting what is on the remote?"
 warning = "the remote history is overwritten; --force-with-lease refuses if someone else pushed meanwhile, but commits on the remote that you do not have are still lost."
+risk = "rewrites history"
+
+[[flags]]
+id = "no_verify"
+value = "--no-verify"
+question = "Does the user say to bypass the hooks?"
+warning = "this skips the pre-push hooks, the checks (tests, lint, secret scans) the project set up to run first."
+risk = "weakens security"
 
 [[slots]]
 id = "remote"
@@ -27,3 +35,6 @@ kind = "text"
 what = "the branch to push"
 default = ""
 extract = "sys_push_branch"
+warning = "this sends your commits to a branch other people and automatic deploys usually rely on; a branch plus a pull request is the usual route."
+risk = "affects other people or production"
+warn_when = ["main", "master", "trunk", "develop", "production", "prod", "stable"]

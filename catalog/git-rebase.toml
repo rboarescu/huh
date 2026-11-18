@@ -4,6 +4,7 @@ template = "git rebase {interactive} {onto}"
 kind = "action"
 destructive = true
 warning = "this rewrites commit history; never rebase commits that others already pulled, and expect to push with --force afterwards."
+risk = "rewrites history"
 keywords = ["rebase onto main", "rebase branch", "git rebase", "rebase my commits", "squash commits", "reorder commits", "edit commit history"]
 
 [[flags]]

@@ -3,4 +3,5 @@ description = "Empty the trash, deleting everything in it for good"
 template = "gio trash --empty"
 destructive = true
 warning = "everything in the trash is deleted permanently."
+risk = "destroys data"
 keywords = ["empty the trash", "empty trash", "clear the trash", "clean out the trash", "delete everything in the trash", "empty recycle bin"]

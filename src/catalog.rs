@@ -19,6 +19,9 @@ pub struct Command {
     /// The text of the WARNING line for a destructive command (a general one when unset).
     #[serde(default)]
     pub warning: Option<String>,
+    /// The kind of danger the warning is about (see risk_kinds.rs). Required whenever a warning is set.
+    #[serde(default)]
+    pub risk: Option<crate::risk_kinds::Risk>,
     /// Never suggested; only lets `huh explain` recognise another family's package commands.
     /// Made by `with_explain_variants`, not written in catalog files.
     #[serde(default)]
@@ -196,6 +199,14 @@ pub struct Slot {
     /// found on this machine (see sysinfo.rs) decide which word fills the slot.
     #[serde(default, rename = "type")]
     pub value_type: Option<String>,
+    /// `path` and `text` slots: shown as a WARNING when this slot gets a value (and, when
+    /// `warn_when` is set, only when the value is one of those). Needs `risk`.
+    #[serde(default)]
+    pub warning: Option<String>,
+    #[serde(default)]
+    pub risk: Option<crate::risk_kinds::Risk>,
+    #[serde(default)]
+    pub warn_when: Vec<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -207,6 +218,9 @@ pub struct SlotOption {
     /// Set when picking this option can lose work or change the system: the WARNING line says this.
     #[serde(default)]
     pub warning: Option<String>,
+    /// The kind of danger the warning is about (required whenever `warning` is set).
+    #[serde(default)]
+    pub risk: Option<crate::risk_kinds::Risk>,
     /// Words that rule this option out when the request says them (and does not negate them):
     /// `stay-awake` is never right for "put it to sleep".
     #[serde(default)]
@@ -228,6 +242,9 @@ pub struct Flag {
     /// Set when adding this flag can lose work or change the system: the WARNING line says this.
     #[serde(default)]
     pub warning: Option<String>,
+    /// The kind of danger the warning is about (required whenever `warning` is set).
+    #[serde(default)]
+    pub risk: Option<crate::risk_kinds::Risk>,
 }
 
 impl Command {
@@ -655,6 +672,34 @@ pub fn validate(command: &Command) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A warning that names no kind of danger is a bug: every catalog warning is filed under one
+    /// of the categories in risk_kinds.rs.
+    #[test]
+    fn every_catalog_warning_has_a_risk_category() {
+        let mut missing = Vec::new();
+        for c in load_embedded().unwrap() {
+            if c.warning.is_some() && c.risk.is_none() {
+                missing.push(format!("{} (command)", c.name));
+            }
+            for f in &c.flags {
+                if f.warning.is_some() && f.risk.is_none() {
+                    missing.push(format!("{} flag {}", c.name, f.id));
+                }
+            }
+            for slot in &c.slots {
+                if slot.warning.is_some() && slot.risk.is_none() {
+                    missing.push(format!("{} slot {}", c.name, slot.id));
+                }
+                for o in &slot.options {
+                    if o.warning.is_some() && o.risk.is_none() {
+                        missing.push(format!("{} option {}", c.name, o.name));
+                    }
+                }
+            }
+        }
+        assert!(missing.is_empty(), "catalog warnings without a `risk` category: {missing:?}");
+    }
     use std::collections::HashMap;
 
     fn command(template: &str, platform: Option<&str>) -> Command {
@@ -664,6 +709,7 @@ mod tests {
             template: template.into(),
             destructive: false,
             warning: None,
+            risk: None,
             explain_only: false,
             pkg_role: None,
             platform: platform.map(str::to_string),

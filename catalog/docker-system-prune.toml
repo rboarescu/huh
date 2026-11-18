@@ -3,6 +3,7 @@ description = "Free disk space by deleting unused Docker containers, images and 
 template = "docker system prune {volumes}"
 destructive = true
 warning = "stopped containers, unused networks and dangling images are deleted."
+risk = "destroys data"
 keywords = ["clean up docker", "free docker space", "prune unused containers", "remove unused images", "docker system prune", "clean up all unused docker data", "prune everything docker"]
 
 [[flags]]
@@ -10,3 +11,4 @@ id = "volumes"
 value = "--volumes"
 question = "Does the user want unused volumes deleted too?"
 warning = "unused volumes are deleted too, including any database or data they hold."
+risk = "destroys data"

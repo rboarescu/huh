@@ -1,6 +1,6 @@
 name = "curl"
 description = "Download a file from a web address, or show what a web address returns"
-template = "curl -L {resume} {save} {outdir} {url}"
+template = "curl -L {insecure} {resume} {save} {outdir} {url}"
 keywords = ["download url", "fetch webpage", "http request", "get url", "save file from url", "api request"]
 
 [[flags]]
@@ -19,6 +19,13 @@ kind = "path"
 what = "the folder to save the downloaded file in"
 default = ""
 format = "--output-dir {}"
+
+[[flags]]
+id = "insecure"
+value = "-k"
+question = "Does the user say to ignore certificate errors?"
+warning = "this turns off the check that the server is who it claims to be: the download can be read or tampered with on the way. Fix the certificate if you can."
+risk = "weakens security"
 
 [[flags]]
 id = "resume"

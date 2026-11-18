@@ -3,6 +3,7 @@ description = "Delete files that match a name pattern or are older than some day
 template = "find {where} -type f {name} {changed} -delete"
 destructive = true
 warning = "this permanently deletes every matching file, with no trash; run it without -delete first to see what matches."
+risk = "destroys data"
 keywords = ["delete old files", "delete files older than days", "remove old log files", "delete log files older than", "clean up old files", "purge old files", "remove files older than", "delete files by age", "delete all matching files"]
 
 [[slots]]

@@ -1815,3 +1815,70 @@ pos: the text to repeat
 -l, --login | start a login shell (a fresh environment, like logging in)
 -s, --shell SHELL | run SHELL instead of the user's default
 pos: the user name
+
+@ngrok | Open a public internet address that leads to a port on this computer
+pos: what to expose (http, tcp, ...) ; the port or address to expose...
+
+@cloudflared | Cloudflare's tunnel tool: makes a local service reachable from the internet
+--url URL | the local service to expose, for a quick tunnel
+pos: what to do (tunnel, access, ...) ; ...
+
+@setenforce | Switch SELinux between enforcing (1) and permissive (0)
+pos: 1 or Enforcing = block violations; 0 or Permissive = only log them
+
+@visudo | Edit the sudo permissions file safely (it checks the syntax before saving)
+-f, --file FILE | edit FILE (for example one in /etc/sudoers.d) instead of /etc/sudoers
+-c, --check | only check the syntax
+
+@insmod | Load a kernel module from a file
+pos: the module file (.ko)
+
+@rmmod | Remove a loaded kernel module
+pos: the module name...
+
+@setcap | Give a program special kernel powers (capabilities) without making it root
+pos: the capabilities (for example cap_net_bind_service=ep) ; the program file
+
+@chattr | Change special file flags (+i makes a file unchangeable even for root)
+-R | also change everything inside folders
+pos: the flags (+i, -i, +a, ...) ; the file...
+
+@nc | Open a raw network connection, or wait for one (netcat)
+-l | listen for a connection instead of connecting
+-p PORT | the port to use
+-v | say what is happening
+-z | only check whether the port is open, send nothing
+-k | keep listening after the first connection
+-u | use UDP instead of TCP
+-w SECS | give up after SECS seconds
+-s ADDR | use ADDR as the local address
+-e PROGRAM | run PROGRAM and connect it to the network (not in every version)
+pos: the host ; the port
+
+@ssh-copy-id | Install your public key on another computer so key login works there
+-i FILE | use this public key file
+-p PORT | connect to port PORT
+-o OPTION | set the ssh option OPTION
+pos: the computer (USER@HOST)
+
+@ssh-keygen | Create, convert or manage ssh keys
+-t TYPE | the key type (ed25519, rsa, ...)
+-b BITS | the key length in bits
+-f FILE | the file to write the key to
+-N PASSPHRASE | the passphrase that protects the private key (empty = none)
+-C COMMENT | a label stored with the key
+-R HOST | remove HOST from the known_hosts file
+-l | show the fingerprint of a key
+
+@auditctl | Control the Linux audit system that records security events
+-e MODE | switch auditing off (0), on (1) or locked (2)
+-l | list the rules
+-D | delete all rules
+-w PATH | watch PATH for access
+
+@dmesg | Show the kernel's messages (hardware, drivers, boot)
+-C, --clear | empty the message buffer
+-c, --read-clear | show the messages, then empty the buffer
+-w, --follow | keep running and print new messages
+-T | show human-readable time stamps
+-H | human-friendly output with colours
