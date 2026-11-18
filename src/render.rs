@@ -1,6 +1,7 @@
 //! Turns an `Explanation` into text that is readable in an 80-column terminal.
 
 use crate::breakdown::{Block, CmdBlock, ConnKind, Explanation, Row};
+use crate::style::{Role, paint};
 use std::fmt::Write;
 
 pub const WIDTH: usize = 80;
@@ -39,15 +40,34 @@ fn flat(text: &str, max: usize) -> String {
     }
 }
 
-pub(crate) fn hanging(out: &mut String, indent: usize, first: &str, text: &str) {
-    let lead = first.chars().count();
-    let lines = wrap(text, WIDTH.saturating_sub(indent + lead));
+/// Wraps `text` after `first` (a lead such as `"1. "`, painted `lead_role`) with a hanging indent;
+/// each wrapped line of the text is painted `role`. Widths are measured on plain text.
+pub(crate) fn hanging_as(out: &mut String, indent: usize, first: (&str, Role), text: (&str, Role)) {
+    let lead = first.0.chars().count();
+    let lines = wrap(text.0, WIDTH.saturating_sub(indent + lead));
     for (n, line) in lines.iter().enumerate() {
         if n == 0 {
-            let _ = writeln!(out, "{}{first}{line}", " ".repeat(indent));
+            let _ = writeln!(out, "{}{}{}", " ".repeat(indent), paint(first.1, first.0), paint(text.1, line));
         } else {
-            let _ = writeln!(out, "{}{}{line}", " ".repeat(indent), " ".repeat(lead));
+            let _ = writeln!(out, "{}{}{}", " ".repeat(indent), " ".repeat(lead), paint(text.1, line));
         }
+    }
+}
+
+pub(crate) fn hanging(out: &mut String, indent: usize, first: &str, text: &str) {
+    hanging_as(out, indent, (first, Role::Dim), (text, Role::Description));
+}
+
+/// Like `hanging`, with `tag` (the start of `text`, such as `[destroys data]`) painted `Role::Risk`.
+pub(crate) fn hanging_tagged(out: &mut String, indent: usize, first: (&str, Role), tag: &str, text: &str) {
+    let lead = first.0.chars().count();
+    for (n, line) in wrap(text, WIDTH.saturating_sub(indent + lead)).iter().enumerate() {
+        let pad = if n == 0 { paint(first.1, first.0) } else { " ".repeat(lead) };
+        let body = match line.strip_prefix(tag) {
+            Some(rest) if n == 0 => format!("{}{}", paint(Role::Risk, tag), paint(Role::Description, rest)),
+            _ => paint(Role::Description, line),
+        };
+        let _ = writeln!(out, "{}{pad}{body}", " ".repeat(indent));
     }
 }
 
@@ -84,12 +104,12 @@ pub(crate) fn rows(out: &mut String, rows: &[Row], indent: usize) {
     for r in rows {
         let pl = r.piece.chars().count();
         if pl > col {
-            let _ = writeln!(out, "{}{}", " ".repeat(indent), r.piece);
+            let _ = writeln!(out, "{}{}", " ".repeat(indent), paint(Role::Part, &r.piece));
             let pad = " ".repeat(col + 2);
             hanging(out, indent, &pad, &r.meaning);
         } else {
             let first = format!("{:<width$}  ", r.piece, width = col);
-            hanging(out, indent, &first, &r.meaning);
+            hanging_as(out, indent, (&first, Role::Part), (&r.meaning, Role::Description));
         }
     }
 }
@@ -97,7 +117,7 @@ pub(crate) fn rows(out: &mut String, rows: &[Row], indent: usize) {
 fn cmd_block(out: &mut String, c: &CmdBlock, indent: usize) {
     rows(out, &c.rows, indent);
     for inner in &c.inner {
-        hanging(out, indent, "> ", &inner.label);
+        hanging_as(out, indent, ("> ", Role::Dim), (&inner.label, Role::Note));
         blocks(out, &inner.blocks, indent + 4, false);
     }
 }
@@ -107,20 +127,17 @@ fn blocks(out: &mut String, list: &[Block], indent: usize, top: bool) {
     for b in list {
         match b {
             Block::Connector(kind) => {
-                if top {
-                    hanging(out, indent + 3, "", conn_line(*kind));
-                } else {
-                    hanging(out, indent, "", conn_line(*kind));
-                }
+                let at = if top { indent + 3 } else { indent };
+                hanging_as(out, at, ("", Role::Dim), (conn_line(*kind), Role::Dim));
             }
             Block::Cmd(c) => {
                 n += 1;
                 if top {
                     let first = format!("{n}. ");
-                    hanging(out, indent, &first, &flat(&c.raw, 200));
+                    hanging_as(out, indent, (&first, Role::Dim), (&flat(&c.raw, 200), Role::Command));
                     cmd_block(out, c, indent + 3);
                 } else {
-                    hanging(out, indent, "$ ", &flat(&c.raw, 200));
+                    hanging_as(out, indent, ("$ ", Role::Dim), (&flat(&c.raw, 200), Role::Command));
                     cmd_block(out, c, indent + 2);
                 }
             }
@@ -141,18 +158,18 @@ pub fn render(e: &Explanation) -> String {
     } else {
         format!("This {noun} does {n} things, in this order:")
     };
-    let _ = writeln!(out, "{what}");
+    let _ = writeln!(out, "{}", paint(Role::Header, &what));
     for (i, s) in e.steps.iter().enumerate() {
         let conn = s.conn.map(conn_step).unwrap_or("");
         let first = format!("{}. ", i + 1);
         hanging(&mut out, 2, &first, &format!("{conn}{}", s.text));
     }
     let _ = writeln!(out);
-    let _ = writeln!(out, "Part by part:");
+    let _ = writeln!(out, "{}", paint(Role::Header, "Part by part:"));
     blocks(&mut out, &e.blocks, 0, true);
     if !e.warnings.is_empty() {
         let _ = writeln!(out);
-        let _ = writeln!(out, "WARNINGS");
+        let _ = writeln!(out, "{}", paint(Role::Warning, "WARNINGS"));
         for w in &e.warnings {
             let part = flat(&w.part, 70);
             let head = if w.context.is_empty() || w.context == w.part {
@@ -160,18 +177,19 @@ pub fn render(e: &Explanation) -> String {
             } else {
                 format!("`{part}` (in `{}`): ", flat(&w.context, 50))
             };
-            hanging(&mut out, 2, "! ", &format!("[{}] {head}{}", w.risk.name(), w.text));
+            let tag = format!("[{}]", w.risk.name());
+            hanging_tagged(&mut out, 2, ("! ", Role::Warning), &tag, &format!("{tag} {head}{}", w.text));
         }
     }
     if !e.notes.is_empty() {
         let _ = writeln!(out);
-        let _ = writeln!(out, "NOTES");
+        let _ = writeln!(out, "{}", paint(Role::Header, "NOTES"));
         for note in &e.notes {
-            hanging(&mut out, 2, "- ", &capitalize(note));
+            hanging_as(&mut out, 2, ("- ", Role::Dim), (&capitalize(note), Role::Note));
         }
     }
     let _ = writeln!(out);
-    let _ = writeln!(out, "(huh only read this text and its own notes. Nothing was run.)");
+    let _ = writeln!(out, "{}", paint(Role::Dim, "(huh only read this text and its own notes. Nothing was run.)"));
     out
 }
 

@@ -21,6 +21,14 @@ Safety:
 
 Transcripts are in `~/.local/share/huh-dev/measure-2026-11-18-round5/`.
 
+## Completed: colour themes and welcome animation (2026-11-18)
+
+New `src/style.rs`: output is styled by semantic role (command, description, part, value, WARNING, risk category, note, cause, `Try:`, dim, header, success, accent) and a theme maps roles to looks. Themes: `auto` (terminal's 16 ANSI colours, default), `omarchy` (read from the current Omarchy `colors.toml` at run time, falls back to `auto`; red and green are swapped back if the theme has them in the wrong slots), `dark`, `light`, `nord`, `gruvbox`, `catppuccin`, `mono`. Selected by `--theme`, `HUH_THEME` or `theme =` in config.toml; `huh themes` shows samples. Colour is off for pipes, `--first-line-only`, `NO_COLOR`, `TERM=dumb` and `--color never`; `--color always` forces it. Nothing is styled until `main` initialises the style, so all tests and evals see plain text.
+
+New `src/welcome.rs`: a 10-frame, about 0.6 s logo animation (5 lines tall, 33 columns wide; "?" turns into "!") and a welcome of 5 lines. Plays at `huh tutor` start, on the first interactive run (`~/.local/state/huh/welcomed`) and on `huh welcome`; skipped for non-terminals, `--first-line-only`, narrow terminals, `TERM=dumb`, `HUH_NO_ANIMATION=1`, `animation = false`. Any key skips it (termios and poll through libc FFI, Linux only); the cursor, colours and terminal mode are restored on exit and on Ctrl+C.
+
+Not verified on a real desktop: how each theme looks in Ghostty and on a light background, and the tutor animation in a `--side` pane.
+
 ## Completed: `huh tutor --side` (2026-11-18)
 
 One command opens the tutor beside the current terminal. Inside tmux it splits the pane (35% on the right, focus stays); on Hyprland, sway or i3 it opens a detached terminal window titled/classed `huh-tutor` (xdg-terminal-exec, `$TERMINAL -e`, or the first installed of ghostty, kitty, alacritty, foot, wezterm, konsole, gnome-terminal, xterm); elsewhere with tmux it execs a session on a private server (`tmux -L huh-tutor -f /dev/null`, mouse on, status line hint, shell left, tutor right, closing the shell ends the session); with neither it prints how to install tmux. `--dry-run` / `HUH_DRY_RUN=1` print the command instead of starting it. All process starting lives in `src/launch.rs`, and a test keeps every other module free of `std::process::Command`. `huh tutor --tty` now waits up to 5 s for the recording of a just-opened shell.

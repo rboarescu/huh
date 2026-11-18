@@ -5,6 +5,7 @@ use crate::catalog::Command;
 use crate::knowledge::Knowledge;
 use crate::manpage;
 use crate::platform;
+use crate::style::{Role, paint};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -157,16 +158,20 @@ pub fn render(shown: &[&Tool], total: usize, filtered: bool) -> String {
     let mut out = String::new();
     for tool in shown {
         if tool.description.is_empty() {
-            out.push_str(&tool.name);
+            out.push_str(&paint(Role::Part, &tool.name));
         } else {
-            out.push_str(&format!("{:<width$}  {}", tool.name, tool.description));
+            out.push_str(&paint(Role::Part, &format!("{:<width$}", tool.name)));
+            out.push_str("  ");
+            out.push_str(&paint(Role::Description, &tool.description));
         }
         out.push('\n');
     }
     if filtered {
-        out.push_str(&format!("{} of {total} programs match\n", shown.len()));
+        out.push_str(&paint(Role::Dim, &format!("{} of {total} programs match", shown.len())));
+        out.push('\n');
     } else {
-        out.push_str(&format!("{total} programs\n"));
+        out.push_str(&paint(Role::Dim, &format!("{total} programs")));
+        out.push('\n');
     }
     out
 }

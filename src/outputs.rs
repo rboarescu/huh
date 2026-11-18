@@ -316,10 +316,14 @@ fn render(entry: &'static Entry, text: &str, lines: &[&str]) -> Described {
     }
     let fields = shown_fields(entry, text, lines);
     rows.extend(fields.iter().map(|f| Row { piece: f.key.clone(), meaning: f.text.clone() }));
-    let mut out = format!("This looks like the output of `{}`: {}.\n", entry.name, entry.title);
+    let mut out = crate::style::paint(
+        crate::style::Role::Header,
+        &format!("This looks like the output of `{}`: {}.", entry.name, entry.title),
+    );
+    out.push('\n');
     crate::render::rows(&mut out, &rows, 2);
     for note in &entry.notes {
-        crate::render::hanging(&mut out, 0, "* ", note);
+        crate::render::hanging_as(&mut out, 0, ("* ", crate::style::Role::Dim), (note, crate::style::Role::Note));
     }
     Described { name: entry.name.as_str(), fields: rows.into_iter().map(|r| r.piece).collect(), text: out }
 }
