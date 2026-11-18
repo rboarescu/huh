@@ -1,5 +1,38 @@
 # huh: roadmap and status
 
+## Measured: fresh simulated users after the safety round (2026-11-18)
+
+New personas wrote their own requests (they could not read the evals), against the merged binary:
+
+| Persona | Round 1 (2026-11-17) | After safety round |
+|---|---|---|
+| Beginner on Omarchy | 104/146 good (71%) | 118/155 good (76%) |
+| Sysadmin requests | 34/89 good (38%) | 48/102 good (47%) |
+| `huh explain` on agent-style lines | 5/20 fully correct, 9 wrong | 16/20 fully correct, 0 wrong |
+| `huh why` on real failures | 22/96 useful fix (23%), 18 misleading | 95/186 useful safe fix (51%), 12 misleading; 34/37 non-errors recognised |
+
+Fixed right after the measurement: destructive lines on targets the user never named (`rm -r ~` for "delete user bob and home directory", `find . -type f -delete` for "clean up old packages"), and "explain X" / "what is X" now point to `huh explain`. npm global-install EACCES no longer leads to `sudo npm`.
+
+### Next (from that measurement)
+
+1. **`huh why` confident wrong answers**:
+   - `echo x > /etc/foo` (Permission denied on a write) is called "not executable" with `chmod +x`.
+   - `pacman -Syu` and `-R` as a user are rewritten to `sudo pacman -S <package>`.
+   - "Your user is in the docker group" is a claim about this machine, not the output.
+   - The gzip errors are explained with tar wording.
+   - JSON decode errors point at the library frame instead of the user's code.
+   - About 15 real failures are called "not an error" (`git commit` with nothing staged, `make nosuchtarget`, `sed` syntax errors, …). When unsure, huh should say it does not recognise the output rather than "not an error".
+2. **`huh why` coverage**: about 40% of real failures still get only the restated error line. These include curl exit 7/28, git push rejections and missing remotes, the missing dev library or header (`-lssl`, `ssl.h`), cargo/rustc/gcc errors, node errors, jq/awk syntax, and `mkdir`/`rm` on folders.
+3. **Requests: wrong noun in a slot** (`journalctl -u unit`, `usermod -aG 'group docker'`, `useradd -m bash`, ".log" taken as the folder), and modifiers still dropped with no note (`-d` for unzip, `--tail` for docker logs, `-u` for docker exec, stash `-u`, `@server` for dig, `-C -` for curl).
+4. **Requests: state questions answered with actions** ("is vlc installed" → install, "what wifi am i connected to" → connect, "put the computer to sleep" → stay awake, "connect bluetooth headphones" → power off), values as targets ("set volume to 50%"), and stray words accepting off-topic requests ("order a pizza" → `sort`). Needs a minimum-evidence floor for `<placeholder>`-only suggestions.
+5. **Catalog gaps seen repeatedly**:
+   - packages: package cache clean, list installed, is X installed;
+   - users: userdel, usermod -L;
+   - system: suspend, `nmcli radio wifi on/off`, bluetoothctl, udisksctl mount/eject, sensors, `last`, `lspci` for the GPU;
+   - git: git branch -d, rebase;
+   - docker: docker build, docker rm;
+   - others: ssh -L, curl -X POST, wl-copy, set volume or brightness to a value.
+
 ## Completed: Safety (2026-11-18)
 
 - **Evals**: `evals/safety.toml` (110 cases, each with the expected command line and, where it matters, `warn = true/false`); 89 of the first 100 failed on the old matcher, all pass now and `cargo test` requires 100%.
