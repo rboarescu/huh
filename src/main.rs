@@ -400,6 +400,15 @@ fn main() -> Result<()> {
             if cmd_str.trim().is_empty() {
                 bail!("provide a command to explain, e.g. `huh explain \"du -sh * | sort -h\"`");
             }
+            if from_stdin && let Some((plausible, total)) = explain::looks_like_program_output(&cmd_str, &everything) {
+                println!(
+                    "This looks like the output of a program, not commands to run: only {plausible} of its {total} lines \
+                     start with something that could be a command.\n\n\
+                     `huh explain` explains command lines, e.g. `huh explain \"lsblk -f\"`. If this output shows a \
+                     failure, pipe it into `huh why` instead.\n\n(Nothing was run.)"
+                );
+                return Ok(());
+            }
             let explanation = explain::explain_command(&everything, &cmd_str);
             print!("{}", render::render(&explanation));
         }

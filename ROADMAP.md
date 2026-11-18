@@ -13,6 +13,26 @@ New personas wrote their own requests (they could not read the evals), against t
 
 Fixed right after the measurement: destructive lines on targets the user never named (`rm -r ~` for "delete user bob and home directory", `find . -type f -delete` for "clean up old packages"), and "explain X" / "what is X" now point to `huh explain`. npm global-install EACCES no longer leads to `sudo npm`.
 
+## Planned: tutor mode (`huh tutor`), after the "Next" fixes below
+
+Idea (2026-11-18, from a real session: `huh "unmount drive"` gave `lsblk`, then `lsblk | huh` only said "not an error", and `lsblk | huh explain` read the output as a 9-command script; that last bug is fixed): a side pane that follows the terminal and explains each command and its output as it happens, like a tutor sitting next to you. Like everything in huh, it only reads and explains; it never runs anything.
+
+```
+ terminal ──(already recorded today: script → huh record-sink, markers, exit code)──▶ private log
+                                                                                        │
+                                              huh tutor (new) watches it, read-only ◀───┘
+                                                ├─ command finished → huh explain the line
+                                                ├─ exit ≠ 0         → huh why on its output
+                                                └─ exit 0           → explain the output (new)
+```
+
+1. **MVP**: `huh tutor` in a second pane (Ghostty or tmux split) follows the recording of the terminal next to it; prints the explanation of each finished command and the diagnosis of each failure. Mostly existing pieces.
+2. **Explain before Enter**: a key (e.g. Alt+e, like Alt+h today) sends the typed line to the tutor pane before it runs: the most useful moment for a beginner or a command pasted from an AI.
+3. **Output explanations**: a hand-written notebook of output formats for the ~30 most common programs (`lsblk`, `ls -l`, `df`, `du`, `free`, `ps`, `git status`/`log`, `ip`, `ss`, `docker ps`, …), so `lsblk | huh` can say what the columns mean. With eval cases, like the command knowledge.
+4. **Noise levels** (everything / only new commands, with an opt-in local history / only failures and warnings), then an Omarchy keybinding that opens the tutor as a side window attached to the focused terminal.
+
+Known limits: stdout and stderr arrive mixed in the terminal, so the tutor goes by exit code and error-looking lines; full-screen programs (vim, htop, less) are only named, not explained; bash only until the zsh/fish hooks exist.
+
 ### Next (from that measurement)
 
 1. **`huh why` confident wrong answers**:
@@ -25,7 +45,7 @@ Fixed right after the measurement: destructive lines on targets the user never n
 2. **`huh why` coverage**: about 40% of real failures still get only the restated error line. These include curl exit 7/28, git push rejections and missing remotes, the missing dev library or header (`-lssl`, `ssl.h`), cargo/rustc/gcc errors, node errors, jq/awk syntax, and `mkdir`/`rm` on folders.
 3. **Requests: wrong noun in a slot** (`journalctl -u unit`, `usermod -aG 'group docker'`, `useradd -m bash`, ".log" taken as the folder), and modifiers still dropped with no note (`-d` for unzip, `--tail` for docker logs, `-u` for docker exec, stash `-u`, `@server` for dig, `-C -` for curl).
 4. **Requests: state questions answered with actions** ("is vlc installed" → install, "what wifi am i connected to" → connect, "put the computer to sleep" → stay awake, "connect bluetooth headphones" → power off), values as targets ("set volume to 50%"), and stray words accepting off-topic requests ("order a pizza" → `sort`). Needs a minimum-evidence floor for `<placeholder>`-only suggestions.
-5. **Catalog gaps seen repeatedly**:
+5. **Catalog gaps seen repeatedly** (also "unmount drive" → `lsblk` at 29%; should be `udisksctl unmount -b <device>` / `umount`):
    - packages: package cache clean, list installed, is X installed;
    - users: userdel, usermod -L;
    - system: suspend, `nmcli radio wifi on/off`, bluetoothctl, udisksctl mount/eject, sensors, `last`, `lspci` for the GPU;
