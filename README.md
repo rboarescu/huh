@@ -241,7 +241,7 @@ Expert mode relaxes only the beginner protections, so you get the best-ranked co
 - a command on a whole folder you did not type is kept (`rm -r ~`), with the WARNING and an extra note such as `note: this acts on your whole home folder`;
 - a question about state ("is nginx running") ranks like any request (actions are still ranked below queries, just not removed).
 
-It prints `expert mode: fewer beginner safeguards; warnings are still shown.` on stderr first, so `--first-line-only` and pipes stay clean. Never changed: every WARNING line, the refusal to help with access to systems, accounts or networks that are not yours, the refusal to format or wipe drives, and the redirect of "is X dangerous" or "what does X do" to `huh explain`.
+It prints `expert mode: fewer beginner safeguards; warnings are still shown.` on stderr first, so `--first-line-only` and pipes stay clean. Formatting or wiping a drive is refused in normal mode; expert mode shows `mkfs`, `wipefs` or `dd` with a `WARNING (destroys data)` and a reminder to check the device with `lsblk` first. Never changed: every WARNING line, the refusal to help with access to systems, accounts or networks that are not yours, and the redirect of "is X dangerous" or "what does X do" to `huh explain`.
 
 ### List your tools
 

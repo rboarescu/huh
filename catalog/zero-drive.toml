@@ -1,0 +1,14 @@
+name = "zero drive"
+description = "Overwrite a whole drive with zeros so nothing on it can be recovered"
+template = "sudo dd if=/dev/zero of={device} bs=4M status=progress"
+kind = "action"
+destructive = true
+risk = "destroys data"
+warning = "this erases everything on the device, for good: nothing can be recovered afterwards. Check the device name with `lsblk` first (a wrong one destroys the wrong disk) and unmount it before you start. This takes a long time on a large drive."
+keywords = ["zero the drive", "zero the disk", "fill with zeros", "overwrite with zeros", "securely erase", "secure erase", "erase securely", "wipe securely", "dd zero"]
+
+[[slots]]
+id = "device"
+kind = "text"
+what = "the drive to overwrite, such as /dev/sdb"
+extract = "device"

@@ -300,7 +300,7 @@ pub fn suggest_in(
                 }
             })
         })
-        .or_else(|| guard::refusal(request));
+        .or_else(|| guard::refusal(request, expert));
     if let Some(hint) = refused {
         return Ok(Outcome {
             suggestions: vec![],
@@ -334,7 +334,7 @@ pub fn suggest_in(
         let ask: &mut dyn FnMut(&str) -> Option<bool> = if suggestions.is_empty() { &mut *decide } else { &mut silent };
         if let Some(mut suggestion) = assemble::build(command, probability, &details, ask)? {
             guard::tell_the_truth(&mut suggestion, command, &details, &candidates);
-            // A delete never targets a drive: that is a wipe, which huh refuses in every mode.
+            // `rm` never wipes a drive (that is wipefs, mkfs or dd, shown in expert mode with a WARNING).
             if guard::deletes_a_drive(&suggestion.line) {
                 continue;
             }

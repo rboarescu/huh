@@ -1716,6 +1716,9 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
             && ((q.has_word("status") && !q.has_any(&["tailscale", "battery", "wifi", "network", "omarchy", "vpn", "raid", "user service"]))
                 || (has_is_running && q.has_any(&["service", "daemon", "unit"]))) => bonus += 9.5,
         "find delete" if delete_verb && (age_phrase || pattern_delete) => bonus += 13.0,
+        "format drive" if (q.has_any(&["disk", "drive", "usb", "stick", "partition", "sd card", "ssd", "nvme", "hdd", "pendrive", "flash drive"]) || q.raw.contains("/dev/")) && q.has_any(&["format", "reformat", "mkfs"]) => bonus += 14.0,
+        "wipe drive" if (q.has_any(&["disk", "drive", "usb", "stick", "partition", "sd card", "ssd", "nvme", "hdd", "pendrive", "flash drive"]) || q.raw.contains("/dev/")) && q.has_any(&["wipe", "erase", "clear", "wipefs"]) && !q.has_any(&["zero", "zeros", "securely", "secure"]) => bonus += 14.0,
+        "zero drive" if (q.has_any(&["disk", "drive", "usb", "stick", "partition", "sd card", "ssd", "nvme", "hdd", "pendrive", "flash drive"]) || q.raw.contains("/dev/")) && q.has_any(&["zero", "zeros", "securely", "secure", "overwrite"]) => bonus += 14.0,
         // A mode for "all files in X" must not reach the folders: `chmod -R 644` makes them unopenable.
         "find chmod files" if (q.has_any(&["chmod", "permission", "permissions", "mode", "readable", "writable", "executable"])
                 || crate::extract::extract("chmod_mode", q.raw).is_some())
@@ -2634,6 +2637,10 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         "nmcli wifi list" => return has(&["wifi", "wireless", "nmcli"]) && !(has(&["connected to", "am i on", "am i connected", "current wifi", "current ssid", "my ssid"]) && !has(&["nearby", "available", "around", "range", "scan", "list"])),
         "systemctl status" | "systemctl failed" => return !has(&["container", "containers"]),
         "find delete" => return has(&["delete", "remove", "clean", "clean up", "purge", "erase", "get rid of", "wipe"]),
+        // Formatting or wiping needs a drive named: "wipe everything here" is about files.
+        "format drive" => return (q.has_any(&["disk", "drive", "usb", "stick", "partition", "sd card", "ssd", "nvme", "hdd", "pendrive", "flash drive"]) || q.raw.contains("/dev/")) && has(&["format", "reformat", "mkfs", "filesystem"]),
+        "wipe drive" => return (q.has_any(&["disk", "drive", "usb", "stick", "partition", "sd card", "ssd", "nvme", "hdd", "pendrive", "flash drive"]) || q.raw.contains("/dev/")) && has(&["wipe", "erase", "clear", "wipefs", "partition table", "remove all partitions"]),
+        "zero drive" => return (q.has_any(&["disk", "drive", "usb", "stick", "partition", "sd card", "ssd", "nvme", "hdd", "pendrive", "flash drive"]) || q.raw.contains("/dev/")) && has(&["zero", "zeros", "securely", "secure", "overwrite"]),
         "kill port" | "ss port" => return q.names_port() || q.has_phrase("already in use"),
         "nc" => return q.names_port() && crate::extract::extract("host", q.raw).is_some(),
         "gio trash empty" => return has(&["trash", "recycle bin"]) && has(&["empty", "clear", "clean out", "purge", "wipe", "delete everything"]),

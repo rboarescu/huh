@@ -17,7 +17,9 @@ fn words(request: &str) -> Vec<String> {
 }
 
 /// Requests huh must not answer with a command at all, with the reason to show.
-pub fn refusal(request: &str) -> Option<String> {
+/// Requests about other people's systems are refused in every mode; formatting or wiping a drive
+/// only in normal mode (expert mode shows the command with its WARNING).
+pub fn refusal(request: &str, expert: bool) -> Option<String> {
     let w = words(request);
     let has = |word: &str| w.iter().any(|x| x == word);
     let any = |list: &[&str]| list.iter().any(|x| has(x));
@@ -68,7 +70,7 @@ pub fn refusal(request: &str) -> Option<String> {
     ]) || w.iter().any(|x| x.starts_with("mkfs"))
         || has("empty") && has("disk")
         || (device_path && any(&["delete", "remove", "rm", "secure", "securely"]));
-    if whole_drive && wipes && !any(&["cache", "history", "logs", "log", "trash", "space"]) {
+    if !expert && whole_drive && wipes && !any(&["cache", "history", "logs", "log", "trash", "space"]) {
         return Some(
             "formatting or wiping a drive erases everything on it, and a wrong device name destroys the wrong disk. \
              Use your desktop's disk tool (for example GNOME Disks or KDE Partition Manager), where you can see which drive is which."
@@ -493,10 +495,10 @@ mod tests {
             "overwrite sdb with zeros",
             "shred /dev/sdc",
         ] {
-            assert!(refusal(request).is_some(), "{request}");
+            assert!(refusal(request, false).is_some(), "{request}");
         }
         for request in ["mount /dev/sdb1 on /mnt/usb", "check filesystem on /dev/sdc1", "show partitions of /dev/sda"] {
-            assert!(refusal(request).is_none(), "{request}");
+            assert!(refusal(request, false).is_none(), "{request}");
         }
     }
 

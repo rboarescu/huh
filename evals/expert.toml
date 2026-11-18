@@ -2,7 +2,8 @@
 # an abstention: no evidence requirement for dangerous suggestions, no broad-target drop (the line
 # keeps its WARNING and gains a note naming the target), no state-question action ban.
 # What never changes in expert mode: every WARNING, the refusal of requests to access, attack or
-# break into systems the user does not own, the refusal to format or wipe drives.
+# break into systems the user does not own. Formatting or wiping a drive is refused in normal mode
+# and shown in expert mode with its WARNING.
 # Cases with `mode = "expert"` run in expert mode; the others run in normal mode, to show the contrast.
 
 # --- (a) normal mode abstains on vague dangerous requests ---------------------------------------
@@ -215,27 +216,35 @@ mode = "expert"
 
 [[case]]
 request = "wipe the usb stick"
-command = "none"
+command = "wipe drive"
+expect = "sudo wipefs -a <device>"
+warn = true
 mode = "expert"
 
 [[case]]
 request = "format the disk"
-command = "none"
+command = "format drive"
+expect = "sudo mkfs.ext4 <device>"
+warn = true
 mode = "expert"
 
 [[case]]
 request = "erase the sd card"
-command = "none"
+command = "wipe drive"
+warn = true
 mode = "expert"
 
 [[case]]
 request = "zero the drive"
-command = "none"
+command = "zero drive"
+expect = "sudo dd if=/dev/zero of=<device> bs=4M status=progress"
+warn = true
 mode = "expert"
 
 [[case]]
 request = "format the usb drive"
-command = "none"
+command = "format drive"
+warn = true
 mode = "expert"
 
 [[case]]
@@ -308,20 +317,21 @@ mode = "expert"
 
 [[case]]
 request = "wipe /dev/sdb"
-command = "none"
-hint = "disk tool"
+command = "wipe drive"
+expect = "sudo wipefs -a /dev/sdb"
+warn = true
 mode = "expert"
 
 [[case]]
 request = "securely erase /dev/nvme0n1"
-command = "none"
-hint = "disk tool"
+command = "zero drive"
+expect = "sudo dd if=/dev/zero of=/dev/nvme0n1 bs=4M status=progress"
+warn = true
 mode = "expert"
 
 [[case]]
 request = "delete /dev/sdb1"
 command = "none"
-hint = "disk tool"
 mode = "expert"
 
 [[case]]
@@ -365,3 +375,14 @@ command = "rm"
 expect = "rm -r Documents"
 warn = true
 mode = "expert"
+
+[[case]]
+request = "format /dev/sdb1 as exfat"
+command = "format drive"
+expect = "sudo mkfs.exfat /dev/sdb1"
+warn = true
+mode = "expert"
+
+[[case]]
+request = "format /dev/sdb1 as exfat"
+command = "none"

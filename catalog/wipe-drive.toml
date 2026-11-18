@@ -1,0 +1,14 @@
+name = "wipe drive"
+description = "Remove the filesystem and partition signatures from a drive so it looks empty"
+template = "sudo wipefs -a {device}"
+kind = "action"
+destructive = true
+risk = "destroys data"
+warning = "this erases everything on the device: its partitions and files can no longer be found. Check the device name with `lsblk` first (a wrong one destroys the wrong disk) and unmount it before you start."
+keywords = ["wipe the drive", "wipe drive", "wipe the usb", "wipe usb stick", "wipe the disk", "erase the drive", "erase the disk", "erase the sd card", "clear the drive", "wipe partition table", "remove all partitions", "wipefs"]
+
+[[slots]]
+id = "device"
+kind = "text"
+what = "the drive to wipe, such as /dev/sdb"
+extract = "device"

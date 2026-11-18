@@ -1,0 +1,44 @@
+name = "format drive"
+description = "Make a new, empty filesystem on a drive or partition, erasing everything on it"
+template = "sudo mkfs.{fs} {device}"
+kind = "action"
+destructive = true
+risk = "destroys data"
+warning = "this erases everything on the device. Check the device name with `lsblk` first (a wrong one destroys the wrong disk) and unmount it before you start."
+keywords = ["format usb", "format the usb", "format drive", "format the drive", "format disk", "format the disk", "format partition", "format sd card", "make a filesystem", "mkfs", "format as ext4", "format as fat32", "format as exfat", "format as ntfs", "reformat"]
+
+[[slots]]
+id = "fs"
+kind = "choice"
+question = "Which filesystem should the drive get?"
+
+[[slots.options]]
+name = "ext4"
+value = "ext4"
+description = "ext4, the usual Linux filesystem (used when the request does not say)"
+
+[[slots.options]]
+name = "exfat"
+value = "exfat"
+description = "exFAT, for USB sticks and SD cards shared with Windows and macOS"
+
+[[slots.options]]
+name = "fat32"
+value = "vfat -F 32"
+description = "FAT32 (vfat), for small sticks and old devices"
+
+[[slots.options]]
+name = "ntfs"
+value = "ntfs"
+description = "NTFS, the Windows filesystem"
+
+[[slots.options]]
+name = "btrfs"
+value = "btrfs"
+description = "Btrfs, a Linux filesystem with snapshots"
+
+[[slots]]
+id = "device"
+kind = "text"
+what = "the drive or partition to format, such as /dev/sdb1"
+extract = "device"
