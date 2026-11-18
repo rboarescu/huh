@@ -151,6 +151,9 @@ enum Action {
         /// Keep the window open after an error until Enter is pressed (set by --side)
         #[arg(long, hide = true)]
         hold: bool,
+        /// Follow exactly this recording (set by --side: the terminal it was started from)
+        #[arg(long, hide = true)]
+        log: Option<PathBuf>,
     },
     #[command(hide = true)]
     RecordSink { file: PathBuf, pipe: PathBuf },
@@ -706,9 +709,12 @@ fn main() -> Result<()> {
         ) => {
             unreachable!("handled above")
         }
-        Some(Action::Tutor { quiet, tty, dir, hold, .. }) => {
+        Some(Action::Tutor { quiet, tty, dir, hold, log, .. }) => {
             if let Some(dir) = dir {
                 tutor::set_recording_dir(dir);
+            }
+            if let Some(log) = log {
+                tutor::set_recording(log);
             }
             if let Err(error) = tutor::run(&everything, quiet, tty.as_deref()) {
                 if !hold {

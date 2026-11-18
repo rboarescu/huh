@@ -54,8 +54,12 @@ fn shell_quote(text: &str) -> String {
 /// The tutor command: `huh tutor --tty <tty>` (plus `--quiet`), told where the recordings are
 /// (`--dir`) because a new window does not inherit this shell's environment, and to keep its
 /// window open on an error (`--hold`) so the message can be read.
-fn tutor_command(huh: &Path, tty: &str, quiet: bool, dir: Option<&Path>) -> Vec<String> {
+fn tutor_command(huh: &Path, tty: &str, quiet: bool, dir: Option<&Path>, log: Option<&Path>) -> Vec<String> {
     let mut cmd = vec![huh.display().to_string(), "tutor".into(), "--tty".into(), tty.into()];
+    // The launching terminal's own recording: the tutor follows exactly this terminal.
+    if let Some(log) = log {
+        cmd.extend(["--log".into(), log.display().to_string()]);
+    }
     if let Some(dir) = dir {
         cmd.extend(["--dir".into(), dir.display().to_string()]);
     }
@@ -158,7 +162,8 @@ pub fn decide(
         );
     }
     let dir = recordings_dir(env);
-    let cmd = tutor_command(huh, tty, quiet, dir.as_deref());
+    let log = env("HUH_SESSION_LOG").filter(|v| !v.is_empty()).map(PathBuf::from);
+    let cmd = tutor_command(huh, tty, quiet, dir.as_deref(), log.as_deref());
     if tmux.is_some() {
         return Plan::Split(split_argv(env("TMUX_PANE").filter(|p| !p.is_empty()).as_deref(), &cmd));
     }
@@ -388,7 +393,10 @@ mod tests {
         let env = [("HYPRLAND_INSTANCE_SIGNATURE", "x"), ("HUH_SESSION_LOG", "/run/user/1000/rec/42.log")];
         let Plan::Window { argv, .. } = plan(&env, &["ghostty"], Some("/dev/pts/2")) else { panic!() };
         let line = argv.join(" ");
-        assert!(line.contains("--tty /dev/pts/2 --dir /run/user/1000/rec --hold"), "{line}");
+        assert!(
+            line.contains("--tty /dev/pts/2 --log /run/user/1000/rec/42.log --dir /run/user/1000/rec --hold"),
+            "{line}"
+        );
         let Plan::Session(argv) = plan(&[("HUH_SESSION_LOG", "/r/1.log")], &["tmux"], Some("/dev/pts/2")) else {
             panic!()
         };

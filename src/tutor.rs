@@ -82,9 +82,31 @@ fn last_activity(log: &Path) -> Option<SystemTime> {
 }
 
 /// The terminal a recording belongs to (`/dev/pts/3`): the recorder's standard input.
+/// The recorder reads the outer terminal; the shell it records runs on a pseudo-terminal of its
+/// own. `tty` in that shell prints the inner one, so that is the name shown, and both match.
+fn ttys_of(log: &Path) -> Vec<String> {
+    let Some(pid) = log.file_stem() else { return Vec::new() };
+    let proc_dir = Path::new("/proc").join(pid);
+    let stdin_of = |dir: &Path| std::fs::read_link(dir.join("fd/0")).ok().map(|t| t.display().to_string());
+    let mut out = Vec::new();
+    // Children first: the recorded shell, whose terminal is the one people see.
+    let children = std::fs::read_dir(proc_dir.join("task"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|task| std::fs::read_to_string(task.path().join("children")).ok())
+        .flat_map(|list| list.split_whitespace().map(str::to_string).collect::<Vec<_>>());
+    for child in children {
+        if let Some(t) = stdin_of(&Path::new("/proc").join(&child)).filter(|t| t.starts_with("/dev/")) {
+            out.push(t);
+        }
+    }
+    out.extend(stdin_of(&proc_dir));
+    out
+}
+
 fn tty_of(log: &Path) -> Option<String> {
-    let pid = log.file_stem()?;
-    std::fs::read_link(Path::new("/proc").join(pid).join("fd/0")).ok().map(|t| t.display().to_string())
+    ttys_of(log).into_iter().next()
 }
 
 fn recordings(dir: &Path, own: Option<&Path>, check_alive: bool) -> Vec<PathBuf> {
@@ -103,6 +125,13 @@ fn recordings(dir: &Path, own: Option<&Path>, check_alive: bool) -> Vec<PathBuf>
 /// Set by `--dir`: the folder `--side` found the recordings in, in the shell that started it. A
 /// window opened by the desktop does not inherit that shell's environment.
 static RECORDING_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Set by `--log`: the exact recording of the terminal `--side` was started from.
+static RECORDING: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+pub fn set_recording(log: PathBuf) {
+    RECORDING.set(log).ok();
+}
 
 pub fn set_recording_dir(dir: PathBuf) {
     RECORDING_DIR.set(dir).ok();
@@ -129,13 +158,14 @@ fn recording_dir() -> Option<PathBuf> {
 
 /// The recording of the terminal `tty` (e.g. /dev/pts/3): the recorder's standard input is that terminal.
 fn recording_of_tty(dir: &Path, tty: &str) -> Option<PathBuf> {
-    recordings(dir, None, true).into_iter().find(|log| {
-        let pid = log.file_stem().unwrap_or_default();
-        std::fs::read_link(Path::new("/proc").join(pid).join("fd/0")).is_ok_and(|t| t == Path::new(tty))
-    })
+    recordings(dir, None, true).into_iter().find(|log| ttys_of(log).iter().any(|t| t == tty))
 }
 
 fn locate(tty: Option<&str>) -> Option<PathBuf> {
+    // The terminal --side was started from, by its own recording: nothing to match or guess.
+    if let Some(log) = RECORDING.get().filter(|log| log.is_file()) {
+        return Some(log.clone());
+    }
     let dir = recording_dir()?;
     match tty {
         // `--tty 8` is short for `--tty /dev/pts/8`.
