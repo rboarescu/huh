@@ -7,6 +7,7 @@ mod doctor;
 mod eval;
 mod explain;
 mod extract;
+mod find;
 mod guard;
 mod hint;
 mod knowledge;
@@ -117,6 +118,17 @@ enum Action {
         /// List names only
         #[arg(long)]
         no_desc: bool,
+    },
+    /// Search the catalog and every installed program by words (fuzzy); with fzf installed it is a picker
+    ///
+    /// Example: `huh find compress`. Piped, it prints the matching lines. Nothing is run: details
+    /// (what it is, installed or not, common flags) come from the catalog, the built-in table and man pages.
+    Find {
+        /// Words to start the search with
+        words: Vec<String>,
+        /// Print the details of one catalog entry or program instead of searching (the fzf preview)
+        #[arg(long, value_name = "NAME", conflicts_with = "words")]
+        describe: Option<String>,
     },
     /// Print the shell lines that record a terminal and bind prompt completion for `huh`
     ShellInit {
@@ -476,28 +488,41 @@ fn join_argv(args: &[String]) -> String {
 }
 
 fn print(outcome: &Outcome, catalog: &[Command], brief: bool) {
+    print!("{}", render_outcome(outcome, catalog, brief));
+}
+
+/// The suggestions as printed text (every line ends with a newline).
+pub fn render_outcome(outcome: &Outcome, catalog: &[Command], brief: bool) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
     if package_task_without_manager(outcome, catalog) {
-        println!("{}", paint(Role::Note, &format!("No suggestion: {}", platform::no_manager_message())));
-        return;
+        let _ = writeln!(out, "{}", paint(Role::Note, &format!("No suggestion: {}", platform::no_manager_message())));
+        return out;
     }
     if let Some(hint) = &outcome.hint {
-        println!("{}", paint(Role::Note, &format!("No suggestion: {hint}")));
+        let _ = writeln!(out, "{}", paint(Role::Note, &format!("No suggestion: {hint}")));
         if let Some(pointer) = &outcome.pointer {
-            println!("{}", paint(Role::Note, pointer));
+            let _ = writeln!(out, "{}", paint(Role::Note, pointer));
         }
-        return;
+        return out;
     }
     if outcome.suggestions.is_empty() {
         match &outcome.pointer {
-            Some(pointer) => println!("{}", paint(Role::Note, pointer)),
-            None => println!("{}", paint(Role::Note, "No suggestion: nothing in the catalog fits that request.")),
+            Some(pointer) => {
+                let _ = writeln!(out, "{}", paint(Role::Note, pointer));
+            }
+            None => {
+                let _ =
+                    writeln!(out, "{}", paint(Role::Note, "No suggestion: nothing in the catalog fits that request."));
+            }
         }
-        return;
+        return out;
     }
     let platforms = catalog::this_platform();
     for (number, s) in outcome.suggestions.iter().enumerate() {
-        println!("{}{}", paint(Role::Dim, &format!("{}. ", number + 1)), paint(Role::Command, &s.line));
-        println!(
+        let _ = writeln!(out, "{}{}", paint(Role::Dim, &format!("{}. ", number + 1)), paint(Role::Command, &s.line));
+        let _ = writeln!(
+            out,
             "   {} {}",
             paint(Role::Description, &s.description),
             paint(Role::Value, &format!("({:.0}%)", s.probability * 100.0))
@@ -505,7 +530,8 @@ fn print(outcome: &Outcome, catalog: &[Command], brief: bool) {
         if number == 0 && !brief && !s.parts.is_empty() {
             let width = s.parts.iter().map(|(p, _)| p.chars().count()).max().unwrap_or(0).min(24);
             for (piece, explanation) in &s.parts {
-                println!(
+                let _ = writeln!(
+                    out,
                     "     {}  {}",
                     paint(Role::Part, &format!("{piece:<width$}")),
                     paint(Role::Description, explanation)
@@ -514,24 +540,30 @@ fn print(outcome: &Outcome, catalog: &[Command], brief: bool) {
         }
         if let Some(why) = &s.warning {
             match s.risk {
-                Some(risk) => println!(
-                    "   {}{}{} {}",
-                    paint(Role::Warning, "WARNING ("),
-                    paint(Role::Risk, risk.name()),
-                    paint(Role::Warning, "):"),
-                    paint(Role::Warning, why)
-                ),
-                None => println!("   {} {}", paint(Role::Warning, "WARNING:"), paint(Role::Warning, why)),
+                Some(risk) => {
+                    let _ = writeln!(
+                        out,
+                        "   {}{}{} {}",
+                        paint(Role::Warning, "WARNING ("),
+                        paint(Role::Risk, risk.name()),
+                        paint(Role::Warning, "):"),
+                        paint(Role::Warning, why)
+                    );
+                }
+                None => {
+                    let _ = writeln!(out, "   {} {}", paint(Role::Warning, "WARNING:"), paint(Role::Warning, why));
+                }
             }
         }
         // Hiding a missing program would push a worse command to the top, so say it instead.
         if let Some(note) = catalog::missing_note(&s.line, catalog.iter().find(|c| c.name == s.command), &platforms) {
-            println!("   {} {}", paint(Role::Note, "NOTE:"), paint(Role::Note, &note));
+            let _ = writeln!(out, "   {} {}", paint(Role::Note, "NOTE:"), paint(Role::Note, &note));
         }
         for note in &s.notes {
-            println!("   {}", paint(Role::Note, note));
+            let _ = writeln!(out, "   {}", paint(Role::Note, note));
         }
     }
+    out
 }
 
 /// The best match is a package task, but this system has no package manager huh knows.
@@ -716,7 +748,13 @@ fn main() -> Result<()> {
             if let Some(log) = log {
                 tutor::set_recording(log);
             }
-            if let Err(error) = tutor::run(&everything, quiet, tty.as_deref()) {
+            let mode = mode::resolve(
+                cli.expert,
+                cli.normal,
+                std::env::var("HUH_MODE").ok().as_deref(),
+                mode::config_path().as_deref(),
+            )?;
+            if let Err(error) = tutor::run(&everything, quiet, tty.as_deref(), mode) {
                 if !hold {
                     return Err(error);
                 }
@@ -741,6 +779,10 @@ fn main() -> Result<()> {
                 here.len()
             );
         }
+        Some(Action::Find { words, describe }) => match describe {
+            Some(name) => print!("{}", find::describe_here(&name, &everything)),
+            None => find::run(&words, &everything)?,
+        },
         Some(Action::Tools { words, no_desc }) => {
             print!("{}", tools::run(&words, &everything, no_desc));
         }

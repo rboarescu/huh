@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 /// Enough of a page for the NAME section; long comment headers fit too.
 const HEAD_BYTES: u64 = 16 * 1024;
-const NO_DESCRIPTION: &str = "(no description found)";
+pub const NO_DESCRIPTION: &str = "(no description found)";
 
 /// Executable files in these directories, by name; the first directory holding a name wins.
 pub fn scan_path(dirs: &[PathBuf]) -> Vec<(String, PathBuf)> {
@@ -79,6 +79,7 @@ pub fn man_description(path: &Path, index: &HashMap<String, PathBuf>) -> Option<
     name_summary(&head)
 }
 
+#[derive(Clone)]
 pub struct Tool {
     pub name: String,
     pub description: String,
@@ -174,6 +175,11 @@ pub fn render(shown: &[&Tool], total: usize, filtered: bool) -> String {
         out.push('\n');
     }
     out
+}
+
+/// Every program on `$PATH` with its description (what `huh tools` and `huh find` list).
+pub fn load_all(catalog: &[Command]) -> Vec<Tool> {
+    describe(&scan_path(&platform::path_dirs()), catalog, &manpage::man_dirs(), true)
 }
 
 /// `huh tools [word...]`. With `no_desc` only names are listed and matched.

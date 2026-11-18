@@ -21,6 +21,18 @@ Safety:
 
 Transcripts are in `~/.local/share/huh-dev/measure-2026-11-18-round5/`.
 
+## Completed: typing in the tutor pane (2026-11-19)
+
+`huh tutor` now also reads lines typed in its own pane (a stdin reader thread beside the poll loop; only when stdin is a terminal; Ctrl+D ends the typing, Ctrl+C still stops the tutor). A dim `huh> ` prompt follows each block. A command line gets the `huh explain` rendering; plain words get the `huh "..."` suggestions (WARNINGs, hints, current mode; `main::print` became `render_outcome`, which returns the text); `?words` the `huh tools` filter capped at 20 lines; `why` the error doctor on the last finished command; an empty line the last block again in full even under `--quiet`; `/find [words]` opens `huh find` and returns; `help` lists these. Printing is serialised with a mutex, so a block from the followed terminal never lands inside an answer. The handling is a pure function (`tutor::answer_line`: line, state and last command in, text out) with a test per branch. Also fixed: a request with no letters at all (`huh "/"`, `huh "!!"`) panicked in the matcher.
+
+Not verified: how the prompt and a block arriving while you type look in a real terminal (the prompt line is wiped with `\r` and an erase-line when a block comes in), and `/find` with fzf inside the tutor (only the plain finder was tried).
+
+## Completed: `huh find` (2026-11-19)
+
+New `src/find.rs`: a fuzzy finder over the catalog (name, description, keywords) and every installed program (the `huh tools` list). One line per item, `name — description [catalog|installed]`; a program with a catalog entry is listed once. Scoring is a subsequence match with bonuses for word starts and consecutive letters (descriptions and keywords allow only short gaps), name over description, catalog entries first among equals. With `fzf` installed (`launch::fzf_argv`, run by `launch::run_fzf`; the process test stays strict) it gets the list, the words as `--query`, a `--preview` of `huh find --describe {1}` on the right (55%) and the header "Enter: details   Esc: quit"; without it a line-based finder shows the top 15 numbered matches, a number gives the details, Enter searches again and `q` quits (a pure state machine, `find::step`). Piped, it prints the matching lines. `huh find --describe NAME` prints at most about 25 lines: description, installed or the install hint, the command template and WARNING with its risk category for catalog entries, up to 6 flags (built-in table, then man page) and "More: man NAME". Nothing picked is run.
+
+Not verified: the fzf picker and preview in a real terminal (only the argument list is tested), and the plain finder beyond piped input.
+
 ## Completed: colour themes and welcome animation (2026-11-18)
 
 New `src/style.rs`: output is styled by semantic role (command, description, part, value, WARNING, risk category, note, cause, `Try:`, dim, header, success, accent) and a theme maps roles to looks. Themes: `auto` (terminal's 16 ANSI colours, default), `omarchy` (read from the current Omarchy `colors.toml` at run time, falls back to `auto`; red and green are swapped back if the theme has them in the wrong slots), `dark`, `light`, `nord`, `gruvbox`, `catppuccin`, `mono`. Selected by `--theme`, `HUH_THEME` or `theme =` in config.toml; `huh themes` shows samples. Colour is off for pipes, `--first-line-only`, `NO_COLOR`, `TERM=dumb` and `--color never`; `--color always` forces it. Nothing is styled until `main` initialises the style, so all tests and evals see plain text.

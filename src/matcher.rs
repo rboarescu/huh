@@ -902,7 +902,8 @@ fn request_mood(norm: &str, words: &[String]) -> Mood {
     // "show permissions of x", "verify the archive", "count the files": an order to look, not to
     // change; ranked like a question so a command that only looks wins.
     const LOOK_OPENERS: &[&str] = &["show", "list", "display", "print", "view", "inspect", "verify", "count"];
-    let look_opener = LOOK_OPENERS.contains(&w[0]) || (w[0] == "check" && w.get(1) != Some(&"out"));
+    let first = w.first().copied().unwrap_or_default();
+    let look_opener = LOOK_OPENERS.contains(&first) || (first == "check" && w.get(1) != Some(&"out"));
     if look_opener && !w.iter().any(|x| CHANGE_VERBS.contains(x)) {
         return Mood::Question;
     }

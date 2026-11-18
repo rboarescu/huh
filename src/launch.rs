@@ -1,9 +1,10 @@
-//! `huh tutor --side`: the ONLY module of huh that starts a program.
+//! `huh tutor --side` and `huh find`: the ONLY module of huh that starts a program.
 //!
-//! It starts exactly one thing: `huh tutor --tty <tty>` (huh's own read-only viewer), or the
-//! program that hosts it: `tmux`, or a terminal emulator (`xdg-terminal-exec`, `$TERMINAL`,
-//! ghostty, kitty, ...). It never starts a command that huh suggested, explained or was given
-//! on the command line. A test in this file checks that no other source file (outside its
+//! It starts exactly one thing at a time: `huh tutor --tty <tty>` (huh's own read-only viewer), or
+//! the program that hosts it: `tmux`, or a terminal emulator (`xdg-terminal-exec`, `$TERMINAL`,
+//! ghostty, kitty, ...); or `fzf`, given the list of names `huh find` built and asked for the
+//! line picked (fzf's preview runs `huh find --describe`, which only reads). It never starts a
+//! command that huh suggested, explained or was given on the command line, nor anything picked. A test in this file checks that no other source file (outside its
 //! `#[cfg(test)]` code) uses `std::process::Command`.
 //!
 //! Deciding what to start (`decide`) is a pure function of the environment, the installed
@@ -257,10 +258,86 @@ pub fn start(plan: Plan, platforms: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The `fzf` command line for `huh find`: the words as the starting query, a preview of the
+/// details (`huh find --describe {1}`, the first field being the name) on the right, a header.
+/// `color` says whether the preview is coloured (fzf then needs `--ansi`).
+pub fn fzf_argv(query: &str, huh: &Path, color: bool) -> Vec<String> {
+    let huh = shell_quote(&huh.display().to_string());
+    let when = if color { "always" } else { "never" };
+    let preview = format!("{huh} find --describe {{1}} --color {when}");
+    let mut argv = strings(&["fzf", "--query", query, "--delimiter", " \u{2014} ", "--preview", &preview]);
+    argv.extend(strings(&["--preview-window", "right,55%,wrap", "--header", "Enter: details   Esc: quit"]));
+    if color {
+        argv.push("--ansi".into());
+    }
+    argv
+}
+
+/// Runs `fzf` (see `fzf_argv`) with `input` on its standard input and returns the line picked,
+/// or `None` when nothing was picked (Esc, Ctrl+C, no match). fzf draws on the terminal itself.
+pub fn run_fzf(argv: &[String], input: &str) -> anyhow::Result<Option<String>> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    unsafe extern "C" {
+        fn signal(signum: i32, handler: usize) -> usize;
+    }
+    const SIGPIPE: i32 = 13;
+    const SIG_DFL: usize = 0;
+    const SIG_IGN: usize = 1;
+    let mut child = Command::new(&argv[0])
+        .args(&argv[1..])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        // fzf may quit before it has read everything: that is an ignored error here, not a death by SIGPIPE.
+        // SAFETY: only changes the disposition of SIGPIPE, which is restored below.
+        unsafe { signal(SIGPIPE, SIG_IGN) };
+        let _ = stdin.write_all(input.as_bytes());
+        drop(stdin);
+        // SAFETY: as above.
+        unsafe { signal(SIGPIPE, SIG_DFL) };
+    }
+    let out = child.wait_with_output()?;
+    match out.status.code() {
+        Some(0) => Ok(Some(String::from_utf8_lossy(&out.stdout).trim_end().to_string()).filter(|l| !l.is_empty())),
+        // 1: no match, 130: interrupted (Esc, Ctrl+C).
+        Some(1) | Some(130) => Ok(None),
+        _ => anyhow::bail!("fzf failed ({})", out.status),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn fzf_command_line() {
+        let argv = fzf_argv("compress files", Path::new(HUH), true);
+        assert_eq!(
+            argv,
+            strings(&[
+                "fzf",
+                "--query",
+                "compress files",
+                "--delimiter",
+                " \u{2014} ",
+                "--preview",
+                "/opt/huh/bin/huh find --describe {1} --color always",
+                "--preview-window",
+                "right,55%,wrap",
+                "--header",
+                "Enter: details   Esc: quit",
+                "--ansi",
+            ])
+        );
+        let plain = fzf_argv("", Path::new("/a b/huh"), false);
+        assert!(!plain.contains(&"--ansi".to_string()));
+        assert!(plain.contains(&"'/a b/huh' find --describe {1} --color never".to_string()), "{plain:?}");
+        assert_eq!(plain[2], "", "no words, an empty query");
+    }
 
     const HUH: &str = "/opt/huh/bin/huh";
 

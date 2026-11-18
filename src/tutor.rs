@@ -4,12 +4,16 @@
 
 use crate::breakdown::{Block, Explanation, Row};
 use crate::catalog::Command;
+use crate::matcher::LocalMatcher;
+use crate::mode::Mode;
 use crate::session;
 use crate::style::{Role, paint};
+use crate::tools::Tool;
 use anyhow::{Result, bail};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 const POLL: Duration = Duration::from_millis(300);
@@ -20,8 +24,17 @@ const MAX_ROWS: usize = 5;
 
 static STOP: AtomicBool = AtomicBool::new(false);
 
+/// Held while anything is printed, so that a block from the followed terminal and the answer to a
+/// typed line never mix.
+static PRINT: Mutex<()> = Mutex::new(());
+
+/// The line shown where you can type.
+const PROMPT: &str = "huh> ";
+/// Most lines of a `?words` answer.
+const MAX_TOOL_LINES: usize = 20;
+
 /// One finished command, as recorded.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Finished {
     pub command: String,
     pub exit: Option<i32>,
@@ -282,8 +295,8 @@ fn how_to_record() -> String {
 }
 
 /// `huh tutor`: runs until Ctrl+C.
-pub fn run(catalog: &[Command], quiet: bool, tty: Option<&str>) -> Result<()> {
-    use std::io::Write;
+pub fn run(catalog: &[Command], quiet: bool, tty: Option<&str>, mode: Mode) -> Result<()> {
+    use std::io::IsTerminal;
     // A pane that `--side` has just opened can be ahead of the recorder of the shell next to it.
     let mut log = locate(tty);
     for _ in 0..if tty.is_some() { 20 } else { 0 } {
@@ -325,17 +338,215 @@ pub fn run(catalog: &[Command], quiet: bool, tty: Option<&str>) -> Result<()> {
             );
         }
     }
+    let last: Arc<Mutex<Option<Finished>>> = Arc::new(Mutex::new(None));
+    // Lines typed here are read only from a terminal; a pipe is left alone.
+    let typing = std::io::stdin().is_terminal();
+    if typing {
+        println!("{}", paint(Role::Dim, "Type a command, ?word, why, /find or help here; nothing you type is run."));
+    }
     println!();
+    if typing {
+        emit(&paint(Role::Dim, PROMPT));
+        spawn_input(catalog.to_vec(), mode, Arc::clone(&last));
+    }
     let mut follower = Follower::new(&log);
     let mut explained = quiet.then(HashSet::new);
     while !STOP.load(Ordering::Relaxed) {
         if let Some(done) = follower.poll() {
-            print!("{}", block(catalog, &done, explained.as_mut()));
-            std::io::stdout().flush().ok();
+            let text = block(catalog, &done, explained.as_mut());
+            *lock(&last) = Some(done);
+            // The prompt is on the line the cursor is on: wipe it so the block starts at the margin.
+            emit(&format!("{}{text}", if typing { "\r\x1b[2K" } else { "" }));
+            if typing {
+                emit(&paint(Role::Dim, PROMPT));
+            }
         }
         std::thread::sleep(POLL);
     }
     Ok(())
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Prints `text` as one piece.
+fn emit(text: &str) {
+    use std::io::Write;
+    let _guard = lock(&PRINT);
+    print!("{text}");
+    std::io::stdout().flush().ok();
+}
+
+/// Reads the lines typed in this pane until the input ends (Ctrl+D), answering each one. It lives
+/// as long as the tutor does: the tutor's end takes it along.
+fn spawn_input(everything: Vec<Command>, mode: Mode, last: Arc<Mutex<Option<Finished>>>) {
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        let platforms = crate::catalog::this_platform();
+        let usable = crate::catalog::usable(everything.clone(), &platforms, false);
+        let ctx = Input::new(&everything, &usable, mode, crate::candidates::current_folder_entries(), None);
+        let stdin = std::io::stdin();
+        let mut line = String::new();
+        loop {
+            line.clear();
+            if stdin.lock().read_line(&mut line).unwrap_or(0) == 0 {
+                return;
+            }
+            let finished = lock(&last).clone();
+            match answer_line(&line, &ctx, finished.as_ref()) {
+                Reply::Text(text) => emit(&format!("{text}{}", paint(Role::Dim, PROMPT))),
+                Reply::Find(words) => {
+                    // Nothing else prints while the finder has the terminal.
+                    let _guard = lock(&PRINT);
+                    if let Err(error) = crate::find::run(&words, &everything) {
+                        println!("huh find: {error:#}");
+                    }
+                    print!("{}", paint(Role::Dim, PROMPT));
+                    std::io::Write::flush(&mut std::io::stdout()).ok();
+                }
+            }
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Lines typed in the tutor pane
+// ---------------------------------------------------------------------------
+
+/// What a typed line leads to.
+#[derive(Debug, PartialEq)]
+pub enum Reply {
+    /// Text to print (ends with a blank line).
+    Text(String),
+    /// `/find`: open the finder with these words, then come back.
+    Find(Vec<String>),
+}
+
+/// What answering a typed line needs. Nothing in it runs anything.
+pub struct Input<'a> {
+    everything: &'a [Command],
+    matcher: LocalMatcher,
+    mode: Mode,
+    files: Vec<String>,
+    /// Loaded on the first `?words` (it takes a moment).
+    tools: std::cell::OnceCell<Vec<Tool>>,
+}
+
+impl<'a> Input<'a> {
+    /// `usable` is the catalog for this system (what suggestions come from); `tools` the list of
+    /// installed programs when it is already known.
+    pub fn new(
+        everything: &'a [Command],
+        usable: &[Command],
+        mode: Mode,
+        files: Vec<String>,
+        tools: Option<Vec<Tool>>,
+    ) -> Input<'a> {
+        let cell = std::cell::OnceCell::new();
+        if let Some(tools) = tools {
+            let _ = cell.set(tools);
+        }
+        Input { everything, matcher: LocalMatcher::new(usable), mode, files, tools: cell }
+    }
+
+    fn tools(&self) -> &[Tool] {
+        self.tools.get_or_init(|| crate::tools::load_all(self.everything))
+    }
+}
+
+fn help_text() -> String {
+    "Type here (nothing you type is run):\n\
+     \x20 a command line      what it does, as `huh explain`; plain words: suggestions, as `huh \"...\"`\n\
+     \x20 ?word [word...]     programs that match, as `huh tools`\n\
+     \x20 why                 why the last command in the followed terminal failed\n\
+     \x20 Enter alone         the last explanation again, in full;  /find [words]: search commands and programs\n\n"
+        .to_string()
+}
+
+fn note(text: &str) -> String {
+    format!("{}\n\n", paint(Role::Note, text))
+}
+
+/// The answer to `why`: the error doctor on the last finished command.
+fn why_text(done: &Finished) -> String {
+    let exit = done.exit.map_or(String::new(), |c| format!(" (exit {c})"));
+    let last = session::Last {
+        command: done.command.clone(),
+        exit: done.exit,
+        output: session::tail(&session::clean(&done.raw)),
+    };
+    let mut answer = String::new();
+    let _ = crate::doctor::explain(&last, &mut |text| answer = text.to_string());
+    let header = paint(Role::Header, &format!("$ {}{exit}", done.command));
+    format!("{header}\n{}\n\n", crate::style::answer(answer.trim_end()))
+}
+
+/// `?words`: the `huh tools` filter, cut to `MAX_TOOL_LINES` lines.
+fn tools_text(words: &[String], tools: &[Tool]) -> String {
+    let matches = crate::tools::filter(tools, words);
+    if matches.is_empty() {
+        return note("no program matches");
+    }
+    let shown = &matches[..matches.len().min(MAX_TOOL_LINES)];
+    let text = crate::tools::render(shown, tools.len(), true);
+    // The count line of `render` counts the lines shown; this one counts the matches.
+    let mut lines: Vec<&str> = text.lines().collect();
+    lines.pop();
+    let mut out = lines.join("\n");
+    out.push('\n');
+    let more = matches.len() - shown.len();
+    let tail = if more > 0 {
+        format!("{more} more: huh tools {}", words.join(" "))
+    } else {
+        format!("{} of {} programs match", matches.len(), tools.len())
+    };
+    out.push_str(&paint(Role::Dim, &tail));
+    out.push_str("\n\n");
+    out
+}
+
+/// What one typed line does: the line, the tutor's state (`ctx`) and the last finished command
+/// in the followed terminal give the text to print, or a request to open the finder.
+pub fn answer_line(line: &str, ctx: &Input, last: Option<&Finished>) -> Reply {
+    let line = line.trim();
+    if line.is_empty() {
+        return Reply::Text(match last {
+            // Everything, even when `--quiet` hides what was explained before.
+            Some(done) => block(ctx.everything, done, None),
+            None => note("nothing has finished in the followed terminal yet"),
+        });
+    }
+    if line == "/find" || line.strip_prefix("/find").is_some_and(|rest| rest.starts_with(char::is_whitespace)) {
+        return Reply::Find(line["/find".len()..].split_whitespace().map(str::to_string).collect());
+    }
+    if line == "help" || line == "/help" {
+        return Reply::Text(help_text());
+    }
+    if let Some(words) = line.strip_prefix('?') {
+        let words: Vec<String> = words.split_whitespace().map(str::to_string).collect();
+        if words.is_empty() {
+            return Reply::Text(note("type ? and the words to look for, e.g. ?compress"));
+        }
+        return Reply::Text(tools_text(&words, ctx.tools()));
+    }
+    if line == "why" {
+        return Reply::Text(match last {
+            Some(done) => why_text(done),
+            None => note("nothing has finished in the followed terminal yet, so there is nothing to explain"),
+        });
+    }
+    let known = |word: &str| ctx.matcher.knows_program(word) || crate::COMMON_PROGRAMS.contains(&word);
+    if let Some(command) = crate::guard::command_line_request(line, &known) {
+        let explanation = crate::explain::explain_command(ctx.everything, command);
+        return Reply::Text(format!("{}\n", crate::render::render(&explanation)));
+    }
+    // Plain words: the same suggestions as `huh "..."`, without questions.
+    let outcome = crate::suggest_in(ctx.mode, &ctx.matcher, line, ctx.files.clone(), &mut |_| None);
+    Reply::Text(match outcome {
+        Ok(outcome) => format!("{}\n", crate::render_outcome(&outcome, ctx.everything, false)),
+        Err(error) => note(&format!("huh: {error:#}")),
+    })
 }
 
 #[cfg(test)]
@@ -488,5 +699,163 @@ mod tests {
     fn programs_skip_wrappers_and_cover_pipelines() {
         assert_eq!(programs("sudo ls -l | grep x"), vec!["ls", "grep"]);
         assert_eq!(programs("FOO=1 make && echo ok"), vec!["make", "echo"]);
+    }
+
+    // --- typed lines -----------------------------------------------------------------------
+
+    fn tool(name: &str, description: &str) -> Tool {
+        Tool { name: name.into(), description: description.into() }
+    }
+
+    /// Answers `line` with a fixed list of installed programs and the folder's files.
+    fn answer(line: &str, mode: Mode, last: Option<&Finished>, tools: Vec<Tool>) -> Reply {
+        let everything = catalog();
+        let usable = crate::catalog::usable(everything.clone(), &["arch".to_string()], false);
+        let ctx = Input::new(&everything, &usable, mode, vec![], Some(tools));
+        answer_line(line, &ctx, last)
+    }
+
+    fn text(reply: Reply) -> String {
+        match reply {
+            Reply::Text(text) => text,
+            other => panic!("expected text, got {other:?}"),
+        }
+    }
+
+    fn say(line: &str, last: Option<&Finished>) -> String {
+        text(answer(line, Mode::Normal, last, vec![]))
+    }
+
+    fn df_output() -> Finished {
+        Finished {
+            command: "df -h".into(),
+            exit: Some(0),
+            raw: "\x1b[1mFilesystem      Size  Used Avail Use% Mounted on\x1b[0m\r\n/dev/sda1       100G   50G   50G  50% /\r\n"
+                .into(),
+        }
+    }
+
+    fn failure() -> Finished {
+        Finished {
+            command: "cat /nonexistent-huh-file".into(),
+            exit: Some(1),
+            raw: "cat: /nonexistent-huh-file: No such file or directory\r\n".into(),
+        }
+    }
+
+    #[test]
+    fn a_command_line_gets_the_explain_rendering() {
+        let typed = say("tar -xzf backup.tar.gz", None);
+        let explained = crate::render::render(&crate::explain::explain_command(&catalog(), "tar -xzf backup.tar.gz"));
+        assert_eq!(typed, format!("{explained}\n"));
+        assert!(typed.contains("-x") && typed.contains("backup.tar.gz"), "{typed}");
+        let piped = say("ls -l | wc -l", None);
+        assert!(piped.contains("wc"), "{piped}");
+    }
+
+    #[test]
+    fn plain_words_get_the_normal_suggestions() {
+        let typed = say("make deploy.sh executable", None);
+        assert!(typed.starts_with("1. chmod +x deploy.sh"), "{typed}");
+        assert!(typed.ends_with("\n\n"));
+        // A request is not mistaken for a command line, and a refusal shows its reason.
+        let refused = say("wipe the drive /dev/sdb", None);
+        assert!(refused.contains("No suggestion: formatting or wiping a drive"), "{refused}");
+        let nothing = say("zzz qqq xxx", None);
+        assert!(nothing.contains("No suggestion") || nothing.contains("hint"), "{nothing}");
+    }
+
+    #[test]
+    fn plain_words_follow_the_mode_and_keep_warnings() {
+        let expert = text(answer("wipe the drive /dev/sdb", Mode::Expert, None, vec![]));
+        assert!(expert.starts_with("1. sudo wipefs -a /dev/sdb"), "{expert}");
+        assert!(expert.contains("WARNING (destroys data)"), "{expert}");
+        let normal = text(answer("wipe the drive /dev/sdb", Mode::Normal, None, vec![]));
+        assert!(!normal.contains("wipefs"), "{normal}");
+    }
+
+    #[test]
+    fn a_question_mark_filters_the_installed_programs() {
+        let tools = vec![
+            tool("gzip", "Compress or expand files"),
+            tool("ping", "send ICMP echo to a network host"),
+            tool("zstd", "Compress files"),
+        ];
+        let found = text(answer("?compress", Mode::Normal, None, tools.clone()));
+        assert!(found.contains("gzip") && found.contains("zstd") && !found.contains("ping"), "{found}");
+        assert!(found.contains("2 of 3 programs match"), "{found}");
+        let both = text(answer("?  network   host ", Mode::Normal, None, tools.clone()));
+        assert!(both.contains("ping") && !both.contains("gzip"), "{both}");
+        assert!(text(answer("?zzzz", Mode::Normal, None, tools.clone())).contains("no program matches"));
+        assert!(text(answer("?", Mode::Normal, None, tools)).contains("type ? and the words"));
+    }
+
+    #[test]
+    fn a_long_tools_answer_is_cut_with_a_pointer_to_huh_tools() {
+        let many: Vec<Tool> = (0..45).map(|n| tool(&format!("tool{n:02}"), "does a thing")).collect();
+        let found = text(answer("?thing", Mode::Normal, None, many));
+        assert_eq!(found.lines().filter(|l| l.starts_with("tool")).count(), MAX_TOOL_LINES, "{found}");
+        assert!(found.contains("25 more: huh tools thing"), "{found}");
+        assert!(!found.contains("programs match"), "{found}");
+        assert!(found.ends_with("\n\n"));
+    }
+
+    #[test]
+    fn why_answers_for_the_last_finished_command() {
+        let bad = failure();
+        let typed = say("why", Some(&bad));
+        assert!(typed.starts_with("$ cat /nonexistent-huh-file (exit 1)\n"), "{typed}");
+        assert!(typed.to_lowercase().contains("does not exist") || typed.contains("No such file"), "{typed}");
+        assert!(typed.ends_with("\n\n"));
+        let none = say("why", None);
+        assert!(none.contains("nothing has finished"), "{none}");
+        // `why` alone is the word; a request that starts with it is plain words.
+        assert!(!say("why is the sky blue", Some(&bad)).starts_with("$ cat"));
+    }
+
+    #[test]
+    fn an_empty_line_shows_the_last_block_in_full() {
+        let done = df_output();
+        let again = say("   ", Some(&done));
+        assert_eq!(again, block(&catalog(), &done, None));
+        assert!(again.starts_with("$ df -h  (exit 0)\n") && again.contains("Mounted on"), "{again}");
+        // Under --quiet a program is explained once; the repeat is still in full.
+        let echo = Finished { command: "echo hi".into(), exit: Some(0), raw: "hi\r\n".into() };
+        let mut seen = HashSet::new();
+        block(&catalog(), &echo, Some(&mut seen));
+        assert_eq!(block(&catalog(), &echo, Some(&mut seen)), "$ echo hi  (exit 0)\n\n");
+        assert!(say("", Some(&echo)).contains("Print the given text"));
+        assert_eq!(say("", Some(&done)), again);
+        assert!(say("", None).contains("nothing has finished"));
+    }
+
+    #[test]
+    fn find_opens_the_finder_with_the_words() {
+        let reply = |line: &str| answer(line, Mode::Normal, None, vec![]);
+        assert_eq!(reply("/find"), Reply::Find(vec![]));
+        assert_eq!(reply("/find  compress   files "), Reply::Find(vec!["compress".into(), "files".into()]));
+        assert_eq!(reply("/find\tx"), Reply::Find(vec!["x".into()]));
+        // Not the command: another word that starts the same way.
+        assert!(matches!(reply("/finder"), Reply::Text(_)));
+    }
+
+    #[test]
+    fn help_lists_what_can_be_typed_in_five_lines() {
+        for line in ["help", "/help", "  help  "] {
+            let help = say(line, None);
+            assert_eq!(help.trim_end().lines().count(), 5, "{help}");
+            for word in ["explain", "?word", "why", "Enter", "/find"] {
+                assert!(help.contains(word), "{word}: {help}");
+            }
+        }
+    }
+
+    #[test]
+    fn nothing_typed_is_ever_run() {
+        // Every branch only returns text (or a request to open the finder); a dangerous line is
+        // explained or refused, not executed.
+        for line in ["rm -rf ~", "sudo dd if=/dev/zero of=/dev/sda", "delete everything", "why", "?rm", "!!", "/"] {
+            assert!(matches!(answer(line, Mode::Normal, None, vec![]), Reply::Text(_)), "{line}");
+        }
     }
 }
