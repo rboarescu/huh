@@ -10,6 +10,7 @@ mod extract;
 mod guard;
 mod hint;
 mod knowledge;
+mod launch;
 mod manpage;
 mod matcher;
 mod mode;
@@ -123,8 +124,14 @@ enum Action {
         #[arg(long)]
         quiet: bool,
         /// Follow the recording of this terminal (e.g. /dev/pts/3) instead of the newest one
-        #[arg(long)]
+        #[arg(long, conflicts_with = "side")]
         tty: Option<String>,
+        /// Open the tutor beside this terminal: a tmux split, a new window on a tiling desktop, or a tmux session
+        #[arg(long)]
+        side: bool,
+        /// With --side: print what would be started instead of starting it (also HUH_DRY_RUN=1)
+        #[arg(long, requires = "side")]
+        dry_run: bool,
     },
     #[command(hide = true)]
     RecordSink { file: PathBuf, pipe: PathBuf },
@@ -559,6 +566,22 @@ fn exit_quietly_on_closed_pipe() {
     }
 }
 
+/// `huh tutor --side`: starts the tutor viewer beside this terminal (see launch.rs).
+fn side(quiet: bool, dry_run: bool) -> Result<()> {
+    let dry_run = dry_run || std::env::var_os("HUH_DRY_RUN").is_some_and(|v| !v.is_empty() && v != "0");
+    let tty = launch::stdin_tty().or_else(|| dry_run.then(|| "<this tty>".to_string()));
+    let huh = std::env::current_exe()?;
+    let path = platform::path_dirs();
+    let have = |program: &str| !matches!(platform::locate_in(program, &path, &[]), platform::Found::Missing);
+    let plan = launch::decide(&|name| std::env::var(name).ok(), &have, tty.as_deref(), &huh, quiet, std::process::id());
+    let platforms = platform::detect();
+    if dry_run {
+        println!("{}", launch::describe(&plan, &platforms));
+        return Ok(());
+    }
+    launch::start(plan, &platforms)
+}
+
 fn main() -> Result<()> {
     use std::io::IsTerminal;
     #[cfg(unix)]
@@ -572,6 +595,7 @@ fn main() -> Result<()> {
             return Ok(());
         }
         Some(Action::RecordSink { file, pipe }) => return session::sink(file, pipe),
+        Some(Action::Tutor { quiet, side: true, dry_run, .. }) => return side(*quiet, *dry_run),
         Some(Action::Why) => return why(),
         Some(Action::EvalErrors { cases }) => return eval::run_errors(cases),
         None if cli.request.is_empty() => {
@@ -600,7 +624,7 @@ fn main() -> Result<()> {
         Some(Action::Why | Action::ShellInit { .. } | Action::EvalErrors { .. } | Action::RecordSink { .. }) => {
             unreachable!("handled above")
         }
-        Some(Action::Tutor { quiet, tty }) => tutor::run(&everything, quiet, tty.as_deref())?,
+        Some(Action::Tutor { quiet, tty, .. }) => tutor::run(&everything, quiet, tty.as_deref())?,
         Some(Action::Check) => {
             let everything = catalog::matchable(everything);
             let total = everything.len();

@@ -21,6 +21,12 @@ Safety:
 
 Transcripts are in `~/.local/share/huh-dev/measure-2026-11-18-round5/`.
 
+## Completed: `huh tutor --side` (2026-11-18)
+
+One command opens the tutor beside the current terminal. Inside tmux it splits the pane (35% on the right, focus stays); on Hyprland, sway or i3 it opens a detached terminal window titled/classed `huh-tutor` (xdg-terminal-exec, `$TERMINAL -e`, or the first installed of ghostty, kitty, alacritty, foot, wezterm, konsole, gnome-terminal, xterm); elsewhere with tmux it execs a session on a private server (`tmux -L huh-tutor -f /dev/null`, mouse on, status line hint, shell left, tutor right, closing the shell ends the session); with neither it prints how to install tmux. `--dry-run` / `HUH_DRY_RUN=1` print the command instead of starting it. All process starting lives in `src/launch.rs`, and a test keeps every other module free of `std::process::Command`. `huh tutor --tty` now waits up to 5 s for the recording of a just-opened shell.
+
+Not verified on a real desktop: window placement, the Ghostty/xdg-terminal-exec class and title taking effect, and the tmux session end to end (only dry runs and unit tests so far).
+
 ## Completed: safety hardening, items 1-3 (2026-11-18)
 
 Used Claude Code's published auto-mode risk categories (`~/.local/share/huh-dev/auto-mode-defaults.json`, 72 `soft_deny` rules) as a checklist only. huh's own 14 categories, wording and code are original (`src/risk_kinds.rs`); no rule text was copied. Of the 72, about 18 concern shell commands; the rest are about agents, connected apps, browsers and cloud consoles.

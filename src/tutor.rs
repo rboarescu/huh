@@ -229,7 +229,16 @@ fn how_to_record() -> String {
 /// `huh tutor`: runs until Ctrl+C.
 pub fn run(catalog: &[Command], quiet: bool, tty: Option<&str>) -> Result<()> {
     use std::io::Write;
-    let Some(log) = locate(tty) else { bail!("{}", how_to_record()) };
+    // A pane that `--side` has just opened can be ahead of the recorder of the shell next to it.
+    let mut log = locate(tty);
+    for _ in 0..if tty.is_some() { 20 } else { 0 } {
+        if log.is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+        log = locate(tty);
+    }
+    let Some(log) = log else { bail!("{}", how_to_record()) };
     catch_ctrl_c();
     let tty_name = tty_of(&log).unwrap_or_else(|| log.display().to_string());
     println!(
