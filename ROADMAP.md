@@ -21,18 +21,49 @@ Safety:
 
 Transcripts are in `~/.local/share/huh-dev/measure-2026-11-18-round5/`.
 
-## Planned: safety hardening (after round 5)
+## Completed: safety hardening, items 1-3 (2026-11-18)
+
+Used Claude Code's published auto-mode risk categories (`~/.local/share/huh-dev/auto-mode-defaults.json`, 72 `soft_deny` rules) as a checklist only. huh's own 14 categories, wording and code are original (`src/risk_kinds.rs`); no rule text was copied. Of the 72, about 18 concern shell commands; the rest are about agents, connected apps, browsers and cloud consoles.
+
+1. **Audit.** 432 command lines were run through `huh explain`; the table shows the categories and what was missing.
+2. **Gaps closed.** 159 lines that had no specific warning (or only the generic `sudo` one) now have one. New code is in `src/risk_extra.rs`, read from the words of the line, so it works for programs without a knowledge section. Request side: new `warning`/`risk` on catalog flags and slots (`curl -k`, `ssh -o StrictHostKeyChecking=no`, `docker run --privileged`, `-p` published ports, `git push` to main, `--no-verify`) and on entries (`ssh -R`, `ssh-copy-id`, `crontab -e`, shell alias, `systemctl enable`), plus new entries for `python3 -m http.server`, `ngrok` and clearing the shell history. `huh why`: a `Note (category)` under any risky `Try:` line.
+3. **Category named everywhere.** `WARNING (category):` for requests, `! [category]` for `huh explain`, `Note (category):` for `huh why`. A test fails when a catalog warning has no `risk`; every `Warning` in code carries a `Risk` by type.
+
+Existing expectation changes: none in the eval files. Warning text did not change; only the category prefix was added. One bug fix: `docker run -p 8080:80` no longer also gets the "password on the command line" warning (the `-p` password rule now applies to `mysql`/`mariadb` only; `docker login -p` is covered by a new rule).
+
+| Category | Examples a user is likely to meet | Covered before? | Added |
+|---|---|---|---|
+| destroys data | `rm -rf`, `find -delete`, `dd of=/dev/..`, `mkfs`, `git clean -fdx`, `docker volume rm`, `redis-cli FLUSHALL`, `unzip -o`, `gpg --delete-secret-keys`, `cryptsetup luksFormat`, `hdparm --security-erase` | yes for the first group (explain and requests) | `docker volume rm`, `FLUSHALL`, mongo drops, `unzip -o`, `gpg --delete-secret-keys`, `cryptsetup`, `hdparm`, `nvme format`, `pacman --overwrite` (9 lines) |
+| rewrites history | `git reset --hard`, `push --force`, `rebase`, `commit --amend`, `filter-branch` | yes | `git update-ref -d` (1) |
+| runs code from the internet | `curl \| sh`, `bash <(curl ..)`, `eval "$(curl ..)"` | `explain`: yes | `npx`/`bunx`/`uvx`/`pipx run`/`pnpm dlx`, `deno run <url>`, `pip install git+..`, `cargo install --git`, `pip --extra-index-url` (6 lines) |
+| runs unread code | `eval`, `python -c`, `perl -e`, package install scripts, `dpkg -i` | yes | `awk system()`, `php -r`, `LD_PRELOAD=` (4 lines) |
+| gives away access | `chmod 777`, `chmod u+s`, `usermod -aG docker`, `sudo`, `ssh-copy-id` | explain: chmod, setuid, `sudo`, generic `usermod`; requests: `add-user-to-group`, typed `chmod` modes | root-equivalent groups named (`docker`, `sudo`, `wheel`, `lxd`..), `visudo`, writes to `/etc/sudoers*`, `authorized_keys`, `ssh -A`, `docker run --privileged/--cap-add/--pid=host`, `setcap`, `umask 000`, `nc -e` (9 lines; requests: `--privileged` flag, `ssh-copy-id`) |
+| weakens security | `curl -k`, `wget --no-check-certificate`, `StrictHostKeyChecking=no`, `ufw disable`, `setenforce 0`, `iptables -F`, `--no-verify`, `--break-system-packages` | `curl -k`, `wget`, `ssh -o StrictHostKeyChecking=no`, `ufw`, `iptables -F`, `--break-system-packages` | `git config http.sslVerify false`, `GIT_SSL_NO_VERIFY`, `NODE_TLS_REJECT_UNAUTHORIZED=0`, `npm strict-ssl false`, `UserKnownHostsFile=/dev/null`, `scp`/`rsync` host-key off, `setenforce 0`, AppArmor off, `systemctl stop firewalld`, `--no-verify`, `--allow-unauthenticated`, `--nosignature`, `pip --trusted-host`, `PATH=.:`, `ssh-keygen -N ''`, `sysctl` hardening keys, `chattr -i`, `git safe.directory`, `deno -A` (24 lines; requests: `curl -k`, `ssh` host-key flag, `--no-verify`) |
+| exposes a service | `docker run -p`, `python3 -m http.server`, `--host 0.0.0.0`, `ngrok`, `ssh -R`, `nc -l` | `explain`: `docker run -p`, `ufw`/`iptables` generic | `http.server`, `php -S`, `--host/--bind 0.0.0.0`, `vite --host`, `http-server`, `ngrok`, `cloudflared`, `tailscale funnel`, `ssh -R`/`-L 0.0.0.0`, `nc -l`, `socat`, `kubectl port-forward --address`, `--network host`, `firewall-cmd --add-port` (18 lines; requests: `-p` slot, `ssh -R`, `http.server`, `ngrok`) |
+| leaks secrets | `--password`, `export TOKEN=`, `user:pass@` URLs, `cat ~/.ssh/id_rsa` | passwords and tokens on the command line | private keys and credential files printed or uploaded (`cat`, `scp`, `curl -T/-F`), `X-Api-Key:` headers, token-shaped words (`ghp_`, `AKIA`..), `echo $TOKEN`, `gh auth token`, `kubectl get secrets -o yaml`, `credential.helper store`, `gpg --export-secret-keys`, `docker login -p`, `sshpass -p`, archives of `~/.ssh` (26 lines) |
+| hides tracks | `history -c`, `unset HISTFILE`, `rm ~/.bash_history`, `journalctl --vacuum-*`, truncating logs | requests: journal vacuum only | all of those in explain, `dmesg -C`, `auditctl -e 0`, stopping `auditd`/`rsyslog`, `touch -d`, redirects onto history or logs; request: clear history (15 lines) |
+| persists | `crontab -e`, `>> ~/.bashrc`, `systemctl enable`, writes to `/etc/systemd/system` | explain: startup files, git hooks, `crontab -` | `crontab -e`, `at`, `loginctl enable-linger`, systemd/cron/autostart paths; requests: `crontab -e`, alias, `systemctl enable` (3 lines) |
+| affects other people or production | `git push origin main`, `npm publish`, `docker push`, `kubectl apply`, `terraform apply`, cloud deletes | explain: `npm publish`, `kubectl`, `terraform`, `helm`, `gh pr merge` | `cargo publish`, `twine`, `gem push`, `docker push`, push to main/master/develop/.., `kubectl config use-context`/`--context prod`/`cordon`/`patch`/`edit`, `aws`/`gsutil`/`gcloud`/`az` deletes, `fly`/`vercel`/`cdk`/`pulumi` deploys, `ansible-playbook`, `gh repo delete`/`--public`, `git remote set-url` (23 lines; requests: push to a shared branch) |
+| kills work | `kill -9`, `pkill`, `reboot`, `shutdown`, `docker stop` | yes | `kill -9 -1` and similar were already covered; 1 new line |
+| big system change | `apt/pacman/dnf` installs and removals, `insmod`, `modprobe -r`, `sysctl -w`, bootloader, network config | explain: package managers, `make install`, `modprobe` only through `sudo` | `insmod`/`rmmod`/`modprobe`, `sysctl -w`, `update-grub`/`efibootmgr`/`mkinitcpio`, `ip link/route/addr` changes, `snap`/`flatpak`, `-y`/`--noconfirm` (19 lines) |
+| heads-up | `tail -f`, `ping`, `top`, `docker run`, `kubectl logs -f` | yes | `kubectl logs -f` |
+
+Deliberately not warned (all still explained by `huh explain` where it knows the program): `python3 -m http.server --bind 127.0.0.1`, `ssh -L`/`-D` on the loopback, `ssh -X`, `ssh -i`, `ssh-keygen -R`, `ssh-add -L`, `cat ~/.ssh/id_rsa.pub` and `.env.example` (public or sample files); `env`/`printenv` and `set | grep TOKEN` on their own (what happens to the output is not in the line, so the warning is on the sink: `echo $TOKEN`, `curl -T ~/.ssh/id_rsa`); `bash x.sh`, `python3 x.py`, `./install.sh` after a download (huh does not read the script); a bare `git push` (the branch is not named); `git tag -d` and `git remote add` (local or routine); `docker pull`, `mount`, `ulimit`, `nmap`, `openssl req` (routine; `nmap` against someone else's network is the user's call); `HISTCONTROL=ignorespace`, `history -w`. Requests for plain package installs, `useradd` and `usermod -L` stay without a WARNING: they are the thing asked for, and `huh explain` warns on the same lines.
+
+New tests: `evals/safety.toml` +33 request cases (28 with `warn = true`, 5 controls with `warn = false`); `evals/explain.toml` +107 cases (one or more per category, checking the `! [category]`, and 7 quiet lines); unit tests for the catalog (`every_catalog_warning_has_a_risk_category`), the categories (`risk_kinds`), the new checks (`risk_extra`) and `huh why` notes.
+
+## Planned: safety hardening (after round 5): items 1-3 done 2026-11-18, item 4 open
 
 Use the published risk categories of Claude Code's auto mode (`claude auto-mode defaults`; a copy is in `~/.local/share/huh-dev/auto-mode-defaults.json`) as a checklist, paraphrased in huh's own words (the rule text is not licensed for reuse):
-1. Audit the shell-relevant categories against huh's WARNINGs in requests and `huh explain`. Likely gaps:
+(done) 1. Audit the shell-relevant categories against huh's WARNINGs in requests and `huh explain`. Likely gaps:
    - weakening TLS or authentication: `curl -k`, `git config http.sslVerify false`, `StrictHostKeyChecking=no`;
    - weakening security: `ufw disable`, `setenforce 0`;
    - exposing local services: `python -m http.server`, binding to `0.0.0.0`;
    - public tunnels: `ngrok`, `ssh -R`;
    - tampering with logs or history: `history -c`, deleting `~/.bash_history`;
    - leaking credentials.
-2. Add the missing warnings, each with eval cases.
-3. Name the risk category in each WARNING ("weakens security", "destroys data", "exposes a service", …), the same way in requests and `huh explain`.
+(done) 2. Add the missing warnings, each with eval cases.
+(done) 3. Name the risk category in each WARNING ("weakens security", "destroys data", "exposes a service", …), the same way in requests and `huh explain`.
 4. Add one TypeSafe judge question per category, so "dangerous without WARNING" is measured against the taxonomy.
 
 The classifier itself cannot be used: it gives no verdict without running the command, it judges an agent's actions in a session rather than a person's command, and it needs a model call per command.
