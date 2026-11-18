@@ -7,7 +7,7 @@ input tokens spent are tracked against a cap ($ = tokens * 0.042 / 1e6 for jev-1
 """
 import hashlib, json, os, pathlib, re, threading, time, urllib.error, urllib.request
 
-from questions import (ERROR_QUESTIONS, NO_SUGGESTION_QUESTIONS, REQUEST_QUESTIONS, verdict_error,
+from questions import (ERROR_QUESTIONS, NO_SUGGESTION_QUESTIONS, REQUEST_QUESTIONS, RISK_QUESTIONS, verdict_error,
                        verdict_no_suggestion, verdict_request)
 
 MODEL = "jev-1.14.0"
@@ -78,7 +78,8 @@ def parse_request_answer(text: str) -> dict:
         block.append(l.strip())
     return {
         "command": lines[first][3:].strip(),
-        "warning": next((l[len("WARNING:"):].strip() for l in block if l.startswith("WARNING:")), None),
+        # "WARNING: …" or, with a risk category, "WARNING (gives away access): …"
+        "warning": next((l.split(":", 1)[1].strip() for l in block if l.startswith("WARNING")), None),
         "notes": [l for l in block if l.startswith(("not included", "NOTE", "note:", "not sure", "maybe add"))],
     }
 
@@ -101,7 +102,7 @@ def judge_request(request: str, answer_text: str, user: str, folder: list[str]) 
         verdict, why = verdict_no_suggestion(a, ans["text"])
     else:
         state["huh_answer"] = {k: v for k, v in ans.items() if v}
-        a = ask(state, REQUEST_QUESTIONS)
+        a = ask(state, {**REQUEST_QUESTIONS, **RISK_QUESTIONS})
         verdict, why = verdict_request(a, ans.get("warning") is not None)
     return {"verdict": verdict, "why": why, "answers": a, "parsed": ans}
 
