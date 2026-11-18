@@ -165,6 +165,12 @@ Known limits: stdout and stderr arrive mixed in the terminal, so the tutor goes 
 
 The next step is a fresh measurement round (error tests inside a container) against the targets: beginner ≥ 85%, sysadmin ≥ 65%, `huh why` useful fix ≥ 65%, ≤ 5 misleading, 0 non-errors called errors, 0 dangerous suggestions without a WARNING.
 
+## Completed: hints instead of dead ends (2026-11-18)
+
+When nothing fits confidently, huh now points the way instead of printing a bare "No suggestion" (`src/hint.rs`, `src/hints.txt`, `evals/hints.toml`). The hint names a tool, its one-line description, `man <tool>` (or `<tool> --help` when no page is on disk, or a note that it is not installed) and the 1-2 flags whose meaning shares words with the request. Order: a program the request names ("with ffmpeg"; known from the catalog, `knowledge.txt` or `$PATH`), a tool for the topic from the curated table, the closest rejected catalog command (needs a word of its name or two content words in common). It is never a runnable line, `--first-line-only` still prints nothing and exits 1, and the honest refusals (command lines, "what does X do", wiping drives, other people's systems, "does not name what", which now adds the closest tool) are unchanged. Off-topic requests keep a plain "No suggestion". Expert mode shows a candidate held back only by a beginner safeguard as a normal suggestion. New eval keys `pointer` and `no_pointer`.
+
+Not handled: requests where the matcher confidently suggests a wrong line ("pretty print json" gives `cat <target>`); a hint is only for the no-suggestion case.
+
 ## Completed: dangerous outputs and "typed values never vanish" (2026-11-18)
 
 The five serious findings of round 4 are fixed, in normal and expert mode alike (`evals/safety.toml`, `evals/expert.toml`):

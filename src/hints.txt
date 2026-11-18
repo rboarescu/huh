@@ -1,0 +1,66 @@
+# Tools to point at when nothing in the catalog fits. Parsed by src/hint.rs.
+#
+#   tool | triggers | what it does | flags worth reading about | man page (optional)
+#
+# triggers: comma-separated; a trigger is one word or words joined by `+` (all must be in the request).
+# flags: comma-separated, shown as "especially ...". The man page field is for a section other than 1.
+# A tool is named only when the request is clearly in its area; there is no catch-all entry.
+yt-dlp | youtube, vimeo | Download video or audio from streaming sites | -x (audio only), -F (list the formats), -f (pick a format) |
+ffmpeg | video, videos, mp4, mkv, avi, webm, mov, gif+convert, gif+make, audio+extract, audio+convert, mp3+convert, transcode | Convert, trim or extract audio and video | -i (the input file), -c (the codec), -ss and -t (start and length), -vf (a video filter) |
+convert | image+resize, image+rotate, image+crop, image+convert, picture+resize, photo+resize, png+jpg, jpg+png, jpeg+png, png+convert, thumbnail, thumbnails, picture+crop, photo+crop, image+crop, svg+png, watermark+image | Convert or edit an image (ImageMagick) | -resize (a new size), -rotate (turn it), -quality (JPEG quality), -crop (cut a part out) |
+pdfunite | pdf+merge, pdf+combine, pdf+join, pdf+concatenate, pdfs+merge, pdfs+combine | Join several PDF files into one (poppler; qpdf --empty --pages does the same) | | 
+pdftotext | pdf+text, pdf+extract, pdf+words | Extract the text of a PDF file (poppler) | -layout (keep the page layout), -f and -l (first and last page) |
+pandoc | markdown+pdf, markdown+html, markdown+docx, markdown+word, markdown+epub, html+markdown, html+pdf, docx+pdf, docx+html, docx+markdown, document+convert, epub+convert | Convert documents between formats (Markdown, HTML, Word, PDF) | -o (the output file), -f and -t (from and to format) |
+jq | json | Filter, format and pick fields out of JSON | . (the identity filter, pretty-prints), -r (raw strings), -c (compact output) |
+md5sum | md5 | Print or check MD5 checksums | -c (check against a list) |
+sha1sum | sha1 | Print or check SHA-1 checksums | -c (check against a list) |
+sha512sum | sha512 | Print or check SHA-512 checksums | -c (check against a list) |
+localectl | locale, locales, language+system, keyboard+layout | Show or set the system locale and keyboard layout | status (show the current settings), set-locale (change it) |
+crontab | cron+syntax, cron+schedule, cron+expression, cron+mean, crontab+syntax | Edit or list scheduled jobs | -l (list your jobs), -e (edit them) | 5 crontab
+at | once+later, once+tomorrow, once+tonight, later+once | Run a command once, at a later time | -l (list queued jobs), -r (remove one) |
+watch | repeatedly, every+seconds, every+second | Run a command over and over and show its output | -n (seconds between runs), -d (highlight changes) |
+gpg | gpg, pgp, encrypt, decrypt, encrypted, encryption | Encrypt, decrypt and sign files (GnuPG) | -c (symmetric, password only), -d (decrypt), -e (encrypt for a key) |
+base64 | base64 | Encode or decode Base64 | -d (decode), -w (line wrapping) |
+openssl | password+random, password+generate, random+password, random+string, certificate, certificates | Cryptography toolkit: random bytes, certificates, hashes | rand (random bytes), x509 (read a certificate) |
+split | split+file, split+pieces, file+chunks, file+pieces | Split a file into pieces | -b (size of each piece), -l (lines per piece) |
+iperf3 | bandwidth, throughput, iperf | Measure network speed between two machines | -s (server side), -c (client side) |
+tcpdump | packets, packet+capture, sniff | Capture and read network packets | -i (the interface), -w (write to a file) |
+cloc | lines+code, loc+code, count+code | Count lines of code by language | |
+hdparm | benchmark+disk, disk+benchmark, disk+speed, drive+speed | Disk settings and a quick read-speed test | -t (time reads from the device) |
+exiftool | exif, metadata+photo, metadata+image, photo+metadata, image+metadata | Read and write image and file metadata | -all= (remove all metadata), -s (short tag names) |
+wget | website+download, website+offline, website+mirror, mirror+website, site+offline | Download files and whole sites | -m (mirror a site), -k (fix links for offline use), -c (continue a download) |
+7z | 7zip, 7z | Create and extract 7-Zip archives | a (add to an archive), x (extract with paths) |
+xz | xz | Compress files with xz | -k (keep the original), -9 (smallest result), -d (decompress) |
+nethogs | traffic+process, bandwidth+process, network+process, process+traffic | Show network traffic per process | |
+rename | rename+many, rename+lots, rename+bulk, rename+batch, rename+multiple, rename+files | Rename many files at once by a pattern | -n (dry run: show what would change) |
+shuf | shuffle, shuffled | Shuffle lines or pick random ones | -n (how many lines to keep) |
+systemd-analyze | boot+slow, slow+boot, boot+time, startup+slow | Show where boot time goes | blame (slowest units first) |
+qrencode | qr+make, qr+create, qr+generate, qrcode+make, qrcode+create, qrcode+generate | Make a QR code image from text | -o (the output file), -t (output type) |
+ncdu | usage+interactive, interactive+disk, interactively | Browse disk usage in a terminal | |
+rsync | mirror+folder, mirror+disk, mirror+directory | Copy and keep two folders in sync | -a (archive mode), -n (dry run), --delete (remove files that are gone from the source) |
+arecord | record+voice, record+audio, record+microphone, record+sound, microphone+record | Record sound from a microphone (ALSA) | -d (seconds to record), -f (sample format) |
+strace | syscalls, syscall, system+calls, strace | Watch the system calls a program makes | -f (follow child processes), -o (write to a file), -p (attach to a running process) |
+valgrind | leak+memory, memory+leak, memory+leaks, leaks+memory, valgrind | Find memory errors and leaks in a program | --leak-check=full (list every leak) |
+gdb | debugger, gdb, backtrace, debug+program, debug+crash | Step through a program and read its crashes | bt (print the backtrace), run (start the program) |
+whois | whois, domain+owner, domain+registered, domain+registrar | Look up who registered a domain | |
+xxd | hex+dump, hexdump, hex+view, hex+viewer, file+hex, show+hex | Show a file as hexadecimal bytes | -l (how many bytes), -r (turn a hex dump back into bytes) |
+tree | tree+folder, tree+directory, folder+structure, directory+structure, folders+tree | Draw a folder and everything below it as a tree | -L (how many levels deep), -a (include hidden files) |
+column | columns+align, align+columns, align+output, output+columns, table+columns | Line text up into columns | -t (make a table from the input), -s (the separator) |
+paste | side+by+side, files+side | Put the lines of several files side by side | -d (the delimiter) |
+comm | common+lines, lines+both, lines+common, both+files | Compare two sorted files line by line | -12 (show only the lines both have) |
+tac | reverse+lines, lines+reverse, reverse+order+lines | Print a file's lines last to first | |
+fold | wrap+lines, wrap+long, lines+wrap | Wrap long lines to a width | -w (the width), -s (break at spaces) |
+iconv | encoding, latin1, utf-8, utf8, charset | Convert text between character encodings | -f and -t (from and to encoding) |
+dos2unix | crlf, windows+line, line+endings, dos2unix | Convert Windows line endings to Unix ones | |
+kubectl | kubernetes, pods, pod, kubectl, k8s | Talk to a Kubernetes cluster | get (list things), describe (details), logs (a pod's output) |
+helm | helm, chart+kubernetes, chart+deploy | Install and manage Kubernetes packages (charts) | install (deploy a chart), list (what is installed) |
+terraform | terraform, infrastructure+code | Plan and apply infrastructure from code | plan (preview changes), apply (make them) |
+psql | postgres, postgresql, psql | Connect to a PostgreSQL database | -h (host), -U (user), -d (database) |
+sqlite3 | sqlite, sqlite3 | Open and query a SQLite database file | .tables (list tables), .schema (show their layout) |
+mysql | mysql, mariadb | Connect to a MySQL or MariaDB database | -u (user), -p (ask for the password), -h (host) |
+gh | github+pull, pull+request, github+issue, github+cli, create+pr | Use GitHub from the terminal | pr create (open a pull request), issue list (see issues) |
+git | blame, bisect, submodule, submodules, reflog, worktree | Track and share changes to source code | blame (who last changed each line), bisect (find the commit that broke something), reflog (history of where HEAD was) |
+npm | node+dependencies, npm, node+package, package+json | Install and run JavaScript packages | install (fetch dependencies), run (a script from package.json) |
+pip | pip, python+package, python+packages, pypi | Install Python packages | install (add a package), list (what is installed) |
+cargo | rust+format, rust+lint, format+rust, rust+code, clippy, rustfmt, rust+project, cargo | Build and manage Rust projects | fmt (format code), clippy (lint it), check (find errors fast) |
+make | makefile, makefiles | Build things from a Makefile | -n (show what would run), -j (parallel jobs) |
