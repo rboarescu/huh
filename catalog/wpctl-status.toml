@@ -1,0 +1,5 @@
+name = "wpctl status"
+description = "Show the audio devices and which output and input are the default (marked with *)"
+template = "wpctl status"
+kind = "query"
+keywords = ["audio output", "which output", "audio devices", "sound devices", "default speaker", "default microphone", "audio sinks", "which speakers"]

@@ -1,6 +1,7 @@
 name = "nc"
 description = "Check whether a port is open on another computer"
 template = "nc -zv {host} {port}"
+kind = "query"
 keywords = ["check if port is open", "is port open on host", "test a port on a server", "port reachable", "can i reach port", "test tcp port", "port scan one port", "is the port open"]
 
 [[slots]]

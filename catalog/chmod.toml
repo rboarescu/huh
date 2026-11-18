@@ -12,6 +12,7 @@ warning = "this changes every file inside the folder; on a system folder that ca
 [[slots]]
 id = "mode"
 kind = "choice"
+extract = "chmod_mode"
 question = "Which permission change does the user want?"
 
 [[slots.options]]

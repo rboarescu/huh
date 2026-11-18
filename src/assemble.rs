@@ -103,6 +103,14 @@ pub fn build(
                 }
                 option.value.clone()
             }
+            // A value typed in the request for a choice slot ("chmod 755").
+            (SlotKind::Choice, SlotPick::Value { value, .. }) => {
+                if let Some(why) = risky_mode_warning(&command.name, value) {
+                    warning.get_or_insert(why);
+                }
+                parts.push((value.clone(), format!("the mode you asked for: {}", describe_mode(value))));
+                value.clone()
+            }
             (SlotKind::Path | SlotKind::Text, SlotPick::Value { .. } | SlotPick::Unnamed) => {
                 let (value, is_placeholder) = picked_value(slot, pick, &mut notes, decide);
                 if !is_placeholder && !value.is_empty() {
@@ -135,6 +143,37 @@ pub fn build(
         notes,
         parts,
     }))
+}
+
+/// The warning for a `chmod` mode that lets every user on the machine change the file.
+fn risky_mode_warning(command: &str, mode: &str) -> Option<String> {
+    if command != "chmod" || mode.len() < 3 || !mode.chars().all(|c| ('0'..='7').contains(&c)) {
+        return None;
+    }
+    let others = mode.chars().last()?.to_digit(8)?;
+    match (others & 2 != 0, others & 1 != 0) {
+        (true, true) => {
+            Some("everyone can change and run it; on a shared or system file that is a security hole.".into())
+        }
+        (true, false) => Some("everyone can change it; on a shared or system file that is a security hole.".into()),
+        _ => None,
+    }
+}
+
+/// Reads an octal mode aloud: 600 is "owner read+write, nobody else".
+fn describe_mode(mode: &str) -> String {
+    let who = ["owner", "group", "others"];
+    let digits: Vec<u32> = mode.chars().rev().take(3).filter_map(|c| c.to_digit(8)).collect();
+    let rights = |d: u32| match d {
+        0 => "nothing".to_string(),
+        d => [(4, "read"), (2, "write"), (1, "run")]
+            .iter()
+            .filter(|(bit, _)| d & bit != 0)
+            .map(|(_, n)| *n)
+            .collect::<Vec<_>>()
+            .join("+"),
+    };
+    digits.iter().rev().zip(who).map(|(d, w)| format!("{w} {}", rights(*d))).collect::<Vec<_>>().join(", ")
 }
 
 /// Package tasks: the person names a program ("install dig", "remove docker") and the system

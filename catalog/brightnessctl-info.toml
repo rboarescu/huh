@@ -1,0 +1,6 @@
+name = "brightnessctl info"
+description = "Show the current screen brightness"
+template = "brightnessctl info"
+kind = "query"
+package = "brightnessctl"
+keywords = ["current brightness", "what is the brightness", "brightness level", "how bright is the screen", "screen brightness now", "backlight level"]

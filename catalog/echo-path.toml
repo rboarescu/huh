@@ -1,0 +1,5 @@
+name = "echo path"
+description = "Show the list of folders the shell searches for programs"
+template = "echo $PATH"
+kind = "query"
+keywords = ["my path", "show path", "path variable", "what is in path", "folders in path", "echo path", "where are programs searched"]

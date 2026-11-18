@@ -1,0 +1,5 @@
+name = "timedatectl"
+description = "Show the system time, time zone and whether the clock is synchronized"
+template = "timedatectl"
+kind = "query"
+keywords = ["clock synced", "is the clock synchronized", "time synchronized", "ntp status", "time zone", "timezone", "system time status", "is my time correct"]

@@ -7,6 +7,7 @@ mod doctor;
 mod eval;
 mod explain;
 mod extract;
+mod guard;
 mod knowledge;
 mod manpage;
 mod matcher;
@@ -183,17 +184,55 @@ pub fn suggest(
             hint: Some(hint),
         });
     }
+    let known = |word: &str| matcher.knows_program(word) || COMMON_PROGRAMS.contains(&word);
+    let refused = guard::command_in_safety_question(request, &known)
+        .map(|command| {
+            format!(
+                "that asks whether a command is safe, not what to run. To see what it does and what could go wrong, use: huh explain \"{}\"",
+                command.replace('"', "\\\"")
+            )
+        })
+        .or_else(|| guard::refusal(request));
+    if let Some(hint) = refused {
+        return Ok(Outcome {
+            suggestions: vec![],
+            ranked: vec![],
+            millis: started.elapsed().as_millis(),
+            hint: Some(hint),
+        });
+    }
     let shortlist = assemble::shortlist(matcher.rank(request));
     let candidates = Candidates::new(request, files);
+    let about_state = matcher.asks_about_state(request);
 
     let mut suggestions = Vec::new();
+    let mut hint = None;
     for &(command, probability) in &shortlist {
+        // A question about state is answered by a query or not at all: never by an action.
+        if about_state && matcher.is_action(&command.name) {
+            hint.get_or_insert(
+                "that asks about the current state, and no command in the catalog that only looks fits it.",
+            );
+            continue;
+        }
         let Some(details) = matcher.details(command, request, &candidates) else { continue };
         // Only the first suggestion is worth interrupting the user for.
         let mut silent = |_: &str| None;
         let ask: &mut dyn FnMut(&str) -> Option<bool> = if suggestions.is_empty() { &mut *decide } else { &mut silent };
         if let Some(mut suggestion) = assemble::build(command, probability, &details, ask)? {
+            guard::tell_the_truth(&mut suggestion, command, &details, &candidates);
             if destroys_more_than_named(&suggestion, request) {
+                continue;
+            }
+            // A dangerous command needs the verb and something specific to act on; without the
+            // object the request is too vague to risk it, and nothing weaker should stand in for it.
+            if suggestion.destructive && !guard::has_evidence(command, &details, request) {
+                if suggestions.is_empty() {
+                    hint = Some(
+                        "that would change or delete something, but the request does not name what. Say which file, folder or item.",
+                    );
+                    break;
+                }
                 continue;
             }
             // A stated modifier the line has no place for must not vanish silently.
@@ -206,7 +245,8 @@ pub fn suggest(
         }
     }
     let ranked = shortlist.iter().map(|(command, p)| (command.name.clone(), *p)).collect();
-    Ok(Outcome { suggestions, ranked, millis: started.elapsed().as_millis(), hint: None })
+    let hint = if suggestions.is_empty() { hint.map(str::to_string) } else { None };
+    Ok(Outcome { suggestions, ranked, millis: started.elapsed().as_millis(), hint })
 }
 
 /// Re-quotes multi-word arguments when multiple CLI tokens are supplied so

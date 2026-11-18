@@ -1,0 +1,5 @@
+name = "findmnt"
+description = "Show what is mounted where (USB drives, disks, network shares)"
+template = "findmnt --real"
+kind = "query"
+keywords = ["what is mounted", "is it mounted", "mounted drives", "mounted disks", "mounted filesystems", "is my usb mounted", "mount points in use"]

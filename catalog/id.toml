@@ -1,0 +1,5 @@
+name = "id"
+description = "Show my user id and groups (user id 0 means root)"
+template = "id"
+kind = "query"
+keywords = ["am i root", "am i admin", "am i sudo", "my user id", "uid", "am i in the wheel group", "do i have root"]

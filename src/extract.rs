@@ -30,8 +30,49 @@ pub fn extract(reader: &str, request: &str) -> Option<String> {
         "versioned_program" => versioned_program(&words),
         "filename" => filename(request),
         "mac" => mac_address(request),
+        "chmod_mode" => chmod_mode(&words),
         _ => None,
     }
+}
+
+/// A permission mode the request spells out ("chmod 755", "make it 600") or describes ("only i can
+/// read it" is 600, "only i can read it and nobody can change it" is 400, "everyone full access" is 777).
+fn chmod_mode(words: &[String]) -> Option<String> {
+    const MODES: &[&str] = &[
+        "400", "440", "444", "500", "550", "555", "600", "640", "644", "660", "664", "666", "700", "750", "755", "770",
+        "775", "777",
+    ];
+    if let Some(mode) = words.iter().find(|w| MODES.contains(&w.as_str())) {
+        return Some(mode.clone());
+    }
+    let has = |w: &str| words.iter().any(|x| x == w);
+    let phrase = |p: &str| {
+        let p: Vec<&str> = p.split(' ').collect();
+        words.windows(p.len()).any(|win| win.iter().zip(&p).all(|(a, b)| a == b))
+    };
+    let only_me = (has("only") && (has("i") || has("me") || has("myself") || phrase("the owner")))
+        || phrase("nobody but me")
+        || phrase("no one but me")
+        || phrase("just me")
+        || phrase("private to me");
+    let me_can_read =
+        only_me && ["read", "open", "see", "view", "access", "use", "readable", "private"].iter().any(|w| has(w));
+    if me_can_read {
+        let nobody_changes = (has("nobody") || phrase("no one") || has("noone") || phrase("nobody else"))
+            && ["change", "edit", "modify", "write", "changes", "changed", "edited"].iter().any(|w| has(w))
+            || phrase("read only")
+            || has("read-only")
+            || phrase("cant be changed")
+            || phrase("can't be changed");
+        return Some(if nobody_changes { "400" } else { "600" }.to_string());
+    }
+    let everyone = has("everyone") || has("anyone") || phrase("all users") || phrase("every user") || has("everybody");
+    if everyone
+        && (phrase("full access") || phrase("full permissions") || phrase("all permissions") || phrase("full control"))
+    {
+        return Some("777".to_string());
+    }
+    None
 }
 
 /// Lowercase words, with the edges of each trimmed of punctuation (a `:` inside stays, as in 23:00).
