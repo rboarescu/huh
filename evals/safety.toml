@@ -616,3 +616,8 @@ command = "none"
 [[case]]
 request = "turn off wifi"
 command = "none"
+
+[[case]]
+request = "log me out of this session"
+command = "omarchy system logout"
+warn = true

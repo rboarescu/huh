@@ -1271,7 +1271,7 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "search service log" if q.has_any(&["search", "look for", "grep"]) && q.has_any(&["log", "logs"]) && !q.has_log_file() => bonus += 9.5,
         "journalctl" if q.has_any(&["log", "logs", "log lines", "journald", "journal"])
             && !q.has_log_file()
-            && !q.has_any(&["search", "look for", "for failed", "in lines", "log in", "log into", "logged in"])
+            && !q.has_any(&["search", "look for", "for failed", "in lines", "log in", "log into", "logged in", "log out", "log me out", "logout", "logged out"])
             && !(q.has_word("container") && !q.has_any(&["journald", "journal", "systemd"])) => bonus += 8.5,
         "docker logs" if q.has_any(&["log", "logs"]) && q.has_word("container") && !q.has_any(&["journald", "journal", "systemd"]) => bonus += 8.5,
         "head" if q.has_any(&["first", "beginning", "top"]) && q.has_any(&["line", "lines", "of"]) => bonus += 7.5,
@@ -3699,9 +3699,11 @@ mod tests {
         let evals = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals");
 
         // (matcher, file, least top-1 %, least exact-line %)
-        for (matcher, platform, file, min_top1, min_exact) in
-            [(&arch, "arch", "cases", 90, 85), (&arch, "arch", "heldout", 85, 80), (&debian, "debian", "debian", 0, 0)]
-        {
+        for (matcher, platform, file, min_top1, min_exact) in [
+            (&arch, "arch", "cases", 100, 100),
+            (&arch, "arch", "heldout", 100, 100),
+            (&debian, "debian", "debian", 100, 100),
+        ] {
             let platform = if platform == "arch" {
                 vec!["arch".to_string(), "omarchy".to_string()]
             } else {
