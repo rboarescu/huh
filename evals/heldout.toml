@@ -264,12 +264,12 @@ expect = "journalctl -b -u nginx"
 [[case]]
 request = "power off"
 command = "shutdown"
-expect = "shutdown now"
+expect = "sudo shutdown -h now"
 
 [[case]]
 request = "reboot the system"
 command = "reboot"
-expect = "reboot"
+expect = "sudo shutdown -r now"
 
 [[case]]
 request = "is curl installed and where"

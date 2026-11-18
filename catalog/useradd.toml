@@ -1,0 +1,9 @@
+name = "useradd"
+description = "Create a new user account with a home folder"
+template = "sudo useradd -m {user}"
+keywords = ["create user", "add user", "new user account", "make a user", "add a new user", "create an account"]
+
+[[slots]]
+id = "user"
+kind = "text"
+what = "the name of the new user"

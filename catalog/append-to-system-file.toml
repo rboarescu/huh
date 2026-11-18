@@ -1,6 +1,8 @@
 name = "append to system file"
 description = "Add a line to a configuration file that only root may change"
 template = "echo '{line}' | sudo tee -a {file}"
+destructive = true
+warning = "this changes a system file as root; a wrong line can break the system."
 keywords = ["add line to root file", "write protected file", "etc config", "sudo append", "tee -a", "modify system file"]
 
 [[slots]]

@@ -1,4 +1,13 @@
 name = "reboot"
-description = "Restart the computer"
-template = "reboot"
-keywords = ["restart computer", "reboot machine", "restart pc", "reboot system"]
+description = "Restart the computer now or at a set time"
+template = "sudo shutdown -r {when}"
+destructive = true
+warning = "this restarts the computer: all programs are closed and unsaved work is lost."
+keywords = ["restart computer", "reboot machine", "restart pc", "reboot system", "restart my machine", "reboot the system", "reboot in minutes", "schedule a reboot", "restart at a set time"]
+
+[[slots]]
+id = "when"
+kind = "text"
+what = "when to restart: now, +MINUTES or HH:MM"
+default = "now"
+extract = "shutdown_time"

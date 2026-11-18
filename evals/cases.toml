@@ -414,12 +414,12 @@ expect = "sudo systemctl enable bluetooth"
 [[case]]
 request = "turn off the computer"
 command = "shutdown"
-expect = "shutdown now"
+expect = "sudo shutdown -h now"
 
 [[case]]
 request = "restart my machine"
 command = "reboot"
-expect = "reboot"
+expect = "sudo shutdown -r now"
 
 [[case]]
 request = "what is the value of PATH"

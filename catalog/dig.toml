@@ -1,0 +1,35 @@
+name = "dig"
+description = "Look up the DNS records of a domain name"
+template = "dig {name} {type}"
+keywords = ["dns lookup", "dig mx", "look up dns records", "resolve a domain", "mx records", "nameserver lookup", "txt record", "domain records", "what ip does a domain have", "query dns"]
+
+[[slots]]
+id = "name"
+kind = "text"
+what = "the domain name"
+extract = "domain"
+
+[[slots]]
+id = "type"
+kind = "choice"
+question = "Which kind of DNS record does the user want?"
+
+[[slots.options]]
+name = "address"
+value = ""
+description = "The IP address (A record), the default"
+
+[[slots.options]]
+name = "mail"
+value = "MX"
+description = "Mail servers (MX records)"
+
+[[slots.options]]
+name = "text"
+value = "TXT"
+description = "Text records (TXT)"
+
+[[slots.options]]
+name = "nameservers"
+value = "NS"
+description = "Name servers (NS records)"

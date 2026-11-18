@@ -1,0 +1,11 @@
+name = "git restore"
+description = "Throw away uncommitted changes to a file and bring back the last committed version"
+template = "git restore {target}"
+destructive = true
+warning = "uncommitted changes to this file are lost and cannot be recovered."
+keywords = ["discard changes", "discard changes in file", "throw away changes", "revert file", "undo my edits", "undo uncommitted changes", "restore file from last commit", "reset a file", "drop local changes"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the file whose changes to throw away"

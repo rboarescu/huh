@@ -1,5 +1,7 @@
 name = "omarchy system logout"
 description = "Log out of the desktop session"
 template = "omarchy system logout"
+destructive = true
+warning = "this logs you out and closes all programs; unsaved work is lost."
 platform = "omarchy"
 keywords = ["log out", "sign out", "exit desktop session", "logout"]

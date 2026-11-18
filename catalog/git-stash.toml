@@ -1,0 +1,24 @@
+name = "git stash"
+description = "Put uncommitted changes aside, bring them back, or list what is set aside"
+template = "git stash {action}"
+keywords = ["stash changes", "stash my changes", "shelve changes", "set changes aside", "pop the stash", "apply stash", "list stashes", "stashed changes", "put work aside"]
+
+[[slots]]
+id = "action"
+kind = "choice"
+question = "What does the user want to do with stashed changes?"
+
+[[slots.options]]
+name = "save"
+value = ""
+description = "Put the current uncommitted changes aside"
+
+[[slots.options]]
+name = "pop"
+value = "pop"
+description = "Bring the most recently stashed changes back and drop them from the stash"
+
+[[slots.options]]
+name = "list"
+value = "list"
+description = "List what is stashed"

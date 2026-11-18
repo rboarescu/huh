@@ -1,7 +1,7 @@
 name = "systemctl"
 description = "Start, stop, restart or check a background service"
 template = "sudo systemctl {action} {service}"
-keywords = ["start service", "stop service", "restart service", "service status", "enable at boot", "disable at boot", "systemd daemon", "background service"]
+keywords = ["start service", "stop service", "restart service", "restart nginx", "restart sshd", "restart a daemon", "enable at boot", "disable at boot", "systemd daemon", "background service"]
 
 [[slots]]
 id = "action"
@@ -17,16 +17,13 @@ description = "Start a service that is not running"
 name = "stop"
 value = "stop"
 description = "Stop a running service"
+warning = "this stops the service: whatever depends on it stops working until it is started again."
 
 [[slots.options]]
 name = "restart"
 value = "restart"
 description = "Stop the service and start it again"
-
-[[slots.options]]
-name = "status"
-value = "status"
-description = "See whether the service is running and whether it reported errors"
+warning = "this restarts the service: connections to it are dropped for a moment."
 
 [[slots.options]]
 name = "enable"
@@ -37,6 +34,7 @@ description = "Make the service start by itself every time the computer boots"
 name = "disable"
 value = "disable"
 description = "Stop the service from starting by itself at boot"
+warning = "this stops the service from starting at boot, which can break whatever depends on it."
 
 [[slots]]
 id = "service"

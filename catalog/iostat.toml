@@ -1,0 +1,5 @@
+name = "iostat"
+description = "Show how busy the disks are: reads, writes and wait time"
+template = "iostat -x 1"
+package = "sysstat"
+keywords = ["disk io", "check disk io", "disk activity", "disk throughput", "disk performance", "how busy is the disk", "io wait", "disk read write speed"]

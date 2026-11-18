@@ -130,6 +130,11 @@ impl LocalMatcher {
         Self { entries, by_name, vocab, postings }
     }
 
+    /// Whether some catalog command runs a program of this name.
+    pub fn knows_program(&self, name: &str) -> bool {
+        self.entries.iter().any(|entry| entry.command.program() == name)
+    }
+
     /// Every command in the catalog with its probability, best first (ties by name).
     pub fn rank(&self, request: &str) -> Vec<(&Command, f64)> {
         let q_unquoted = strip_quoted_for_ranking(request);
@@ -217,6 +222,21 @@ impl LocalMatcher {
                 {
                     slots[i] = SlotPick::Value { named, value };
                 }
+            }
+        }
+        // Values read from the wording of the request replace whatever the binding picked.
+        for (slot, pick) in command.slots.iter().zip(slots.iter_mut()) {
+            if let Some(reader) = &slot.extract {
+                *pick = match crate::extract::extract(reader, request) {
+                    Some(value) => SlotPick::Value { named: 0.95, value },
+                    None => SlotPick::Unnamed,
+                };
+            } else if let SlotPick::Value { value, .. } = pick
+                && is_port_number(value, &q)
+                && slot.what.as_deref().is_some_and(|what| what.contains("process ID"))
+            {
+                // A number after "port" is a port, never a process ID.
+                *pick = SlotPick::Unnamed;
             }
         }
         Some(Details { fit, flags, slots })
@@ -362,6 +382,121 @@ impl<'a> QueryContext<'a> {
     /// A word that is part of a path ("/usr/bin/ls", "~/notes", "./run.sh").
     fn has_absolute_path(&self) -> bool {
         self.raw_tokens.iter().any(|t| t.text.starts_with('/') || t.text.starts_with("~/") || t.text.starts_with("./"))
+    }
+
+    /// A port number is named ("port 3000", "listening on 5432", "localhost:8080").
+    fn names_port(&self) -> bool {
+        crate::extract::extract("port", self.raw).is_some()
+    }
+
+    /// The request is about powering off or restarting this computer (not a service, VM or
+    /// device): it names the computer, or says the bare verb ("power off", "reboot").
+    fn is_power_request(&self, restart: bool) -> bool {
+        const MACHINE: &[&str] = &["computer", "machine", "pc", "laptop", "system", "everything", "workstation"];
+        const OTHER: &[&str] = &[
+            "vm",
+            "virtual",
+            "container",
+            "service",
+            "services",
+            "daemon",
+            "wifi",
+            "bluetooth",
+            "screen",
+            "display",
+            "monitor",
+            "touchpad",
+            "trackpad",
+            "app",
+            "program",
+            "docker",
+            "ollama",
+            "tmux",
+            "network",
+            "audio",
+            "sound",
+            "light",
+            "lights",
+            "printer",
+            "router",
+            "modem",
+            "phone",
+        ];
+        if self.has_any(OTHER) {
+            return false;
+        }
+        let named = self.has_any(MACHINE);
+        let bare: &[&str] = if restart {
+            &["reboot"]
+        } else {
+            &["shutdown", "poweroff", "power off", "power down", "shut down", "halt"]
+        };
+        let verbs: &[&str] = if restart { &["restart"] } else { &["turn off", "switch off"] };
+        if self.has_any(bare) {
+            // "shut down nginx": a bare verb followed by a name that is not the computer.
+            return named || !self.verb_has_object(bare);
+        }
+        named && self.has_any(verbs)
+    }
+
+    /// Whether one of these verbs is followed by a word that is an object, not a time or filler.
+    fn verb_has_object(&self, verbs: &[&str]) -> bool {
+        const FILLER: &[&str] = &[
+            "now",
+            "the",
+            "my",
+            "in",
+            "at",
+            "by",
+            "this",
+            "please",
+            "immediately",
+            "tonight",
+            "after",
+            "it",
+            "down",
+            "off",
+            "for",
+            "on",
+            "later",
+            "soon",
+            "today",
+            "tomorrow",
+            "and",
+        ];
+        let words: Vec<&str> = self.words.iter().map(String::as_str).collect();
+        for verb in verbs {
+            let parts: Vec<&str> = verb.split(' ').collect();
+            for (i, w) in words.windows(parts.len()).enumerate() {
+                if w == parts.as_slice()
+                    && let Some(next) = words.get(i + parts.len())
+                    && !FILLER.contains(next)
+                    && !is_digits(next)
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// The request is about getting something back (undo, recover, accidents).
+    fn asks_recovery(&self) -> bool {
+        self.has_any(&[
+            "recover",
+            "recovery",
+            "undelete",
+            "get back",
+            "get it back",
+            "bring back",
+            "by accident",
+            "accidentally",
+            "by mistake",
+            "undo",
+            "restore",
+            "retrieve",
+            "oops",
+        ])
     }
 
     fn has_log_file(&self) -> bool {
@@ -1052,7 +1187,49 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         }
     }
 
+    let kills = q.has_any(&["kill", "stop", "terminate", "free", "free up", "release", "close", "end"]);
+    let asks_cancel = q.has_any(&["cancel", "abort"]) && q.has_any(&["shutdown", "reboot", "power off", "restart", "shut down", "poweroff"]);
+    let age_phrase = q.has_any(&["older than", "more than", "days old", "weeks old", "not modified", "not changed", "stale"])
+        && q.has_any(&["day", "days", "week", "weeks", "month", "months"]);
+    let delete_verb = q.has_any(&["delete", "remove", "clean", "clean up", "purge", "erase", "get rid of", "wipe"]);
+    let installs = q.has_any(&["install", "uninstall", "package", "remove"]);
+    let dns_lookup = !installs && q.has_any(&["dns lookup", "dns record", "dns records", "mx record", "mx records", "dig", "nameserver", "nameservers", "txt record", "resolve the domain", "look up the domain"])
+        || (q.has_exact_word("mx") && q.has_domain_token());
+    let who_else = q.has_any(&["who is logged in", "who's logged in", "users logged in", "logged in users", "who is online"]);
+    let power_machine = q.is_power_request(true) || q.is_power_request(false);
+    let port_check = q.names_port() && q.has_any(&["open", "reachable", "reach", "closed", "accessible", "responding", "check if"]) && crate::extract::extract("host", q.raw).is_some();
+    let git_words = q.has_any(&["git", "repo", "repository", "branch", "commit", "commits", "staged"]);
+    let docker_words = q.has_any(&["docker", "container", "containers", "image", "images"]);
+
     match name_lower {
+        "reboot" if q.is_power_request(true) && !asks_cancel => bonus += 8.0,
+        "shutdown" if q.is_power_request(false) && !asks_cancel => bonus += 8.0,
+        "shutdown cancel" if asks_cancel => bonus += 14.0,
+        "systemctl failed" if q.has_any(&["failed", "failing", "broken", "crashed"]) && q.has_any(&["service", "services", "unit", "units", "daemon", "daemons"]) => bonus += 13.0,
+        "systemctl status" if !power_machine && !git_words && !docker_words
+            && ((q.has_word("status") && !q.has_any(&["tailscale", "battery", "wifi", "network", "omarchy", "vpn", "raid", "user service"]))
+                || (has_is_running && q.has_any(&["service", "daemon", "unit"]))) => bonus += 9.5,
+        "find delete" if delete_verb && age_phrase => bonus += 13.0,
+        "kill port" if kills && q.names_port() && !q.has_any(&["listening", "what", "which", "who"]) => bonus += 14.0,
+        "kill port" if q.has_phrase("already in use") => bonus += 14.0,
+        "ss port" if q.names_port() && !port_check && q.has_any(&["listening", "listens", "using", "uses", "used", "what", "which", "who", "program", "process"]) && !kills => bonus += 14.0,
+        "nc" if port_check => bonus += 14.0,
+        "git restore" if q.has_any(&["discard", "throw away", "revert", "undo", "drop", "restore"]) && q.has_any(&["changes", "edits", "modifications", "uncommitted", "local"]) && !q.has_any(&["commit", "commits", "stash", "all local", "everything"]) => bonus += 13.0,
+        "git stash" if q.has_any(&["stash", "stashes", "stashed"]) => bonus += 13.0,
+        "git reset" if q.has_exact_word("uncommit") || q.has_any(&["undo the last commit", "undo last commit", "reset hard", "hard reset", "reset to the last commit", "reset to last commit", "discard all local", "discard all changes", "throw away all", "undo the previous commit"]) => bonus += 13.0,
+        "git clean" if q.has_word("untracked") && delete_verb => bonus += 13.0,
+        "docker image prune" if q.has_any(&["dangling", "untagged", "unused", "prune"]) && q.has_any(&["image", "images"]) => bonus += 14.0,
+        "docker container prune" if q.has_any(&["stopped", "exited", "unused", "prune", "dead"]) && q.has_any(&["container", "containers"]) && (delete_verb || q.has_word("prune")) => bonus += 14.0,
+        "docker system df" if q.has_word("docker") && q.has_any(&["disk usage", "space used", "how much space", "storage usage", "size", "disk space used"]) && !delete_verb && !q.has_any(&["reclaim", "free", "prune"]) => bonus += 13.0,
+        "gio trash empty" if q.has_any(&["trash", "recycle bin"]) && q.has_any(&["empty", "clear", "clean out", "purge", "wipe", "delete everything"]) => bonus += 14.0,
+        "gio list trash" if q.asks_recovery() && q.has_any(&["delete", "deleted", "remove", "removed", "file", "files", "trash", "folder", "notes", "lost"]) => bonus += 14.0,
+        "cd previous" if q.has_any(&["previous folder", "previous directory", "previous dir", "last folder", "last directory", "go back to", "back to where i was", "cd -"]) => bonus += 13.0,
+        "who" if who_else => bonus += 14.0,
+        "iostat" if q.has_any(&["io", "i/o", "iops", "iostat", "disk activity", "disk throughput", "disk performance", "disk speed", "io wait"]) => bonus += 13.0,
+        "useradd" if q.has_any(&["create user", "add user", "new user", "create a user", "add a user", "make a user", "create an account", "add a new user"]) && !q.has_word("group") => bonus += 13.0,
+        "tracepath" if q.has_any(&["trace route", "traceroute", "trace the route", "tracepath", "hops"]) => bonus += 14.0,
+        "dig" if dns_lookup => bonus += 14.0,
+        "curl headers" if q.has_any(&["headers", "header"]) && (has_url || q.has_domain_token()) => bonus += 14.0,
         "man" if is_meta_man => bonus += 9.5,
         "which" if is_meta_which => bonus += 9.5,
         "df" if (q.has_any(&["free", "out of", "left"]) && q.has_any(&["disk", "space", "storage", "full"])) || q.has_phrase("disk full") => bonus += 7.5,
@@ -1063,7 +1240,7 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
             && !q.has_any(&["biggest to smallest", "order", "sort"]) => bonus += 8.5,
         "free" if q.has_word("ram") || (q.has_word("memory") && q.has_any(&["free", "much", "use"]) && !q.has_any(&["docker", "container", "vm", "virtual", "model", "ollama"])) => bonus += 7.0,
         "smartctl" if q.raw.contains("/dev/") || (q.has_any(&["disk", "drive", "ssd", "nvme"]) && q.has_any(&["health", "healthy", "smart"])) => bonus += 7.5,
-        "lsblk" if q.has_any(&["disk", "disks", "partition", "partitions"]) && !q.has_any(&["health", "healthy", "free", "space"]) => bonus += 6.0,
+        "lsblk" if q.has_any(&["disk", "disks", "partition", "partitions", "block device", "block devices"]) && !q.has_any(&["health", "healthy", "free", "space"]) => bonus += 6.0,
         "stat" if q.has_any(&["when was", "last modified", "last changed", "facts about", "metadata"])
             || (q.has_word("size") && q.has_word("permissions") && q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text))) => bonus += 8.0,
         "file" if q.has_any(&["what type of file", "what kind of file", "type of file", "kind of file"]) => bonus += 8.0,
@@ -1120,8 +1297,8 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "ln" if q.has_any(&["shortcut", "symlink", "symbolic link", "points to"]) && !q.has_word("alias") && !q.raw.contains('"') => bonus += 8.0,
         "cp" if q.has_any(&["copy", "duplicate", "back up", "backup"]) && !q.has_any(&["clipboard", "screenshot", "remote", "server", "over the network", "snapshot"]) && !q.has_remote_scp() => bonus += 7.0,
         "mv" if q.has_any(&["move", "rename", "put"]) && q.has_any(&["to", "into"]) && !q.has_any(&["branch", "theme", "new directory", "trash", "recycle bin"]) && !q.raw.contains(".zip") && !q.raw.contains(".tar") => bonus += 9.0,
-        "gio trash" if q.has_any(&["trash", "recycle bin", "discard"]) && !q.has_any(&["permanently", "permanent"]) => bonus += 9.5,
-        "rm" if q.has_any(&["delete", "remove", "erase", "get rid of"]) && !q.has_any(&["container", "image", "model", "duplicate", "uninstall", "package", "branch", "vm", "trash", "recycle bin"]) => bonus += 6.5,
+        "gio trash" if q.has_any(&["trash", "recycle bin", "discard"]) && !q.has_any(&["permanently", "permanent", "empty"]) && !q.asks_recovery() => bonus += 9.5,
+        "rm" if q.has_any(&["delete", "remove", "erase", "get rid of"]) && !q.has_any(&["container", "image", "model", "duplicate", "uninstall", "package", "branch", "vm", "trash", "recycle bin"]) && !age_phrase && !q.asks_recovery() => bonus += 6.5,
         "mkdir" if q.has_any(&["create", "make", "new"]) && q.has_any(&["folder", "folders", "directory", "directories"]) && !q.has_any(&["shortcut", "archive", "zip", "copy"]) => bonus += 8.0,
         "touch" if q.has_any(&["empty file", "new file", "create an empty file"]) => bonus += 8.5,
         "pwd" if q.has_any(&["which directory", "which folder", "where am i", "current directory", "current folder"]) || (q.has_word("what") && q.has_any(&["folder", "directory"]) && q.has_word("this")) => bonus += 9.0,
@@ -1129,17 +1306,19 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "ps" if q.has_any(&["programs are running", "running processes", "what programs"]) && !q.has_any(&["cpu", "memory", "live"]) => bonus += 7.0,
         "top" if q.has_any(&["eating my cpu", "most processor", "most memory", "cpu right now"]) => bonus += 9.5,
         "pgrep" if has_is_running && !q.has_any(&["service", "container", "tmux", "out of"]) => bonus += 7.5,
-        "kill" if q.has_any(&["kill", "stop", "terminate"]) && q.raw_tokens.iter().any(|t| is_digits(&t.text)) && !q.has_word("tmux") => bonus += 8.5,
+        "kill" if q.has_any(&["kill", "stop", "terminate"]) && q.raw_tokens.iter().any(|t| is_digits(&t.text)) && !q.has_word("tmux") && !q.names_port() => bonus += 8.5,
         "pkill" if q.has_any(&["frozen", "force close", "kill", "close", "refuses to stop"])
             && !q.raw_tokens.iter().any(|t| is_digits(&t.text))
             && !q.has_any(&["tmux", "container", "vm", "window"]) => bonus += 8.0,
         "systemctl --user" if q.has_phrase("user service") || q.has_phrase("--user") => bonus += 9.5,
         "systemctl" if (q.has_any(&["service", "boot", "enable", "disable"]) || has_is_running)
-            && !q.has_any(&["user service", "log", "logs", "vm", "virtual"]) => bonus += 7.0,
+            && !q.has_any(&["user service", "log", "logs", "vm", "virtual", "failed"]) => bonus += 7.0,
+        "systemctl" if q.has_any(&["restart", "stop", "start"]) && !q.has_any(&["user service", "log", "logs", "vm", "virtual", "container", "docker", "compose", "tmux", "wifi", "bluetooth", "audio", "sound", "shell", "terminal", "trackpad", "touchpad", "bar", "hyprland", "ollama", "frozen", "process"])
+            && !power_machine && q.raw_tokens.iter().any(|t| looks_like_service_name(&t.lower)) => bonus += 9.0,
         "systemd-inhibit" if q.has_any(&["until", "finishes", "command"]) && q.has_any(&["sleep", "awake"]) => bonus += 8.0,
         "omarchy toggle idle" if q.has_any(&["awake", "idle", "sleep"]) && !q.has_any(&["until", "finishes"]) => bonus += 8.5,
         "omarchy bluetooth power" if q.has_word("bluetooth") && q.has_any(&["turn", "on", "off", "power"]) && !q.has_word("boot") && !q.has_word("restart") => bonus += 8.5,
-        "omarchy restart" if q.has_any(&["restart", "acting up", "stopped working", "fix it", "misbehaving"])
+        "omarchy restart" if q.has_any(&["restart", "acting up", "stopped working", "fix it", "misbehaving"]) && !q.has_word("service")
             && q.has_any(&["wifi", "sound", "audio", "bluetooth", "top bar", "shell", "bar", "terminal", "trackpad", "touchpad"])
             && !q.has_word("service") => bonus += 7.5,
         "omarchy theme bg next" if q.has_word("wallpaper") || (q.has_word("background") && !q.has_phrase("in the background") && !q.has_any(&["container", "image", "service"])) => bonus += 9.0,
@@ -1156,7 +1335,7 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "omarchy update" if q.has_word("omarchy") && q.has_any(&["update", "up to date"]) && !q.has_any(&["firmware", "bios"]) => bonus += 9.0,
         "omarchy version" if q.has_word("omarchy") && q.has_word("version") => bonus += 9.5,
         "omarchy network speedtest" if q.has_any(&["speedtest", "speed test", "bandwidth", "mbps", "how fast", "upload", "download speed"]) => bonus += 9.0,
-        "omarchy dns" if q.has_any(&["dns", "cloudflare", "1.1.1.1", "8.8.8.8"]) => bonus += 9.0,
+        "omarchy dns" if q.has_any(&["dns", "cloudflare", "1.1.1.1", "8.8.8.8"]) && !dns_lookup && !q.has_any(&["trace route", "traceroute"]) => bonus += 9.0,
         "omarchy audio output volume" if q.has_any(&["volume", "louder", "quieter", "mute", "unmute"]) => bonus += 9.0,
         "omarchy brightness display" if q.has_any(&["brightness", "dim", "dimmer", "brighter"]) => bonus += 9.0,
         "omarchy powerprofiles set" if q.has_any(&["power saver", "power profile", "balanced", "performance mode"]) => bonus += 9.5,
@@ -1195,7 +1374,7 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "battery status" if q.has_word("battery") && !q.has_any(&["power saver", "save battery"]) => bonus += 9.0,
         "wifi band" if q.has_any(&["ghz", "band", "channel"]) && q.has_word("wifi") => bonus += 9.5,
         "ip neigh" if q.has_any(&["devices on my network", "local network", "arp", "neighbors"]) => bonus += 9.0,
-        "ip route get" if (q.raw_tokens.iter().any(|t| looks_like_ip(&t.text)) || q.has_any(&["which interface", "to reach"])) && q.has_any(&["route", "interface", "path"]) => bonus += 9.5,
+        "ip route get" if !q.has_any(&["trace route", "traceroute", "trace the route", "hops"]) && (q.raw_tokens.iter().any(|t| looks_like_ip(&t.text)) || q.has_any(&["which interface", "to reach"])) && q.has_any(&["route", "interface", "path"]) => bonus += 9.5,
         "ip route" if q.has_any(&["gateway", "routed", "routes", "routing table", "network routes"]) && !q.raw_tokens.iter().any(|t| looks_like_ip(&t.text)) => bonus += 9.5,
         "ip" if q.has_any(&["network interfaces", "ip address", "my ip"]) && !q.has_any(&["tailscale", "vm", "gateway", "route", "routes"]) => bonus += 7.5,
         "ss" if q.has_any(&["open", "listening"]) && q.has_any(&["port", "ports"]) => bonus += 9.0,
@@ -1214,23 +1393,26 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "nmcli connection show" if q.has_phrase("saved") && q.has_word("connection") => bonus += 9.5,
         "git status" if q.has_any(&["what files did i change", "git status", "changed in this repo"]) => bonus += 8.0,
         "git add" if q.has_exact_word("stage") => bonus += 10.0,
-        "git commit" if (q.has_exact_word("commit") || q.has_exact_word("staged")) && !q.has_exact_word("stage") && !q.has_any(&["push", "history", "log", "since", "merge"]) => bonus += 8.0,
-        "git push" if q.has_word("push") && q.has_any(&["commit", "commits", "git"]) => bonus += 8.5,
+        "git commit" if (q.has_exact_word("commit") || q.has_exact_word("staged")) && !q.has_exact_word("stage") && !q.has_any(&["push", "history", "log", "since", "merge", "undo", "uncommit", "reset", "show", "see", "view", "diff", "last", "list"]) => bonus += 8.0,
+        "git push" if q.has_word("push") && q.has_any(&["commit", "commits", "git", "origin", "upstream", "branch", "force", "remote"]) => bonus += 8.5,
         "git pull" if q.has_any(&["latest changes", "pull"]) && q.has_any(&["remote", "git", "pushed"]) => bonus += 9.0,
         "git clone" if (q.has_word("clone") || q.has_word("repo")) && (has_url || q.has_word("repo")) => bonus += 9.0,
-        "git log" if q.has_any(&["commit history", "git log"]) => bonus += 9.0,
-        "git diff" if q.has_any(&["uncommitted", "git diff"]) => bonus += 8.5,
-        "git switch" if q.has_word("branch") && q.has_any(&["create", "new", "switch", "checkout"]) => bonus += 8.5,
+        "git log" if q.has_any(&["commit history", "git log"])
+            || (q.has_any(&["commits", "commit"]) && q.has_any(&["show", "list", "last", "recent", "latest", "see", "view"]) && !q.has_any(&["undo", "uncommit", "revert", "reset", "discard", "amend", "push"])) => bonus += 9.0,
+        "git diff" if q.has_any(&["uncommitted", "git diff"])
+            || (q.has_any(&["staged", "unstaged"]) && q.has_any(&["show", "see", "view", "diff", "look", "what", "list", "display"])) => bonus += 8.5,
+        "git switch" if (q.has_word("branch") && q.has_any(&["create", "new", "switch", "checkout"]))
+            || (q.has_any(&["switch to", "checkout", "go to"]) && q.has_any(&["main", "master", "develop", "dev", "trunk"])) => bonus += 8.5,
         "git branch" if q.has_any(&["list all branches", "branches", "list branches"]) => bonus += 8.5,
         "docker ps" if q.has_any(&["container", "containers"]) && q.has_any(&["list", "running", "all", "stopped", "up"]) && !q.has_any(&["stats", "memory", "terminal", "shell", "open"]) => bonus += 8.5,
         "docker images" if q.has_word("docker") && q.has_any(&["image", "images"]) && q.has_any(&["what", "list", "have"]) => bonus += 8.0,
         "docker compose up" if (q.has_word("compose") || q.raw.contains("compose")) && q.has_any(&["up", "bring up", "start"]) => bonus += 10.5,
         "docker compose down" if (q.has_word("compose") || q.raw.contains("compose")) && q.has_any(&["down", "tear down", "stop"]) => bonus += 10.5,
         "docker exec" if q.has_word("container") && q.has_any(&["shell", "terminal"]) && q.has_any(&["inside", "exec", "running"]) => bonus += 9.5,
-        "docker system prune" if q.has_word("docker") && q.has_any(&["unused", "prune", "free space", "clean up"]) => bonus += 9.5,
+        "docker system prune" if q.has_word("docker") && q.has_any(&["unused", "prune", "free space", "clean up", "reclaim"]) => bonus += 9.5,
         "docker stats" if q.has_word("container") && q.has_any(&["memory", "cpu", "stats"]) => bonus += 9.0,
         "docker run" if q.has_any(&["image", "container"]) && (q.has_exact_word("run") || q.has_any(&["launch", "start a new", "create a new"])) && !q.has_any(&["running container", "running containers", "in the running", "already running", "compose"]) && !q.raw.contains("compose") => bonus += 9.0,
-        "docker rmi" if q.has_word("image") && q.has_any(&["remove", "delete"]) => bonus += 8.5,
+        "docker rmi" if q.has_word("image") && q.has_any(&["remove", "delete"]) && !q.has_any(&["dangling", "untagged", "unused", "prune"]) => bonus += 8.5,
         "docker rm" if q.has_word("container") && q.has_any(&["remove", "delete"]) => bonus += 8.5,
         "docker pull" if q.has_word("image") && q.has_any(&["pull", "download", "fetch"]) => bonus += 9.0,
         "docker start" if q.has_word("container") && q.has_word("start") && !q.has_word("restart") && !q.has_word("compose") && !q.raw.contains("compose") => bonus += 8.0,
@@ -1266,16 +1448,14 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "cargo new" if q.has_any(&["rust", "cargo"]) && q.has_any(&["new", "create"]) => bonus += 8.5,
         "cargo add" if q.has_any(&["rust", "cargo", "dependency", "crate"]) && q.has_any(&["add", "crate", "dependency"]) => bonus += 9.0,
         "curl" if (has_url || q.has_any(&["web address", "page at", "curl"])) && !q.has_any(&["clone", "git", "web app", "webapp", "model", "ollama", "is curl", "image"]) => bonus += 7.5,
-        "history" if q.has_any(&["previous commands", "command history", "typed earlier"]) => bonus += 8.5,
+        "history" if q.has_any(&["previous commands", "command history", "typed earlier", "what did i type", "typed before", "commands i ran", "commands i typed"]) => bonus += 8.5,
         "clear" if q.has_any(&["clear", "clean up"]) && q.has_word("screen") && !q.has_any(&["lock", "screenshot"]) => bonus += 7.5,
         "passwd" if q.has_word("password") && q.has_any(&["change", "my"]) && !q.has_any(&["without", "passwordless", "ssh", "find", "grep"]) => bonus += 8.0,
         "hostname" if q.has_any(&["machine called", "computer called", "hostname", "computer's name"]) => bonus += 8.5,
-        "whoami" if q.has_any(&["logged in", "which user", "who am i", "whoami", "username"]) => bonus += 10.5,
+        "whoami" if q.has_any(&["logged in", "which user", "who am i", "whoami", "username"]) && !who_else => bonus += 10.5,
         "uptime" if q.has_any(&["uptime", "been on", "running since"]) || (q.has_phrase("how long") && q.has_any(&["reboot", "boot", "on", "running"])) => bonus += 9.0,
         "date" if q.has_any(&["date", "today", "what day"]) && !q.has_any(&["dates", "sizes and dates", "update", "up to date"]) => bonus += 8.0,
         "cal" if q.has_word("calendar") => bonus += 9.0,
-        "reboot" if q.has_any(&["restart my machine", "restart the computer", "reboot"]) && !q.has_any(&["vm", "virtual", "container", "service", "how long", "since"]) => bonus += 8.0,
-        "shutdown" if q.has_any(&["turn off the computer", "shut down the computer", "power off", "shutdown"]) && !q.has_any(&["vm", "virtual"]) => bonus += 8.0,
         _ => {}
     }
     bonus
@@ -1311,6 +1491,22 @@ fn is_off_topic_unmodeled(_cmd: &Command, q: &QueryContext<'_>) -> bool {
     }
 
     if q.has_phrase("time in") || q.has_phrase("timezone") || q.has_phrase("what time is it in") {
+        return true;
+    }
+
+    // Hardware and media that huh has no command for.
+    if q.has_any(&["printer", "printers", "scanner", "scanners", "playlist", "playlists"]) {
+        return true;
+    }
+    if q.has_word("print")
+        && (q.has_any(&["document", "page", "pages", "resume"])
+            || q.raw_tokens.iter().any(|t| {
+                matches!(
+                    t.lower.rsplit('.').next(),
+                    Some("pdf" | "doc" | "docx" | "odt" | "xls" | "xlsx" | "ppt" | "pptx" | "jpg" | "jpeg" | "png")
+                ) && t.lower.contains('.')
+            }))
+    {
         return true;
     }
 
@@ -1351,8 +1547,40 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
     let name = cmd.name.as_str();
     let has = |words: &[&str]| q.has_any(words);
 
+    // Asking to get something back is never answered with a command that deletes.
+    if q.asks_recovery() && (cmd.destructive || name == "gio trash") && name != "git restore" {
+        return false;
+    }
+
+    match name {
+        "reboot" => return q.is_power_request(true),
+        "shutdown" => return q.is_power_request(false),
+        "shutdown cancel" => return has(&["cancel", "abort"]) && has(&["shutdown", "reboot", "power off", "restart", "shut down", "poweroff"]),
+        "systemctl status" | "systemctl failed" => return !has(&["git", "docker", "container"]),
+        "find delete" => return has(&["delete", "remove", "clean", "clean up", "purge", "erase", "get rid of", "wipe"]),
+        "kill port" | "ss port" => return q.names_port() || q.has_phrase("already in use"),
+        "nc" => return q.names_port() && crate::extract::extract("host", q.raw).is_some(),
+        "gio trash empty" => return has(&["trash", "recycle bin"]) && has(&["empty", "clear", "clean out", "purge", "wipe", "delete everything"]),
+        "gio list trash" => return q.asks_recovery() || (has(&["trash", "recycle bin"]) && has(&["list", "show", "what", "look"])),
+        "cd previous" => return has(&["previous", "last", "go back", "back to where i was", "cd -"]) && has(&["folder", "directory", "dir", "go back", "back to where i was", "cd -"]),
+        "who" => return has(&["who is logged in", "who's logged in", "users logged in", "logged in users", "who is online"]),
+        "iostat" => return has(&["io", "i/o", "iops", "iostat", "disk activity", "disk throughput", "disk performance", "disk speed", "io wait"]),
+        "useradd" => return has(&["user", "account"]) && has(&["create", "add", "new", "make"]) && !has(&["group"]),
+        "dig" => return has(&["dns", "dig", "mx", "nameserver", "nameservers", "lookup", "look up", "resolve", "record", "records"]) && !has(&["install", "uninstall", "package", "remove"]) && crate::extract::extract("domain", q.raw).is_some(),
+        "curl headers" => return has(&["headers", "header"]) && (q.has_url() || q.has_domain_token()),
+        "docker image prune" => return has(&["dangling", "untagged", "unused", "prune"]) && has(&["image", "images"]),
+        "docker container prune" => return has(&["stopped", "exited", "unused", "prune", "dead"]) && has(&["container", "containers"]),
+        "docker system df" => return has(&["docker"]) && has(&["disk usage", "space", "storage", "size", "usage"]),
+        "git restore" => return has(&["discard", "throw away", "revert", "undo", "restore", "drop"]) && has(&["changes", "edits", "modifications", "uncommitted", "local"]),
+        "git stash" => return has(&["stash", "stashes", "stashed"]),
+        "git reset" => return has(&["commit", "commits", "reset", "changes"]) && (q.has_exact_word("uncommit") || has(&["undo", "reset", "discard", "throw away", "hard", "soft", "go back"])),
+        "git clean" => return has(&["untracked"]) || (has(&["clean"]) && has(&["repo", "repository", "git"])),
+        _ => {}
+    }
+
     if name.starts_with("git ") {
-        return has(&["git", "repo", "repository", "branch", "branches", "commit", "commits", "stage", "staged", "remote", "clone", "diff", "uncommitted", "push", "pull", "teammates"]);
+        return has(&["git", "repo", "repository", "branch", "branches", "commit", "commits", "stage", "staged", "remote", "clone", "diff", "uncommitted", "push", "pull", "teammates", "stash", "untracked", "origin", "upstream"])
+            || (name == "git switch" && has(&["main", "master", "develop", "trunk"]) && has(&["switch", "checkout", "go to"]));
     }
     if name.starts_with("docker ") {
         return has(&["docker", "container", "containers", "compose", "stack"])
@@ -1465,13 +1693,17 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         "whoami" => has(&["whoami", "which user", "logged in", "username", "who am i"]),
         "passwd" => has(&["passwd", "password"]) && !has(&["passwordless"]),
         "clear" => has(&["clear", "clean up"]) && has(&["screen", "terminal"]),
-        "history" => has(&["history", "previous command", "previous commands", "typed earlier"]),
+        "history" => has(&["history", "previous command", "previous commands", "typed earlier", "what did i type", "typed before", "commands i ran", "commands i typed"]),
         "nano" => (has(&["nano", "edit", "editor"]) || (has(&["change"]) && q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text))))
             && !has(&["stop", "prevent", "protect", "nobody", "modified"])
             && !q.raw_tokens.iter().any(|t| is_upper_env_name(&t.text)),
         "stat" => !has(&["dotfiles", "hidden"]),
         "gh auth login" => has(&["gh", "github"]) && has(&["log in", "login", "auth", "authenticate"]),
-        "xdg-open" => has(&["open", "viewer", "xdg-open"]) && !has(&["resize", "convert", "port", "shell", "terminal", "every time", "change it"]),
+        "xdg-open" => has(&["open", "viewer", "xdg-open"]) && !has(&["resize", "convert", "port", "shell", "terminal", "every time", "change it"])
+            // Opening needs something to open: a file, a link or a folder, not an application name.
+            && (q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text) || looks_like_url(&t.text) || t.text.contains('/'))
+                || q.has_domain_token()
+                || has(&["file", "folder", "directory", "document", "photo", "picture", "image", "pdf", "link", "website", "page", "url", "viewer", "default app"])),
         "free" => has(&["ram", "memory"]) && !has(&["model", "ollama", "docker", "container"]),
         _ => true,
     }
@@ -1489,7 +1721,17 @@ fn score_flag(cmd_name: &str, flag: &Flag, terms: &HashMap<String, f64>, q: &Que
     let has = |terms: &[&str]| q.has_any(terms);
     let has_path_slash = q.raw_tokens.iter().any(|t| t.text.contains('/'));
 
+    // The flag itself is in the request ("tail -f app.log").
+    if flag.value.starts_with('-') && q.raw_tokens.iter().any(|t| t.lower == flag.value) {
+        return 0.97;
+    }
+
     let explicit = match (cmd_name, flag_id) {
+        ("docker image prune", "all") => Some(has(&["all unused", "all images", "every unused", "not just dangling", "not only dangling", "-a"])),
+        ("docker system prune", "volumes") => Some(has(&["volume", "volumes", "--volumes"])),
+        ("git push", "upstream") => Some(has(&["first time", "upstream", "-u", "track", "new branch", "for the first time"])),
+        ("git push", "force") => Some(has(&["force", "--force", "overwrite", "-f"])),
+        ("git diff", "staged") => Some(has(&["staged", "--staged", "cached", "about to commit"])),
         ("ls", "long") => Some(has(&["long", "detail", "details", "size", "sizes", "owner", "permission", "permissions", "date", "dates", "-l"])),
         ("ls", "all") => Some(has(&["hidden", "dotfile", "dotfiles", "including hidden", "-a", "-la", "-al"])),
         ("ls", "by_time") => Some(has(&["recent", "recently", "newest", "latest", "last modified", "-t"])),
@@ -1621,6 +1863,19 @@ fn score_choice_slot(cmd_name: &str, slot: &Slot, entry: &IndexedCommand, q: &Qu
             ("systemctl" | "systemctl --user", "action", "stop") => if has(&["stop", "halt"]) && !has(&["restart", "disable"]) { 6.0 } else { 0.0 },
             ("systemctl" | "systemctl --user", "action", "start") => if has(&["start"]) && !has(&["restart", "boot", "automatically", "enable", "disable"]) { 6.0 } else { 0.0 },
             ("systemctl" | "systemctl --user", "action", "status") => if has(&["status", "running", "check", "error", "errors"]) { 5.5 } else { 0.6 },
+
+            ("git stash", "action", "save") => if has(&["pop", "apply", "list", "show", "restore", "bring back"]) || q.has_exact_word("stashes") { 0.0 } else { 5.0 },
+            ("git stash", "action", "pop") => if has(&["pop", "apply", "bring back", "restore", "unstash", "get back"]) { 6.5 } else { 0.0 },
+            ("git stash", "action", "list") => if has(&["list", "show", "what is stashed"]) || q.has_exact_word("stashes") { 6.5 } else { 0.0 },
+
+            ("git reset", "mode", "keep_changes") => if has(&["keep", "soft", "staged", "without losing"]) { 6.5 } else { 0.0 },
+            ("git reset", "mode", "discard_all_changes") => if has(&["hard", "discard", "throw away", "everything", "all local", "all changes", "lose"]) && !has(&["keep"]) { 6.5 } else { 0.0 },
+            ("git reset", "mode", "drop_last_commit") => if has(&["undo", "remove", "drop", "delete", "uncommit"]) && has(&["commit", "commits"]) && has(&["discard", "throw away", "hard", "lose", "delete"]) && !has(&["keep"]) { 7.5 } else { 0.0 },
+
+            ("dig", "type", "address") => 1.0,
+            ("dig", "type", "mail") => if has(&["mx", "mail"]) { 6.5 } else { 0.0 },
+            ("dig", "type", "text") => if has(&["txt", "text record", "text records"]) { 6.5 } else { 0.0 },
+            ("dig", "type", "nameservers") => if has(&["ns", "nameserver", "nameservers", "name server", "name servers"]) { 6.5 } else { 0.0 },
 
             ("tar", "action", "list_contents") => if has(&["without extracting", "without unpacking", "what is inside", "inside", "list", "contents", "peek", "-t"]) { 7.5 } else { 0.0 },
             ("tar", "action", "create") => if has(&["pack", "create", "compress", "tar up", "bundle", "into", "-c"]) && !has(&["unpack", "extract", "without"]) { 6.5 } else { 0.0 },
@@ -1839,6 +2094,83 @@ fn is_size_spec(s: &str) -> bool {
 fn looks_like_ip(s: &str) -> bool {
     let parts: Vec<&str> = s.split('.').collect();
     parts.len() == 4 && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// Whether the request says `value` is a port ("port 3000", "localhost:3000").
+fn is_port_number(value: &str, q: &QueryContext<'_>) -> bool {
+    let lower = q.raw.to_lowercase();
+    lower.contains(&format!("port {value}"))
+        || lower.contains(&format!("port:{value}"))
+        || lower.contains(&format!(":{value}"))
+}
+
+/// Names that are plainly a background service: well-known daemons, or anything ending in `d`
+/// that is not an English word ("sshd", "crond").
+fn looks_like_service_name(word: &str) -> bool {
+    const KNOWN: &[&str] = &[
+        "nginx",
+        "apache",
+        "apache2",
+        "httpd",
+        "sshd",
+        "ssh",
+        "docker",
+        "postgresql",
+        "postgres",
+        "mysql",
+        "mariadb",
+        "redis",
+        "mongodb",
+        "cron",
+        "crond",
+        "cups",
+        "bluetooth",
+        "networkmanager",
+        "sddm",
+        "gdm",
+        "lightdm",
+        "ufw",
+        "firewalld",
+        "fail2ban",
+        "tailscaled",
+        "libvirtd",
+        "smb",
+        "samba",
+        "nfs",
+        "avahi-daemon",
+        "pipewire",
+        "wireplumber",
+        "systemd-resolved",
+        "systemd-networkd",
+        "chronyd",
+        "ntpd",
+        "rsyslog",
+        "containerd",
+        "kubelet",
+        "grafana",
+        "prometheus",
+        "jellyfin",
+        "plex",
+        "syncthing",
+        "caddy",
+        "traefik",
+        "haproxy",
+        "squid",
+        "dnsmasq",
+        "unbound",
+        "openvpn",
+        "wireguard",
+        "elasticsearch",
+        "rabbitmq",
+        "memcached",
+        "php-fpm",
+        "mosquitto",
+    ];
+    KNOWN.contains(&word)
+        || (word.len() >= 4
+            && word.ends_with('d')
+            && !["ed", "ld", "nd", "rd"].iter().any(|end| word.ends_with(end))
+            && word.chars().all(|c| c.is_ascii_lowercase()))
 }
 
 fn is_digits(s: &str) -> bool {
@@ -2926,6 +3258,7 @@ mod tests {
                 description: "Run tool alpha".into(),
                 template: "alpha".into(),
                 destructive: false,
+                warning: None,
                 explain_only: false,
                 pkg_role: None,
                 platform: None,
@@ -2939,6 +3272,7 @@ mod tests {
                 description: "Run tool beta".into(),
                 template: "beta".into(),
                 destructive: false,
+                warning: None,
                 explain_only: false,
                 pkg_role: None,
                 platform: None,
@@ -2981,6 +3315,18 @@ mod tests {
             assert!(report.top1.percent() >= min_top1, "{file} top-1 too low: {}", report.top1);
             assert!(report.exact.percent() >= min_exact, "{file} exact too low: {}", report.exact);
         }
+    }
+
+    /// Safety evals (evals/safety.toml): every case must pass, including the WARNING expectations.
+    #[test]
+    fn safety_evals_all_pass() {
+        let arch = vec!["arch".to_string(), "omarchy".to_string()];
+        let matcher = LocalMatcher::new(&catalog::usable(load_catalog(), &arch, false));
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals/safety.toml");
+        let report = eval::score_for(&matcher, &file, &arch).unwrap();
+        let misses: Vec<&String> = report.lines.iter().filter(|line| line.starts_with("MISS")).collect();
+        assert!(report.top1.total > 0, "no safety cases ran");
+        assert!(misses.is_empty(), "safety evals must be at 100%: {misses:#?}");
     }
 
     /// Every package manager family answers package requests with its own commands and package

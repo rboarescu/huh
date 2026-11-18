@@ -1,0 +1,11 @@
+name = "docker image prune"
+description = "Delete Docker images that nothing uses, such as dangling untagged ones"
+template = "docker image prune {all}"
+destructive = true
+warning = "unused images are deleted; they have to be pulled or rebuilt to use them again."
+keywords = ["dangling images", "remove dangling docker images", "prune images", "clean unused images", "delete untagged images", "remove unused docker images"]
+
+[[flags]]
+id = "all"
+value = "-a"
+question = "Does the user want all unused images removed, not only dangling untagged ones?"

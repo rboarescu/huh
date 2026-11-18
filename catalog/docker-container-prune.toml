@@ -1,0 +1,6 @@
+name = "docker container prune"
+description = "Delete all stopped Docker containers"
+template = "docker container prune"
+destructive = true
+warning = "every stopped container is deleted, with anything stored only inside it."
+keywords = ["remove all stopped containers", "delete stopped containers", "prune containers", "clean up exited containers", "remove exited containers"]

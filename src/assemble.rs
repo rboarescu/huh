@@ -21,6 +21,8 @@ pub const NO: f64 = 0.3;
 /// needs to be one of them (the best one always is).
 pub const MAX_SUGGESTIONS: usize = 3;
 pub const MIN_COMMAND_PROBABILITY: f64 = 0.10;
+/// The WARNING text of a destructive command that gives no reason of its own.
+pub const DEFAULT_WARNING: &str = "this deletes or overwrites data.";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Suggestion {
@@ -29,6 +31,8 @@ pub struct Suggestion {
     pub probability: f64,
     pub description: String,
     pub destructive: bool,
+    /// Why the line is dangerous; set exactly when `destructive` is.
+    pub warning: Option<String>,
     pub notes: Vec<String>,
     pub parts: Vec<(String, String)>,
 }
@@ -58,6 +62,7 @@ pub fn build(
     let mut values: BTreeMap<&str, String> = BTreeMap::new();
     let mut notes = Vec::new();
     let mut parts = Vec::new();
+    let mut warning = command.destructive.then(|| command.warning.clone().unwrap_or_else(|| DEFAULT_WARNING.into()));
     for id in crate::catalog::FACTS {
         if let Some(value) = crate::catalog::fact(id) {
             values.insert(id, value);
@@ -77,6 +82,9 @@ pub fn build(
             false
         };
         if add {
+            if let Some(why) = &flag.warning {
+                warning.get_or_insert_with(|| why.clone());
+            }
             parts.push((flag.value.clone(), second_person_statement(&flag.question)));
         }
         values.insert(&flag.id, if add { flag.value.clone() } else { String::new() });
@@ -87,6 +95,9 @@ pub fn build(
                 let Some(option) = slot.options.get(*index) else {
                     bail!("no option {index} in slot `{}` of `{}`", slot.id, command.name);
                 };
+                if let Some(why) = &option.warning {
+                    warning.get_or_insert_with(|| why.clone());
+                }
                 if !option.value.is_empty() {
                     parts.push((option.value.clone(), option.description.clone()));
                 }
@@ -112,7 +123,8 @@ pub fn build(
         line,
         probability,
         description: command.description.clone(),
-        destructive: command.destructive,
+        destructive: warning.is_some(),
+        warning,
         notes,
         parts,
     }))

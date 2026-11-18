@@ -1,6 +1,8 @@
 name = "virsh destroy"
 description = "Force a virtual machine off immediately, like pulling its power cord"
 template = "virsh destroy {vm}"
+destructive = true
+warning = "the virtual machine is powered off without a clean shutdown; unsaved work in it is lost."
 package = "libvirt"
 keywords = ["force off vm", "kill hung vm", "hard power off vm", "pull power cord vm"]
 

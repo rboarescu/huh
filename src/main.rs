@@ -6,6 +6,7 @@ mod decode;
 mod doctor;
 mod eval;
 mod explain;
+mod extract;
 mod knowledge;
 mod manpage;
 mod matcher;
@@ -95,6 +96,36 @@ pub struct Outcome {
     /// The command shortlist before fit filtering, best first.
     pub ranked: Vec<(String, f64)>,
     pub millis: u128,
+    /// Set instead of suggestions when the request asks what a command does ("what does rm -rf do"):
+    /// the answer is `huh explain`, and suggesting the command itself would be backwards.
+    pub hint: Option<String>,
+}
+
+/// Programs people ask about that the catalog may not hold.
+const COMMON_PROGRAMS: &[&str] = &[
+    "sudo", "su", "dd", "mkfs", "fdisk", "parted", "fsck", "mount", "umount", "sed", "awk", "xargs", "tee", "shred",
+    "wget", "nc", "nmap", "iptables", "ufw", "crontab", "env", "export", "alias", "eval", "exec", "nohup", "screen",
+    "make", "gcc", "pip", "npm", "yarn", "apt", "dnf", "pacman", "chgrp", "umask", "tr", "rev", "tac", "yes", "wall",
+    "mkswap", "swapon", "fuser", "lsof", "strace", "ldd", "ln", "truncate", "split", "install", "mkdir", "rmdir",
+];
+
+/// "what does rm -rf do": the command being asked about, as written in the request.
+fn command_in_question<'a>(request: &'a str, matcher: &LocalMatcher) -> Option<&'a str> {
+    let trimmed = request.trim().trim_end_matches(['?', '.', '!']).trim();
+    let lower = trimmed.to_ascii_lowercase();
+    let rest = lower.strip_prefix("what does ").or_else(|| lower.strip_prefix("what do "))?;
+    let start = lower.len() - rest.len();
+    let tail = [" actually do", " do", " mean", " means", " actually mean", " stand for"]
+        .iter()
+        .find(|tail| rest.ends_with(**tail))?;
+    let inner = trimmed[start..start + rest.len() - tail.len()].trim();
+    let mut words = inner.split_whitespace().peekable();
+    if words.peek() == Some(&"sudo") {
+        words.next();
+    }
+    let first = words.next()?;
+    let known = matcher.knows_program(first) || COMMON_PROGRAMS.contains(&first);
+    (known || inner.split_whitespace().any(|w| w.len() > 1 && w.starts_with('-'))).then_some(inner)
 }
 
 /// The whole pipeline: rank the catalog, shortlist, then build a line for each
@@ -109,6 +140,18 @@ pub fn suggest(
     decide: &mut dyn FnMut(&str) -> Option<bool>,
 ) -> Result<Outcome> {
     let started = Instant::now();
+    if let Some(command) = command_in_question(request, matcher) {
+        let hint = format!(
+            "that asks what a command does, not what to run. To see what it does, use: huh explain \"{}\"",
+            command.replace('"', "\\\"")
+        );
+        return Ok(Outcome {
+            suggestions: vec![],
+            ranked: vec![],
+            millis: started.elapsed().as_millis(),
+            hint: Some(hint),
+        });
+    }
     let shortlist = assemble::shortlist(matcher.rank(request));
     let candidates = Candidates::new(request, files);
 
@@ -123,7 +166,7 @@ pub fn suggest(
         }
     }
     let ranked = shortlist.iter().map(|(command, p)| (command.name.clone(), *p)).collect();
-    Ok(Outcome { suggestions, ranked, millis: started.elapsed().as_millis() })
+    Ok(Outcome { suggestions, ranked, millis: started.elapsed().as_millis(), hint: None })
 }
 
 /// Re-quotes multi-word arguments when multiple CLI tokens are supplied so
@@ -155,6 +198,10 @@ fn print(outcome: &Outcome, catalog: &[Command], brief: bool) {
         println!("No suggestion: {}", platform::no_manager_message());
         return;
     }
+    if let Some(hint) = &outcome.hint {
+        println!("No suggestion: {hint}");
+        return;
+    }
     if outcome.suggestions.is_empty() {
         println!("No suggestion: nothing in the catalog fits that request.");
         return;
@@ -169,8 +216,8 @@ fn print(outcome: &Outcome, catalog: &[Command], brief: bool) {
                 println!("     {piece:<width$}  {explanation}");
             }
         }
-        if s.destructive {
-            println!("   WARNING: this deletes or overwrites data.");
+        if let Some(why) = &s.warning {
+            println!("   WARNING: {why}");
         }
         // Hiding a missing program would push a worse command to the top, so say it instead.
         if let Some(note) = catalog::missing_note(&s.line, catalog.iter().find(|c| c.name == s.command), &platforms) {
@@ -366,6 +413,27 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn questions_about_a_command_point_to_explain() {
+        let catalog = catalog::load_embedded().unwrap();
+        let matcher = LocalMatcher::new(&catalog::usable(catalog, &["arch".to_string()], false));
+        for (request, command) in [
+            ("what does rm -rf do", "rm -rf"),
+            ("What does chmod 777 do?", "chmod 777"),
+            ("what does sudo dd if=/dev/zero of=/dev/sda do", "sudo dd if=/dev/zero of=/dev/sda"),
+            ("what does tar -xzf mean", "tar -xzf"),
+        ] {
+            let out = suggest(&matcher, request, vec![], &mut |_| None).unwrap();
+            assert!(out.suggestions.is_empty(), "{request}");
+            let hint = out.hint.unwrap_or_default();
+            assert!(hint.contains(&format!("huh explain \"{command}\"")), "{request}: {hint}");
+        }
+        // Not about a command: the normal pipeline answers.
+        for request in ["what does the weather do", "delete old.log", "what does my disk look like"] {
+            assert!(suggest(&matcher, request, vec![], &mut |_| None).unwrap().hint.is_none(), "{request}");
+        }
+    }
 
     #[test]
     fn preserves_single_arg_and_quotes_multi_word_argv() {

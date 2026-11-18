@@ -1,0 +1,4 @@
+name = "docker system df"
+description = "Show how much disk space Docker images, containers and volumes use"
+template = "docker system df"
+keywords = ["docker disk usage", "docker space used", "how much space does docker use", "docker storage usage", "docker size"]

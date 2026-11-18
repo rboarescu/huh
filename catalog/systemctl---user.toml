@@ -17,11 +17,13 @@ description = "Start a service that is not running"
 name = "stop"
 value = "stop"
 description = "Stop a running service"
+warning = "this stops the service: whatever depends on it stops working until it is started again."
 
 [[slots.options]]
 name = "restart"
 value = "restart"
 description = "Stop the service and start it again"
+warning = "this restarts the service: connections to it are dropped for a moment."
 
 [[slots.options]]
 name = "status"
@@ -37,6 +39,7 @@ description = "Make the service start by itself at every login"
 name = "disable"
 value = "disable"
 description = "Stop the service from starting by itself"
+warning = "this stops the service from starting at boot, which can break whatever depends on it."
 
 [[slots]]
 id = "service"

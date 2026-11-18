@@ -1,4 +1,6 @@
 name = "docker compose down"
 description = "Stop and remove the services of a Docker Compose project"
 template = "docker compose down"
+destructive = true
+warning = "the project's containers and networks are stopped and deleted."
 keywords = ["stop compose", "tear down stack", "remove compose containers"]

@@ -1,4 +1,15 @@
 name = "git push"
 description = "Upload my git commits to the remote server"
-template = "git push"
-keywords = ["upload commits", "push to origin", "push branch", "send commits"]
+template = "git push {upstream} {force}"
+keywords = ["upload commits", "push to origin", "push branch", "send commits", "push this branch to origin", "publish a branch", "push for the first time", "set upstream", "force push"]
+
+[[flags]]
+id = "upstream"
+value = "-u origin HEAD"
+question = "Does the user want to push a branch to origin for the first time and track it?"
+
+[[flags]]
+id = "force"
+value = "--force"
+question = "Does the user want to force the push, overwriting what is on the remote?"
+warning = "the remote history is overwritten; other people's commits can be lost."

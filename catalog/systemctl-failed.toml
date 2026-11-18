@@ -1,0 +1,4 @@
+name = "systemctl failed"
+description = "List the background services that failed to start or crashed"
+template = "systemctl --failed"
+keywords = ["failed services", "list failed services", "which services failed", "broken services", "failed units", "services that crashed", "systemd failures"]

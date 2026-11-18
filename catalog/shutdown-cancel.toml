@@ -1,0 +1,4 @@
+name = "shutdown cancel"
+description = "Cancel a scheduled shutdown or reboot"
+template = "sudo shutdown -c"
+keywords = ["cancel shutdown", "cancel reboot", "abort scheduled shutdown", "abort scheduled reboot", "cancel scheduled power off", "stop the pending shutdown"]

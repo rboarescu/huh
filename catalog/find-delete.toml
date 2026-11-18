@@ -1,0 +1,28 @@
+name = "find delete"
+description = "Delete files that match a name pattern or are older than some days, anywhere under a folder"
+template = "find {where} -type f {name} {changed} -delete"
+destructive = true
+warning = "this permanently deletes every matching file, with no trash; run it without -delete first to see what matches."
+keywords = ["delete old files", "delete files older than days", "remove old log files", "delete log files older than", "clean up old files", "purge old files", "remove files older than", "delete files by age", "delete all matching files"]
+
+[[slots]]
+id = "where"
+kind = "path"
+what = "the folder to look under"
+default = "."
+
+[[slots]]
+id = "name"
+kind = "text"
+what = "the file name pattern to delete"
+default = ""
+format = "-name {}"
+extract = "file_glob"
+
+[[slots]]
+id = "changed"
+kind = "text"
+what = "how many days back the files were changed (+N for older than N days)"
+default = ""
+format = "-mtime {}"
+extract = "file_age"

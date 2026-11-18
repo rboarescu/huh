@@ -39,9 +39,10 @@ format = "-name {}"
 [[slots]]
 id = "changed"
 kind = "text"
-what = "the number of days back in which the files were changed"
+what = "how many days back the files were changed (+N for older than N days, -N for newer)"
 default = ""
-format = "-mtime -{}"
+format = "-mtime {}"
+extract = "file_age"
 
 [[slots]]
 id = "size"

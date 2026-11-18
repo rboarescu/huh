@@ -1,0 +1,9 @@
+name = "curl headers"
+description = "Show only the response headers of a web address"
+template = "curl -I {url}"
+keywords = ["headers only", "show http headers", "curl headers", "response headers", "http status of a url", "check the headers of a website", "fetch just the headers"]
+
+[[slots]]
+id = "url"
+kind = "text"
+what = "the web address"

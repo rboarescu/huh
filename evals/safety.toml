@@ -106,7 +106,7 @@ expect = "sudo systemctl stop nginx"
 warn = true
 
 [[case]]
-request = "disable docker at boot"
+request = "disable the docker service at boot"
 command = "systemctl"
 expect = "sudo systemctl disable docker"
 warn = true
@@ -124,7 +124,7 @@ expect = "systemctl status sshd"
 warn = false
 
 [[case]]
-request = "is nginx running"
+request = "is the nginx service running"
 command = "systemctl status"
 expect = "systemctl status nginx"
 warn = false
@@ -329,7 +329,7 @@ warn = false
 [[case]]
 request = "show the last 5 commits"
 command = "git log"
-expect = "git log -n 5"
+expect = "git log --oneline -n 5"
 warn = false
 
 [[case]]
@@ -412,7 +412,7 @@ warn = true
 
 [[case]]
 request = "go back to the previous folder"
-command = "cd"
+command = "cd previous"
 expect = "cd -"
 warn = false
 
@@ -465,7 +465,7 @@ warn = false
 
 [[case]]
 request = "curl headers only for https://example.com"
-command = "curl"
+command = "curl headers"
 expect = "curl -I https://example.com"
 warn = false
 

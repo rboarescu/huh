@@ -1,7 +1,7 @@
 name = "git switch"
 description = "Switch to another git branch, or create a new one"
 template = "git switch {create} {branch}"
-keywords = ["change branch", "checkout branch", "new branch", "create branch", "switch git branch"]
+keywords = ["change branch", "checkout branch", "new branch", "create branch", "switch git branch", "switch to main", "switch to a branch", "go to branch", "checkout main", "git checkout"]
 
 [[flags]]
 id = "create"

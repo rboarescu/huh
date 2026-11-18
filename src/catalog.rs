@@ -16,6 +16,9 @@ pub struct Command {
     pub template: String,
     #[serde(default)]
     pub destructive: bool,
+    /// The text of the WARNING line for a destructive command (a general one when unset).
+    #[serde(default)]
+    pub warning: Option<String>,
     /// Never suggested; only lets `huh explain` recognise another family's package commands.
     /// Made by `with_explain_variants`, not written in catalog files.
     #[serde(default)]
@@ -69,6 +72,10 @@ pub struct Slot {
     /// `echo 'export {name}={value}'`: the value is then inserted without quotes of its own.
     #[serde(default)]
     pub raw: bool,
+    /// Name of a built-in reader (see extract.rs) that takes the value from the wording of the
+    /// request instead of from the words offered as candidates, e.g. `shutdown_time`.
+    #[serde(default)]
+    pub extract: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -77,6 +84,9 @@ pub struct SlotOption {
     pub name: String,
     pub value: String,
     pub description: String,
+    /// Set when picking this option can lose work or change the system: the WARNING line says this.
+    #[serde(default)]
+    pub warning: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -87,6 +97,9 @@ pub struct Flag {
     /// Yes/no question, phrased so that "yes" means the flag is wanted. Its words
     /// help matching, and it is shown (in the second person) when huh asks or notes.
     pub question: String,
+    /// Set when adding this flag can lose work or change the system: the WARNING line says this.
+    #[serde(default)]
+    pub warning: Option<String>,
 }
 
 impl Command {
@@ -471,6 +484,7 @@ mod tests {
             description: String::new(),
             template: template.into(),
             destructive: false,
+            warning: None,
             explain_only: false,
             pkg_role: None,
             platform: platform.map(str::to_string),
