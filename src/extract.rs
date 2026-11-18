@@ -16,6 +16,7 @@ pub fn extract(reader: &str, request: &str) -> Option<String> {
         "count" => count(&words),
         "domain" => domain(request),
         "host" => host(request, &words),
+        "service" => service(&words),
         _ => None,
     }
 }
@@ -249,6 +250,30 @@ fn host(request: &str, words: &[String]) -> Option<String> {
         .cloned()
 }
 
+/// The service a status question is about: "status of sshd", "is the nginx service running".
+fn service(words: &[String]) -> Option<String> {
+    const SKIP: &[&str] = &[
+        "the", "a", "an", "my", "of", "for", "status", "state", "check", "show", "is", "are", "running", "service",
+        "daemon", "unit", "up", "down", "on", "what", "whats", "current", "how", "doing", "alive", "working",
+    ];
+    let ok = |w: &String| !SKIP.contains(&w.as_str()) && w.chars().any(|c| c.is_ascii_alphabetic());
+    for (i, word) in words.iter().enumerate() {
+        if matches!(word.as_str(), "service" | "daemon" | "unit")
+            && let Some(name) = i.checked_sub(1).map(|j| &words[j]).filter(|w| ok(w))
+        {
+            return Some(name.clone());
+        }
+    }
+    for (i, word) in words.iter().enumerate() {
+        if matches!(word.as_str(), "of" | "for" | "is" | "does")
+            && let Some(name) = words[i + 1..].iter().find(|w| ok(w))
+        {
+            return Some(name.clone());
+        }
+    }
+    None
+}
+
 /// "last 5 commits", "5 lines": a small count.
 fn count(words: &[String]) -> Option<String> {
     for (i, word) in words.iter().enumerate() {
@@ -334,6 +359,15 @@ mod tests {
         assert_eq!(read("host", "check if port 443 open on web1").as_deref(), Some("web1"));
         assert_eq!(read("host", "is port 22 open on 192.168.0.5").as_deref(), Some("192.168.0.5"));
         assert_eq!(read("host", "is port 22 open on this machine"), None);
+    }
+
+    #[test]
+    fn services() {
+        assert_eq!(read("service", "check status of docker").as_deref(), Some("docker"));
+        assert_eq!(read("service", "show status of postgresql").as_deref(), Some("postgresql"));
+        assert_eq!(read("service", "is the nginx service running").as_deref(), Some("nginx"));
+        assert_eq!(read("service", "is sshd running").as_deref(), Some("sshd"));
+        assert_eq!(read("service", "status"), None);
     }
 
     #[test]

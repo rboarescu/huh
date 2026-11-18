@@ -566,3 +566,53 @@ request = "change owner of everything in /etc to root"
 command = "chown"
 expect = "sudo chown -R root /etc"
 warn = true
+
+[[case]]
+request = "check status of docker"
+command = "systemctl status"
+expect = "systemctl status docker"
+warn = false
+
+[[case]]
+request = "reset my router"
+command = "none"
+
+[[case]]
+request = "restart"
+command = "none"
+
+[[case]]
+request = "restart the server"
+command = "none"
+
+[[case]]
+request = "show files modified yesterday"
+command = "find"
+expect = "find . -type f -mtime -2"
+warn = false
+
+[[case]]
+request = "reboot vm win11"
+command = "virsh reboot"
+expect = "virsh reboot win11"
+warn = true
+
+[[case]]
+request = "stop sshd"
+command = "systemctl"
+expect = "sudo systemctl stop sshd"
+warn = true
+
+[[case]]
+request = "kill the process using port 8080"
+command = "kill port"
+expect = "fuser -k 8080/tcp"
+warn = true
+
+[[case]]
+request = "shut down nginx"
+command = "none"
+
+[[case]]
+request = "turn off wifi"
+command = "none"

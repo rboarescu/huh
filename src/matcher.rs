@@ -1199,7 +1199,7 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
     let power_machine = q.is_power_request(true) || q.is_power_request(false);
     let port_check = q.names_port() && q.has_any(&["open", "reachable", "reach", "closed", "accessible", "responding", "check if"]) && crate::extract::extract("host", q.raw).is_some();
     let git_words = q.has_any(&["git", "repo", "repository", "branch", "commit", "commits", "staged"]);
-    let docker_words = q.has_any(&["docker", "container", "containers", "image", "images"]);
+    let docker_words = q.has_any(&["container", "containers", "image", "images", "compose"]);
 
     match name_lower {
         "reboot" if q.is_power_request(true) && !asks_cancel => bonus += 8.0,
@@ -1248,6 +1248,7 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
             || (q.has_word("show") && q.has_any(&["dotfiles", "hidden", "permissions"])))
             && !q.has_any(&["container", "image", "branch", "snapshot", "subvolume", "tmux", "vm", "virtual", "theme", "font", "wifi", "disk", "partition", "usb", "ollama", "tar", "archive", "dump"])
             && !q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text)) => bonus += 8.0,
+        "find" if q.has_any(&["show", "list", "which", "what"]) && q.has_any(&["file", "files"]) && crate::extract::extract("file_age", q.raw).is_some() && !q.has_any(&["permission", "permissions", "chmod", "protect"]) => bonus += 7.0,
         "find" if q.has_any(&["find", "locate", "where is", "look for"])
             && q.has_any(&["file", "files", "folder", "folders", "directory", "directories", "named", "bigger", "changed", "modified"])
             && !is_meta_which && !q.has_any(&["inside", "mention", "contain", "search inside", "look through", "ignoring case", "install"]) && !q.raw.contains('"') => bonus += 6.0,
@@ -1292,7 +1293,8 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "zbarimg" if q.has_any(&["qr", "barcode"]) => bonus += 9.5,
         "chmod" if (q.has_any(&["executable", "runnable", "as a program", "permission", "permissions", "chmod", "nobody but me", "protect", "read only", "modified"])
             || (q.has_any(&["stop", "prevent"]) && q.has_word("editing")))
-            && !q.has_any(&["rust", "docker", "container", "ollama", "frozen", "dotfiles"]) => bonus += 9.0,
+            && !q.has_any(&["rust", "docker", "container", "ollama", "frozen", "dotfiles"])
+            && !(q.has_any(&["show", "list", "which", "what"]) && crate::extract::extract("file_age", q.raw).is_some()) => bonus += 9.0,
         "chown" if q.has_any(&["owner", "ownership", "chown"]) => bonus += 8.5,
         "ln" if q.has_any(&["shortcut", "symlink", "symbolic link", "points to"]) && !q.has_word("alias") && !q.raw.contains('"') => bonus += 8.0,
         "cp" if q.has_any(&["copy", "duplicate", "back up", "backup"]) && !q.has_any(&["clipboard", "screenshot", "remote", "server", "over the network", "snapshot"]) && !q.has_remote_scp() => bonus += 7.0,
@@ -1556,7 +1558,7 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         "reboot" => return q.is_power_request(true),
         "shutdown" => return q.is_power_request(false),
         "shutdown cancel" => return has(&["cancel", "abort"]) && has(&["shutdown", "reboot", "power off", "restart", "shut down", "poweroff"]),
-        "systemctl status" | "systemctl failed" => return !has(&["git", "docker", "container"]),
+        "systemctl status" | "systemctl failed" => return !has(&["container", "containers"]),
         "find delete" => return has(&["delete", "remove", "clean", "clean up", "purge", "erase", "get rid of", "wipe"]),
         "kill port" | "ss port" => return q.names_port() || q.has_phrase("already in use"),
         "nc" => return q.names_port() && crate::extract::extract("host", q.raw).is_some(),
@@ -1573,7 +1575,7 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         "docker system df" => return has(&["docker"]) && has(&["disk usage", "space", "storage", "size", "usage"]),
         "git restore" => return has(&["discard", "throw away", "revert", "undo", "restore", "drop"]) && has(&["changes", "edits", "modifications", "uncommitted", "local"]),
         "git stash" => return has(&["stash", "stashes", "stashed"]),
-        "git reset" => return has(&["commit", "commits", "reset", "changes"]) && (q.has_exact_word("uncommit") || has(&["undo", "reset", "discard", "throw away", "hard", "soft", "go back"])),
+        "git reset" => return has(&["commit", "commits", "changes", "uncommitted", "repo", "git", "working tree"]) && (q.has_exact_word("uncommit") || has(&["undo", "reset", "discard", "throw away", "hard", "soft", "go back"])),
         "git clean" => return has(&["untracked"]) || (has(&["clean"]) && has(&["repo", "repository", "git"])),
         _ => {}
     }
@@ -1633,7 +1635,13 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
             "omarchy snapshot create" => has(&["snapshot"]),
             "omarchy update firmware" => has(&["firmware", "bios", "uefi"]),
             "omarchy update" | "omarchy version" => has(&["omarchy", "up to date"]),
-            "omarchy restart" => has(&["restart", "acting up", "stopped working", "fix", "misbehaving"]),
+            "omarchy refresh" => {
+                has(&["shell", "top bar", "bar", "hyprland", "tmux", "pacman", "hyprsunset", "chromium", "night light", "waybar", "config", "configuration", "defaults"])
+                    && has(&["reset", "restore", "refresh", "default", "defaults", "broken", "fix"])
+                    && !has(&["router", "modem"])
+            }
+            "omarchy restart" => has(&["restart", "acting up", "stopped working", "fix", "misbehaving"])
+                && has(&["wifi", "wireless", "sound", "audio", "speaker", "speakers", "headphones", "microphone", "bluetooth", "bar", "shell", "menu", "menus", "waybar", "terminal", "trackpad", "touchpad", "hyprland", "hyprsunset", "night light", "desktop"]),
             "omarchy pkg aur add" => has(&["aur", "arch user repository"]) && has(&["install", "add", "get", "package", "omarchy"]),
             _ => true,
         };
@@ -1683,7 +1691,8 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         "sha256sum" => has(&["checksum", "sha256", "sha256sum", "hash", "verify", "intact"]),
         "chmod" => (has(&["chmod", "executable", "runnable", "as a program", "permission", "permissions", "read only", "nobody but me", "protect", "modified"])
             || (has(&["stop", "prevent"]) && has(&["editing"])))
-            && !has(&["dotfiles"]),
+            && !has(&["dotfiles"])
+            && !(has(&["show", "list", "which", "what"]) && crate::extract::extract("file_age", q.raw).is_some()),
         "chown" => has(&["chown", "owner", "ownership"]),
         "ln" => has(&["ln", "symlink", "symbolic link", "points to"]) || (has(&["shortcut"]) && !has(&["alias"]) && !q.raw.contains('"')),
         "date" => has(&["date", "today", "what day", "time"]) && !q.has_exact_word("dates") && !has(&["up to date"]),

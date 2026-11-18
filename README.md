@@ -208,7 +208,8 @@ nmcli = { mylinux = "nm-cli" }         # package name where it differs (omit a f
 
 **Other**
 - Catalog entries can set `platform` to any family name (or an os-release ID). Only entries matching this system are offered by default; `huh --all-commands` offers the rest.
-- All 195 catalog entries (`catalog/*.toml`) are embedded into the binary at compile time via `build.rs`, so `huh` runs from any directory. Override lookup order: `--catalog`, `$HUH_CATALOG`, `~/.config/huh/catalog`, then the embedded catalog.
+- All 217 catalog entries (`catalog/*.toml`) are embedded into the binary at compile time via `build.rs`, so `huh` runs from any directory. Override lookup order: `--catalog`, `$HUH_CATALOG`, `~/.config/huh/catalog`, then the embedded catalog.
+- **Safety**: a suggestion that deletes data, powers off or restarts the machine, stops services or processes, or rewrites git history prints a `WARNING:` line saying what is lost. A catalog entry sets `destructive = true` and `warning = "..."`; a single option (`[[slots.options]]`) or flag can carry its own `warning`, so `systemctl status` is quiet while `systemctl stop` warns. `shutdown` and `reboot` honour a time ("reboot in 10 minutes", "shut down at 23:00", "cancel the shutdown"). Requests to undo or recover something are never answered with a delete, and "what does rm -rf do" points to `huh explain "rm -rf"` instead of suggesting `rm`. `evals/safety.toml` (cases may set `warn = true/false`) must stay at 100% in `cargo test`.
 - `evals/platforms.toml` holds the package requests for every non-Arch family (`platform = "debian"` on each case); `cargo test` runs all of them, or `huh eval --cases evals/platforms.toml --platform <family>`.
 - `huh eval --platform <ids>` scores as another system (`debian`, `fedora`, `suse`, `alpine`, `void`, `gentoo`, `nixos`, `arch,omarchy`, ...).
 
@@ -239,12 +240,13 @@ nmcli = { mylinux = "nm-cli" }         # package name where it differs (omit a f
 
 ## Eval results
 
-Measured with `cargo run --release` on 2026-11-17 (195 catalog entries; all offered on Arch/Omarchy, 180 installed):
+Measured with `cargo run --release` on 2026-11-17 (217 catalog entries):
 
 | Suite | Cases | Right command first | In top 3 | Exact command line | "Nothing fits" | Median time |
 |---|---|---|---|---|---|---|
 | `evals/cases.toml` | 238 | 229/229 (100%) | 229/229 (100%) | 224/224 (100%) | 9/9 (100%) | 0 ms |
 | `evals/heldout.toml` | 138 | 133/133 (100%) | 133/133 (100%) | 128/128 (100%) | 5/5 (100%) | 0 ms |
+| `evals/safety.toml` | 110 | 100% | 100% | 100% | 100% | 0 ms |
 | `evals/debian.toml` (`--platform debian`) | 5 | 4/4 (100%) | 4/4 (100%) | 4/4 (100%) | 1/1 (100%) | 0 ms |
 
 Error Doctor (`eval-errors`, release build):

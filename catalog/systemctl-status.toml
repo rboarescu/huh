@@ -7,3 +7,4 @@ keywords = ["service status", "status of service", "is the service running", "is
 id = "service"
 kind = "text"
 what = "the service"
+extract = "service"
