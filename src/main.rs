@@ -16,6 +16,7 @@ mod manpage;
 mod matcher;
 mod mode;
 mod outputs;
+mod pin;
 mod platform;
 mod readers;
 mod render;
@@ -73,7 +74,7 @@ struct Cli {
     /// Normal mode, overriding HUH_MODE and the config file
     #[arg(long, global = true)]
     normal: bool,
-    /// Colour theme: auto, omarchy, dark, light, nord, gruvbox, catppuccin or mono (also HUH_THEME or theme = "..." in the config file; see `huh themes`)
+    /// Colour theme: babyblue (default), auto, omarchy, dark, light, nord, gruvbox, catppuccin or mono (also HUH_THEME or theme = "..." in the config file; see `huh themes`)
     #[arg(long, global = true, value_name = "NAME")]
     theme: Option<String>,
     /// When to use colour: auto (a terminal, no NO_COLOR, TERM not dumb), always or never
@@ -669,7 +670,7 @@ fn setup_style(cli: &Cli) -> Result<()> {
         std::env::var_os("NO_COLOR").is_some(),
         std::env::var("TERM").is_ok_and(|t| t == "dumb"),
     );
-    style::init(style::Style::new(theme, on));
+    style::init(style::Style::for_terminal(theme, on, style::TermEnv::detect()));
     Ok(())
 }
 

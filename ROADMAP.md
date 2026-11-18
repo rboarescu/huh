@@ -2,9 +2,9 @@
 
 ## Planned: appeal (Radu, 2026-11-19)
 
-1. **Baby-blue look as the standard.**
-   - A `babyblue` theme becomes the default. The Omarchy-following `auto` and the others stay available.
-   - The ASCII "huh" logo is shown in that colour and stays pinned at the top of the tutor pane while its content scrolls, using a terminal scroll region (DECSTBM) so it is not redrawn.
+1. **Baby-blue look as the standard. Done 2026-11-19.**
+   - Done: a `babyblue` theme (truecolour, 256-colour fallback, deeper shades on a light background) is the default. The Omarchy-following `auto` and the others stay available.
+   - Done: the ASCII "huh" logo is shown in that colour and stays pinned at the top of the tutor pane while its content scrolls, using a terminal scroll region (DECSTBM) so it is not redrawn. Off with `HUH_NO_PIN=1` or `pin = false`.
 2. **A pet: a tamagotchi-style owl with a `#!` shebang inside it.**
    - It lives in the tutor pane next to the logo, small (a few lines of ASCII), with a few moods.
    - It is fed by successful commands. It gets hungry or sleepy when unused, and is happy after a streak.
