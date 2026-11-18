@@ -193,6 +193,118 @@ fn pid(request: &str) -> Option<String> {
     words.iter().enumerate().find(|(i, w)| digits(w) && (*i == 0 || low[*i - 1] != "port")).map(|(_, w)| w.clone())
 }
 
+/// A word with a slash or tilde that names a file rather than a folder (`notes/a.txt`).
+fn path_is_file_like(word: &str) -> bool {
+    word.rsplit('/').next().is_some_and(|last| last.contains('.') && !last.starts_with('.') && !last.ends_with('.'))
+}
+
+/// A published port as `host:container`: "8080:80", or "port 6379" for the same number on both sides.
+fn port_map(request: &str) -> Option<String> {
+    let words = words(request);
+    let port = |p: &str| (1..=5).contains(&p.len()) && p.chars().all(|c| c.is_ascii_digit());
+    let mapped =
+        words.iter().find(|w| w.split_once(':').is_some_and(|(host, container)| port(host) && port(container)));
+    mapped.cloned().or_else(|| {
+        let low = lower(&words);
+        let at = low.iter().position(|w| w == "port" || w == "ports")?;
+        words.get(at + 1).filter(|n| port(n)).map(|n| format!("{n}:{n}"))
+    })
+}
+
+/// The image of a `docker run` request: the first word that is not part of the run wording, a port
+/// or the name given to the container.
+fn run_image(request: &str) -> Option<String> {
+    const WORDING: &[&str] = &[
+        "docker",
+        "run",
+        "start",
+        "launch",
+        "create",
+        "new",
+        "container",
+        "image",
+        "the",
+        "a",
+        "an",
+        "from",
+        "with",
+        "on",
+        "in",
+        "as",
+        "and",
+        "to",
+        "of",
+        "my",
+        "detached",
+        "detach",
+        "background",
+        "interactive",
+        "interactively",
+        "shell",
+        "port",
+        "ports",
+        "name",
+        "named",
+        "called",
+        "please",
+        "using",
+        "use",
+        "up",
+        "spin",
+        "an",
+        "it",
+        "that",
+        "can",
+        "i",
+        "me",
+        "want",
+        "need",
+        "then",
+        "tty",
+        "terminal",
+        "session",
+    ];
+    let words = words(request);
+    let low = lower(&words);
+    let mut skip_next = false;
+    for (i, word) in words.iter().enumerate() {
+        if std::mem::take(&mut skip_next) {
+            continue;
+        }
+        let lw = low[i].as_str();
+        if matches!(lw, "name" | "named" | "called" | "port" | "ports") {
+            skip_next = true;
+            continue;
+        }
+        let mapped = word.split_once(':').is_some_and(|(a, b)| a.chars().all(|c| c.is_ascii_digit()) && !b.is_empty());
+        if WORDING.contains(&lw) || mapped || word.chars().all(|c| c.is_ascii_digit()) || word.starts_with('-') {
+            continue;
+        }
+        return Some(word.clone());
+    }
+    None
+}
+
+/// An age in the form docker's `until=` filter takes: "older than 24h" is `24h`, "3 days" is `72h`.
+fn until_age(request: &str) -> Option<String> {
+    let words = lower(&words(request));
+    let hours = |n: u64, unit: &str| match unit {
+        "h" | "hr" | "hrs" | "hour" | "hours" => Some(n),
+        "d" | "day" | "days" => Some(n * 24),
+        "w" | "week" | "weeks" => Some(n * 24 * 7),
+        _ => None,
+    };
+    for (i, word) in words.iter().enumerate() {
+        let digits = word.trim_end_matches(|c: char| c.is_ascii_alphabetic());
+        let Ok(n) = digits.parse::<u64>() else { continue };
+        let unit = if digits.len() < word.len() { &word[digits.len()..] } else { words.get(i + 1).map_or("", |u| u) };
+        if let Some(h) = hours(n, unit) {
+            return Some(format!("{h}h"));
+        }
+    }
+    None
+}
+
 /// A path named in the request, the first that has a slash or an extension.
 fn first_path(request: &str) -> Option<String> {
     words(request).into_iter().find(|w| path_like(w) && !looks_like_ip(w) && w != "." && w != "..")
@@ -468,6 +580,109 @@ pub fn read(reader: &str, request: &str) -> Option<String> {
         "sys_push_branch" => push_branch(request),
         "sys_base_branch" => base_branch(request),
         "sys_pid" => pid(request),
+        "sys_port_map" => port_map(request),
+        "sys_stats_container" => {
+            // "for container redis", "stats of redis", "container named web": a name, never "each" or "all".
+            const NOT_NAMES: &[&str] = &[
+                "the",
+                "a",
+                "an",
+                "my",
+                "each",
+                "every",
+                "all",
+                "any",
+                "every",
+                "using",
+                "is",
+                "are",
+                "it",
+                "them",
+                "this",
+                "that",
+                "running",
+                "docker",
+                "container",
+                "containers",
+                "named",
+                "called",
+                "stats",
+                "usage",
+                "memory",
+                "cpu",
+                "ram",
+                "processor",
+                "resources",
+                "live",
+                "now",
+                "right",
+                "of",
+                "for",
+                "per",
+            ];
+            let words = words(request);
+            let low = lower(&words);
+            (0..words.len())
+                .filter(|&i| matches!(low[i].as_str(), "container" | "containers" | "for" | "of" | "named" | "called"))
+                .find_map(|i| {
+                    let next = words
+                        .get(i + 1..)?
+                        .iter()
+                        .find(|w| !matches!(w.to_lowercase().as_str(), "the" | "a" | "named" | "called"))?;
+                    (!NOT_NAMES.contains(&next.to_lowercase().as_str()) && !next.chars().all(|c| c.is_ascii_digit()))
+                        .then(|| next.clone())
+                })
+        }
+        "sys_run_image" => run_image(request),
+        "sys_under_dir" => {
+            let words = words(request);
+            let dir = |w: &str| w.contains('/') || w.starts_with('~') || w == "." || w == "..";
+            const SKIP: &[&str] = &[
+                "the",
+                "my",
+                "this",
+                "a",
+                "folder",
+                "directory",
+                "dir",
+                "current",
+                "here",
+                "all",
+                "every",
+                "each",
+                "files",
+                "file",
+            ];
+            let low = lower(&words);
+            words.iter().find(|w| dir(w) && !path_is_file_like(w)).cloned().or_else(|| {
+                // The first word after "in", "under", ... that can be a folder name (not ".rs" or "3").
+                (0..words.len())
+                    .filter(|&i| matches!(low[i].as_str(), "in" | "under" | "inside" | "within" | "below"))
+                    .find_map(|i| {
+                        let next = words[i + 1..].iter().find(|w| !SKIP.contains(&w.to_lowercase().as_str()))?;
+                        (!next.contains('.')
+                            && !next.chars().all(|c| c.is_ascii_digit())
+                            && !matches!(next.as_str(), "in" | "under" | "inside" | "within" | "below"))
+                        .then(|| next.clone())
+                    })
+            })
+        }
+        "sys_name" => after(&words(request), &["named", "called", "name"], &["the", "a", "an", "it", "as", "is", "to"]),
+        "sys_comment" => after(&words(request), &["comment", "label"], &["the", "a", "an", "is", "as", "to", "of"]),
+        "sys_depth" => {
+            let words = words(request);
+            after(&words, &["depth"], &["of", "to", "is", "="])
+                .filter(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+                .or_else(|| lower(&words).iter().any(|w| w == "shallow").then(|| "1".to_string()))
+        }
+        "sys_clone_dir" => {
+            let words = words(request);
+            let remote = |w: &str| w.contains("://") || w.starts_with("git@");
+            after(&words, &["into", "in", "to"], &["the", "a", "folder", "directory", "dir", "new"])
+                .filter(|w| !remote(w) && !w.chars().all(|c| c.is_ascii_digit()))
+                .or_else(|| words.iter().find(|w| !remote(w) && (w.contains('/') || w.starts_with('~'))).cloned())
+        }
+        "sys_until_age" => until_age(request),
         "sys_path" => first_path(request),
         "sys_host" => tunnel_host(request),
         "sys_compose_service" => {

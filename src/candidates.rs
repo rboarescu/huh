@@ -8,7 +8,7 @@ use std::collections::{BTreeSet, HashSet};
 const MAX_TOKENS: usize = 30;
 pub const MAX_FILES: usize = 40;
 
-const STOPWORDS: &[&str] = &[
+pub const STOPWORDS: &[&str] = &[
     "a", "an", "the", "i", "me", "my", "we", "you", "it", "its", "this", "that", "these", "those", "is", "are", "be",
     "do", "does", "can", "could", "would", "should", "want", "need", "like", "please", "how", "what", "which", "where",
     "to", "of", "in", "on", "at", "for", "from", "into", "with", "and", "or", "as", "by", "so", "there", "have", "has",

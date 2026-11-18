@@ -208,6 +208,11 @@ expect = "ssh web1"
 
 [[case]]
 request = "chown -R www-data /var/www"
+command = "none"
+hint = 'huh explain "chown -R www-data /var/www"'
+
+[[case]]
+request = "give www-data ownership of everything under /var/www, recursively"
 command = "chown"
 expect = "sudo chown -R www-data /var/www"
 

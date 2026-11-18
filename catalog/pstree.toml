@@ -1,0 +1,13 @@
+name = "pstree"
+description = "Show the running programs as a tree of parents and children, with their process ID numbers"
+template = "pstree -p {pid}"
+kind = "query"
+package = "psmisc"
+keywords = ["process tree", "tree of processes", "show process tree", "children of a process", "child processes", "process hierarchy", "pstree"]
+
+[[slots]]
+id = "pid"
+kind = "text"
+what = "the process ID number to start the tree from (the whole system when left out)"
+default = ""
+extract = "sys_pid"

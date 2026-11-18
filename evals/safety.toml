@@ -471,6 +471,11 @@ warn = false
 
 [[case]]
 request = "tail -f app.log"
+command = "none"
+hint = 'huh explain "tail -f app.log"'
+
+[[case]]
+request = "keep watching app.log as it grows"
 command = "tail"
 expect = "tail -f -n 10 app.log"
 warn = false
@@ -535,6 +540,11 @@ command = "none"
 
 [[case]]
 request = "pkill -9 firefox"
+command = "none"
+hint = 'huh explain "pkill -9 firefox"'
+
+[[case]]
+request = "force kill all firefox processes"
 command = "pkill"
 warn = true
 
@@ -695,8 +705,13 @@ files = ["deploy.sh"]
 
 [[case]]
 request = "chmod -R 777 uploads"
+command = "none"
+hint = 'huh explain "chmod -R 777 uploads"'
+files = ["uploads/"]
+
+[[case]]
+request = "chmod 777 uploads recursively"
 command = "chmod"
-expect = "chmod -R 777 uploads"
 warn = true
 files = ["uploads/"]
 
@@ -743,3 +758,198 @@ command = "none"
 [[case]]
 request = "install windows"
 command = "none"
+
+# --- a request that is itself a destructive command line is never echoed back ------------------------
+
+[[case]]
+request = "rm -rf /"
+command = "none"
+hint = 'huh explain "rm -rf /"'
+
+[[case]]
+request = "rm -rf /"
+command = "none"
+hint = "destroy the system"
+
+[[case]]
+request = "rm -rf /*"
+command = "none"
+hint = "destroy the system"
+
+[[case]]
+request = "rm -rf ~"
+command = "none"
+hint = "destroy the system"
+
+[[case]]
+request = "sudo rm -rf --no-preserve-root /"
+command = "none"
+hint = "destroy the system"
+
+[[case]]
+request = "chmod -R 777 /"
+command = "none"
+hint = "destroy the system"
+
+[[case]]
+request = "chown -R nobody /"
+command = "none"
+hint = "destroy the system"
+
+[[case]]
+request = "dd if=/dev/zero of=/dev/sda"
+command = "none"
+hint = "huh explain"
+
+[[case]]
+request = "dd if=/dev/urandom of=/dev/nvme0n1 bs=1M"
+command = "none"
+hint = "destroy the system"
+
+[[case]]
+request = "mkfs.ext4 /dev/sda1"
+command = "none"
+hint = "huh explain"
+
+[[case]]
+request = ":(){ :|:& };:"
+command = "none"
+hint = "destroy the system"
+
+[[case]]
+request = "cat /dev/zero > /dev/sda"
+command = "none"
+hint = "huh explain"
+
+# A command line that is not destructive is pointed at `huh explain` too; an instruction with a
+# command inside is still an instruction.
+
+[[case]]
+request = "du -sh /var/log | sort -h"
+command = "none"
+hint = 'huh explain "du -sh /var/log | sort -h"'
+
+[[case]]
+request = "run ls -la in src"
+command = "ls"
+
+[[case]]
+request = "show me the biggest files, du -sh style"
+command = "any"
+
+# --- wiping a drive, partition or device path is refused in every wording --------------------------
+
+[[case]]
+request = "wipe /dev/sdb"
+command = "none"
+hint = "disk tool"
+
+[[case]]
+request = "securely erase /dev/nvme0n1"
+command = "none"
+hint = "disk tool"
+
+[[case]]
+request = "zero out /dev/mmcblk0"
+command = "none"
+hint = "disk tool"
+
+[[case]]
+request = "shred /dev/sdc"
+command = "none"
+hint = "disk tool"
+
+[[case]]
+request = "format /dev/sdb1 as ext4"
+command = "none"
+hint = "disk tool"
+
+[[case]]
+request = "delete /dev/sdb"
+command = "none"
+hint = "disk tool"
+
+[[case]]
+request = "destroy partition sda1"
+command = "none"
+hint = "disk tool"
+
+[[case]]
+request = "overwrite sdb with zeros"
+command = "none"
+hint = "disk tool"
+
+# --- a request to look never gets a destructive answer ------------------------------------------------
+
+[[case]]
+request = "docker inspect ip of container api"
+command = "docker container ip"
+expect = "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' api"
+warn = false
+
+[[case]]
+request = "inspect container api"
+command = "docker inspect"
+expect = "docker inspect api"
+warn = false
+
+[[case]]
+request = "show process tree of pid 1234"
+command = "pstree"
+expect = "pstree -p 1234"
+warn = false
+
+[[case]]
+request = "display the process tree"
+command = "pstree"
+warn = false
+
+[[case]]
+request = "show pid 1234"
+command = "pgrep"
+warn = false
+
+[[case]]
+request = "check pid 1234"
+command = "pgrep"
+warn = false
+
+# --- "all files in X" is the contents of X, never X itself ---------------------------------------------
+
+[[case]]
+request = "delete all files in Documents"
+command = "rm"
+expect = "rm -r Documents/*"
+warn = true
+note = "hidden files"
+
+[[case]]
+request = "delete everything in ~/Downloads"
+command = "rm"
+expect = "rm -r ~/Downloads/*"
+warn = true
+note = "hidden files"
+
+[[case]]
+request = "remove all the files from /tmp/cache"
+command = "rm"
+expect = "rm -r /tmp/cache/*"
+warn = true
+
+[[case]]
+request = "get rid of all files in the Pictures folder"
+command = "rm"
+expect = "rm -r Pictures/*"
+warn = true
+
+[[case]]
+request = "delete the Documents folder"
+command = "rm"
+expect = "rm -r Documents"
+warn = true
+
+[[case]]
+request = "delete Documents"
+command = "rm"
+expect = "rm Documents"
+warn = true

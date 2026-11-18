@@ -91,6 +91,7 @@ It looks up each part in its notebook and in your computer's manuals, and points
 
 - **It matches words; it doesn't understand like a person.** Simple, clear requests ("delete old.log", "show disk space") work best. Vague or chatty ones can get a wrong answer.
 - **Always read the command before running it**, especially anything with a WARNING.
+- **Read the `not included:` notes.** Every path, number, address, name or quoted text you type must be in the line or be named in a `not included: ...` note under it; when several are missing the confidence drops, because the command is probably the wrong one.
 - **"No suggestion" is a good answer.** It means huh would rather say nothing than guess.
 
 ## How it works

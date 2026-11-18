@@ -1,4 +1,12 @@
 name = "docker stats"
 description = "Watch live how much processor and memory each Docker container uses"
-template = "docker stats"
+template = "docker stats {container}"
 keywords = ["container cpu", "container memory", "container ram", "resource usage containers"]
+
+[[slots]]
+id = "container"
+kind = "text"
+type = "container"
+what = "the container to watch (all of them when left out)"
+default = ""
+extract = "sys_stats_container"

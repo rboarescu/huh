@@ -20,6 +20,7 @@ mod session;
 mod shell;
 mod sysinfo;
 mod tools;
+mod values;
 
 use anyhow::{Result, bail};
 use assemble::Suggestion;
@@ -170,6 +171,31 @@ fn broad_target(suggestion: &Suggestion, request: &str) -> Option<&'static str> 
     })
 }
 
+/// "delete all files in Documents" empties Documents; `rm -r Documents` would delete the folder too.
+/// Rewrites such an `rm` line to `rm -r Documents/*` and says what that leaves behind.
+fn contents_of_folder(suggestion: &mut Suggestion, command: &Command, request: &str) {
+    if command.name != "rm" {
+        return;
+    }
+    let Some(folder) = guard::contents_target(request) else { return };
+    let target = assemble::quote(&folder);
+    let named =
+        suggestion.line.rsplit(' ').next() == Some(target.as_str()) || suggestion.line.ends_with(&format!(" {target}"));
+    if !named {
+        return;
+    }
+    let contents = format!("{}/*", target.trim_end_matches('/'));
+    suggestion.line = format!("rm -r {contents}");
+    let recursive = suggestion.parts.iter().find(|(piece, _)| piece == "-r").map(|(_, why)| why.clone());
+    suggestion.parts = vec![
+        ("-r".into(), recursive.unwrap_or_else(|| "Also delete the folders inside".into())),
+        (contents, format!("everything inside {folder}, but not {folder} itself")),
+    ];
+    suggestion.notes.push(format!(
+        "not included: hidden files (names starting with a dot) in {folder}, and {folder} itself; they stay"
+    ));
+}
+
 /// "what does rm -rf do": the command being asked about, as written in the request.
 fn command_in_question<'a>(request: &'a str, matcher: &LocalMatcher) -> Option<&'a str> {
     let trimmed = request.trim().trim_end_matches(['?', '.', '!']).trim();
@@ -241,6 +267,20 @@ pub fn suggest_in(
                 command.replace('"', "\\\"")
             )
         })
+        .or_else(|| {
+            // The request is already a command line: it is read, not matched, and one that would
+            // destroy the system is never echoed back as a suggestion.
+            let line = guard::command_line_request(request, &known)
+                .or_else(|| guard::destroys_system(request).then_some(request.trim()));
+            line.map(|line| {
+                let explain = format!("huh explain \"{}\"", line.replace('"', "\\\""));
+                if guard::destroys_system(line) {
+                    format!("this would destroy the system (or a whole drive), so huh will not suggest it. To see what it does, use: {explain}")
+                } else {
+                    format!("that is already a command line, not a request in words. To see what it does, use: {explain}")
+                }
+            })
+        })
         .or_else(|| guard::refusal(request));
     if let Some(hint) = refused {
         return Ok(Outcome {
@@ -255,6 +295,7 @@ pub fn suggest_in(
     let about_state = matcher.asks_about_state(request);
 
     let mut suggestions = Vec::new();
+    let mut demoted = Vec::new();
     let mut hint = None;
     for &(command, probability) in &shortlist {
         // A question about state is answered by a query or not at all: never by an action.
@@ -271,6 +312,21 @@ pub fn suggest_in(
         let ask: &mut dyn FnMut(&str) -> Option<bool> = if suggestions.is_empty() { &mut *decide } else { &mut silent };
         if let Some(mut suggestion) = assemble::build(command, probability, &details, ask)? {
             guard::tell_the_truth(&mut suggestion, command, &details, &candidates);
+            // A delete never targets a drive: that is a wipe, which huh refuses in every mode.
+            if guard::deletes_a_drive(&suggestion.line) {
+                continue;
+            }
+            // "everything in X" is the contents of X, not X.
+            contents_of_folder(&mut suggestion, command, request);
+            // A request to look never gets a destructive answer: normal mode abstains, expert mode
+            // shows it below every command that only looks.
+            let destructive_look = suggestion.destructive && guard::asks_to_look(request);
+            if destructive_look && !expert {
+                hint.get_or_insert(
+                    "that asks to look at something, and no command in the catalog that only looks fits it.",
+                );
+                continue;
+            }
             if command.name == "crontab edit"
                 && let Some(line) = readers::cron_line(request)
             {
@@ -296,14 +352,37 @@ pub fn suggest_in(
                 continue;
             }
             // A stated modifier the line has no place for must not vanish silently.
+            let mut dropped = 0;
             for (phrase, value) in candidates::modifier_phrases(request) {
-                if !suggestion.line.to_lowercase().contains(&value) {
+                if !values::modifier_present(&suggestion.line, &phrase, &value) {
                     suggestion.notes.push(format!("not included: `{phrase}`"));
+                    dropped += 1;
                 }
             }
-            suggestions.push(suggestion);
+            // Every other typed value must be in the line too, or be named as left out.
+            let mut lost = values::lost(request, &suggestion.line, &suggestion.notes);
+            let noted = |t: &values::Typed, notes: &[String]| {
+                notes
+                    .iter()
+                    .any(|n| n.starts_with("not included") && n.to_lowercase().contains(&t.value.to_lowercase()))
+            };
+            lost.retain(|t| !noted(t, &suggestion.notes));
+            values::fill_open_placeholder(&mut suggestion, command, &mut lost);
+            for t in &lost {
+                suggestion.notes.push(format!("not included: `{}`", t.phrase));
+            }
+            // Several values lost means the line is probably the wrong command.
+            if dropped + lost.len() > 1 {
+                suggestion.probability = suggestion.probability.min(values::LOST_CONFIDENCE);
+            }
+            if destructive_look {
+                demoted.push(suggestion);
+            } else {
+                suggestions.push(suggestion);
+            }
         }
     }
+    suggestions.append(&mut demoted);
     let ranked = shortlist.iter().map(|(command, p)| (command.name.clone(), *p)).collect();
     let hint = if suggestions.is_empty() { hint.map(str::to_string) } else { None };
     Ok(Outcome { suggestions, ranked, millis: started.elapsed().as_millis(), hint })

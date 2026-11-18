@@ -1,6 +1,6 @@
 name = "ssh-keygen"
 description = "Generate a new ssh key pair (private and public key) for logging in without a password"
-template = "ssh-keygen -t {type}"
+template = "ssh-keygen -t {type} {comment}"
 kind = "action"
 keywords = ["generate ssh key", "create ssh key", "new ssh key pair", "make an ssh key", "ssh keypair", "ed25519 key", "rsa key"]
 
@@ -18,3 +18,11 @@ description = "A modern, short and fast key type (the usual choice)"
 name = "rsa"
 value = "rsa -b 4096"
 description = "An RSA key of 4096 bits, for older servers that lack ed25519"
+
+[[slots]]
+id = "comment"
+kind = "text"
+what = "the comment that labels the key (often an email address or a host name)"
+default = ""
+format = "-C {}"
+extract = "sys_comment"

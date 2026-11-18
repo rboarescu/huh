@@ -95,6 +95,19 @@ Known limits: stdout and stderr arrive mixed in the terminal, so the tutor goes 
 
 The next step is a fresh measurement round (error tests inside a container) against the targets: beginner ≥ 85%, sysadmin ≥ 65%, `huh why` useful fix ≥ 65%, ≤ 5 misleading, 0 non-errors called errors, 0 dangerous suggestions without a WARNING.
 
+## Completed: dangerous outputs and "typed values never vanish" (2026-11-18)
+
+The five serious findings of round 4 are fixed, in normal and expert mode alike (`evals/safety.toml`, `evals/expert.toml`):
+
+- A request that is itself a command line (first word a known program, plus flags, `NAME=value` or shell operators; no prose words) gets `huh explain "<line>"` instead of a word match. One that would wreck the system (`rm -rf /`, `rm -rf ~`, `chmod -R 777 /`, `dd … of=/dev/sda`, `mkfs` on a device, a fork bomb) also says "this would destroy the system". "run ls -la in src" is still an instruction.
+- Wiping, erasing, zeroing or shredding a disk, partition or `/dev` path gets the existing format/wipe refusal in every mode, and no suggestion that deletes, shreds or truncates a drive can be shown (`rm /dev/sdb`).
+- A request whose verb is show/inspect/list/display/get/print/check/find/what/which and that asks for no change never gets a destructive top suggestion: normal mode abstains if nothing read-only fits, expert mode ranks the destructive one last and keeps its WARNING. New entries `docker inspect`, `docker container ip` (the first entry with Go-template braces; `\{` and `\}` in a template are literal braces), `pstree`. `fsck` is now the read-only `fsck -n`; `fsck repair` is the destructive one.
+- "all files in X", "everything in X", "the contents of X" mean `rm -r X/*` (with a note that hidden files and X itself stay), never `rm -r X`.
+- Typed values (`src/values.rs`): after the line is built, every path, number (with or without unit), IP, URL, host or file name, `user@host`, `@server`, quoted text, git hash and labelled name ("named web", "comment ops@lab", "user bob", "onto release") must appear in the line in some form, or the suggestion says `not included: <phrase around it>`. One lost value that fits the single open placeholder goes there; more than one lost value caps the shown confidence at 50%. Added slots: `df` path, `git clone` `--depth` and folder, `docker stats` container, `ssh-keygen -C`, `docker image prune --filter until=`, `docker run -p/--name/image`; new entry `count lines in files by type` (`find … | xargs wc -l`). `evals/values.toml` (83 cases): 28 misses before, 0 after.
+- Changed expectations: five existing cases whose request was itself a command line (`chmod -R 777 uploads`, `tail -f app.log`, `pkill -9 firefox`, `chown -R www-data /var/www`, `docker logs --tail 100 web`) now expect the `huh explain` pointer (each also kept as a worded variant); the two `fsck` cases expect `sudo fsck -n …`.
+
+Not handled: a value that only appears as a plain word (a host name without a dot, "by alice" in unusual positions) is not recognised as a value; `delete the contents of build` in normal mode still abstains for lack of a named target.
+
 ## Completed: expert mode and `huh tools` (2026-11-18)
 
 - **Expert mode** (`--expert`, `HUH_MODE=expert`, `mode = "expert"` in `~/.config/huh/config.toml`; `--normal` / `HUH_MODE=normal` override the file): turns off exactly the beginner protections (the evidence requirement for dangerous suggestions, the broad-target drop, the state-question action ban). Broad-target lines keep their WARNING and gain a `note: this acts on ...` line. Every WARNING, the refusals (access to systems or accounts that are not the user's, formatting or wiping drives) and the `huh explain` redirects are unchanged. Notice goes to stderr. Precedence: flag, environment, file, default.

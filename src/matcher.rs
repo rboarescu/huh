@@ -45,6 +45,7 @@ const SPECIFIC_ENTRIES: &[&str] = &[
     "mount",
     "passwd user",
     "fsck",
+    "fsck repair",
     "crontab list",
     "crontab list user",
     "crontab edit",
@@ -1680,7 +1681,8 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "mount" if mounts_device_on_folder(q) => bonus += 16.0,
         "passwd user" if q.has_any(&["password", "passwd"]) && account_named && !q.has_any(&["wifi", "ssh", "key", "file", "zip", "archive", "pdf", "database"]) => bonus += 15.0,
         "passwd" if account_named => bonus += 0.0,
-        "fsck" if asks_fsck(q) => bonus += 16.0,
+        "fsck" if asks_fsck(q) && !asks_fsck_repair(q) => bonus += 16.0,
+        "fsck repair" if asks_fsck_repair(q) => bonus += 17.0,
         "crontab list user" if lists_cron(q) && account_named => bonus += 16.0,
         "crontab list" if lists_cron(q) && !account_named => bonus += 16.0,
         "crontab edit" if asks_schedule(q) => bonus += 16.0,
@@ -2345,6 +2347,11 @@ fn asks_fsck(q: &QueryContext<'_>) -> bool {
         && crate::extract::extract("device", q.raw).is_some()
 }
 
+/// "repair the filesystem on /dev/sdc1": the repairing fsck, not the read-only check.
+fn asks_fsck_repair(q: &QueryContext<'_>) -> bool {
+    asks_fsck(q) && q.has_any(&["repair", "repairs", "repairing", "fix", "fixes", "fixing"])
+}
+
 /// "make it run in the background with nohup".
 fn asks_nohup(q: &QueryContext<'_>) -> bool {
     q.has_word("nohup")
@@ -2536,7 +2543,8 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         "udisksctl mount" | "findmnt" if mounts_device_on_folder(q) => return false,
         "passwd user" => return has(&["password", "passwd"]) && named_account && !has(&["wifi", "ssh", "key", "file", "zip", "archive", "pdf", "database"]),
         "passwd" if named_account && !has(&["wifi", "ssh", "key", "file", "zip", "archive", "pdf", "database"]) => return false,
-        "fsck" => return asks_fsck(q),
+        "fsck" => return asks_fsck(q) && !asks_fsck_repair(q),
+        "fsck repair" => return asks_fsck_repair(q),
         "smartctl" | "lsblk" | "findmnt" if asks_fsck(q) => return false,
         "crontab list" => return lists_cron(q) && !named_account,
         "crontab list user" => return lists_cron(q) && named_account,
@@ -4335,6 +4343,24 @@ fn find_labels(q: &QueryContext<'_>) -> Vec<Label> {
     out
 }
 
+/// The (label, value) pairs a request writes: ("group", "docker"), ("branch", "main"). Used to check
+/// that a typed name did not vanish from the line.
+pub fn labelled_values(request: &str) -> Vec<(String, String)> {
+    let norm = normalize_text(request);
+    let words = raw_lower_words(&norm);
+    let terms = extract_weighted_terms(request);
+    let q = QueryContext::new(request, &norm, &words, &terms);
+    find_labels(&q)
+        .into_iter()
+        .filter(|l| l.kind != "port")
+        .filter_map(|l| {
+            let value = q.raw_tokens.iter().find(|t| t.word_pos == l.value_pos)?.text.clone();
+            let label = q.raw_tokens.iter().find(|t| t.word_pos == l.label_pos)?.text.clone();
+            Some((label, value))
+        })
+        .collect()
+}
+
 /// What kind of name a role takes, for slots whose catalog entry has no `type`.
 fn role_type(role: SlotRole) -> Option<&'static str> {
     match role {
@@ -5388,6 +5414,21 @@ mod tests {
         let misses: Vec<&String> = report.lines.iter().filter(|line| line.starts_with("MISS")).collect();
         assert!(report.top1.total > 0, "no safety cases ran");
         assert!(misses.is_empty(), "safety evals must be at 100%: {misses:#?}");
+    }
+
+    /// Typed values never vanish silently (evals/values.toml): each shows in the line or a note.
+    #[test]
+    fn typed_values_evals_all_pass() {
+        let arch = vec!["arch".to_string(), "omarchy".to_string()];
+        let matcher = LocalMatcher::new(&catalog::usable(load_catalog(), &arch, false));
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals/values.toml");
+        let report = eval::score_for(&matcher, &file, &arch).unwrap();
+        let misses: Vec<&String> = report.lines.iter().filter(|line| line.starts_with("MISS")).collect();
+        for line in &misses {
+            println!("{line}");
+        }
+        assert!(report.lines.len() >= 50, "values.toml should hold 50+ cases");
+        assert!(misses.is_empty(), "values evals must be at 100%: {} misses", misses.len());
     }
 
     /// Sysadmin round (evals/sysadmin.toml): git, process, file, ssh, cron, docker requests; every case must pass.

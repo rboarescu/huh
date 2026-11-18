@@ -1,0 +1,12 @@
+name = "docker container ip"
+description = "Show the IP address of a Docker container"
+# \\{ and \\} are literal braces: the Go template for docker's -f option.
+template = "docker inspect -f '\\{\\{range .NetworkSettings.Networks\\}\\}\\{\\{.IPAddress\\}\\}\\{\\{end\\}\\}' {container}"
+kind = "query"
+keywords = ["ip of container", "container ip address", "docker container ip", "what ip is the container", "container network address", "ip address of docker container", "inspect ip of container"]
+
+[[slots]]
+id = "container"
+kind = "text"
+type = "container"
+what = "the container whose IP address to show"

@@ -1,0 +1,13 @@
+name = "fsck repair"
+description = "Repair a disk partition's filesystem when it has errors"
+template = "sudo fsck {device}"
+kind = "action"
+destructive = true
+warning = "unmount the filesystem first; running fsck on a mounted filesystem can corrupt it, and repairs can discard damaged files."
+keywords = ["repair the filesystem", "repair filesystem", "fix disk errors", "fix the filesystem", "repair partition", "fsck repair", "fix filesystem errors", "repair the filesystem on a partition", "repair the disk", "repair broken filesystem", "repair corrupted filesystem"]
+
+[[slots]]
+id = "device"
+kind = "text"
+what = "the partition to repair"
+extract = "device"
