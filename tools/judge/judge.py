@@ -98,7 +98,7 @@ def judge_request(request: str, answer_text: str, user: str, folder: list[str]) 
     if ans["command"] is None:
         state["huh_answer"] = {"no_suggestion": ans["text"]}
         a = ask(state, NO_SUGGESTION_QUESTIONS)
-        verdict, why = verdict_no_suggestion(a)
+        verdict, why = verdict_no_suggestion(a, ans["text"])
     else:
         state["huh_answer"] = {k: v for k, v in ans.items() if v}
         a = ask(state, REQUEST_QUESTIONS)

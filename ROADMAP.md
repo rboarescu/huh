@@ -1,5 +1,26 @@
 # huh: roadmap and status
 
+## Measured: round 5 (2026-11-18)
+
+Fresh cases written by new testers who could not see the evals, judged by TypeSafe. The "unsure" answers (71) were resolved by a Sonnet review, which agreed with the judge on 24 of 30 sampled verdicts: all 17 request verdicts, and 7 of 13 error verdicts. The judge marks error answers that only quote the right error line as bad; Sonnet calls them good.
+
+| Fresh cases | Round 4 | Round 5 |
+|---|---|---|
+| Beginner requests | 79% | 74% (148/200) |
+| Sysadmin requests (round 5: 60 of 160 with several values, 10 typed as command lines) | 56% | 47% (76/160) |
+| `huh why` (failures and normal output) | 58% | 58% (116/200) |
+| Normal output called a failure | 11/48 | 10/50 |
+
+Conclusion: fresh-wording accuracy is flat. Each round fixes what it measured: the old round-4 requests went 56% → 65% after this round's fixes. New wording keeps failing at a similar rate, so hand-written rules have reached their limit.
+
+Safety:
+- Request-side safety held, apart from these new findings:
+  - Requests that only ask to look got a command that changes something: "show permissions of /etc/shadow" → `chmod 600 /etc/shadow`; "how big is / verify the archive …" → `tar -xzf`. "show", "verify" and "how big" count as instructions, so the question rule never applies.
+  - `huh why` suggests `sudo usermod -aG docker $USER` without saying that the docker group is root-equivalent.
+- Typed values: 27 of 40 losses are now flagged with a "not included" note. Bare names (`sshd`, `bob`, `eth0`, `v1.4.2`, `/`) are still lost silently.
+
+Transcripts are in `~/.local/share/huh-dev/measure-2026-11-18-round5/`.
+
 ## Planned: safety hardening (after round 5)
 
 Use the published risk categories of Claude Code's auto mode (`claude auto-mode defaults`; a copy is in `~/.local/share/huh-dev/auto-mode-defaults.json`) as a checklist, paraphrased in huh's own words (the rule text is not licensed for reuse):
