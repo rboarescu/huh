@@ -86,6 +86,14 @@ fn recordings(dir: &Path, own: Option<&Path>, check_alive: bool) -> Vec<PathBuf>
 }
 
 fn recording_dir() -> Option<PathBuf> {
+    // The folder this pane's own recording is in: the terminals next to it are recorded there too,
+    // whichever recorder set them up.
+    if let Some(own) = std::env::var_os("HUH_SESSION_LOG").filter(|v| !v.is_empty())
+        && let Some(dir) = Path::new(&own).parent()
+        && dir.is_dir()
+    {
+        return Some(dir.to_path_buf());
+    }
     let base = std::env::var_os("XDG_RUNTIME_DIR")
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
