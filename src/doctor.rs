@@ -199,8 +199,13 @@ fn diagnose(last: &Last) -> String {
         return diagnose_exit_zero(last);
     }
 
-    if last.exit.is_none() && !last.output.trim().is_empty() && !last.output.lines().any(is_error_line) {
-        return diagnose_not_an_error(last);
+    if let Some(ans) = diagnose_measured(last) {
+        return ans;
+    }
+    // Without an exit code, only output with the shape of an error message is treated as a
+    // failure; a sentence that merely contains "error" or "failed" is not one.
+    if last.exit.is_none() && !last.output.trim().is_empty() && !last.output.lines().any(error_shaped) {
+        return diagnose_unrecognised(last);
     }
 
     if let Some(ans) = diagnose_docker(last) {
@@ -296,14 +301,31 @@ fn diagnose_exit_zero(last: &Last) -> String {
 fn diagnose_docker(last: &Last) -> Option<String> {
     let lower = last.output.to_lowercase();
     if lower.contains("docker.sock") && lower.contains("permission denied") {
-        let in_docker_group = user_in_group("docker");
-        let explanation = if in_docker_group {
-            "Permission to connect to the Docker daemon socket (/var/run/docker.sock: permission denied) was denied. Your user is listed in the docker group, so refresh your session groups or re-login."
-        } else {
-            "Permission to connect to the Docker daemon socket (/var/run/docker.sock: permission denied) was denied because your user does not have docker group permission."
+        // What the output says is one thing; what this computer's group file says is another,
+        // so the second is labelled as a check made here (and only claimed when it ran).
+        let checked = user_in_group_checked("docker");
+        let base = "Permission to connect to the Docker daemon socket (/var/run/docker.sock: permission denied) was denied: only root and members of the docker group may use it.";
+        let (explanation, fix) = match checked {
+            Some(true) => (
+                format!(
+                    "{base} On this computer, your user is in the docker group, so this shell probably started before you were added: log in again, or open a shell with the group using `newgrp docker`."
+                ),
+                "newgrp docker",
+            ),
+            Some(false) => (
+                format!(
+                    "{base} On this computer, your user is not in the docker group; adding it fixes this (log in again afterwards)."
+                ),
+                "sudo usermod -aG docker $USER",
+            ),
+            None => (
+                format!(
+                    "{base} huh could not check which groups your user is in; if docker is not among them, adding your user to the docker group fixes this (log in again afterwards)."
+                ),
+                "sudo usermod -aG docker $USER",
+            ),
         };
-        let fix = if in_docker_group { "newgrp docker" } else { "sudo usermod -aG docker $USER" };
-        return Some(format_answer(explanation, fix));
+        return Some(format_answer(&explanation, fix));
     }
     if lower.contains("pull access denied") || lower.contains("repository does not exist") {
         let image = last
@@ -416,6 +438,19 @@ fn diagnose_not_executable(last: &Last) -> Option<String> {
     }
 
     let target = extract_exec_target(last);
+    // No command to go by: `bash: /etc/foo: Permission denied` is what both a refused write
+    // (`echo x > /etc/foo`) and a refused run print, and `chmod +x` on a system file is wrong
+    // for the first. Say so instead of guessing.
+    if trimmed_cmd.is_empty() && last.exit != Some(126) && target.starts_with('/') && under_system_dir(&target) {
+        return Some(format_answer(
+            &format!(
+                "`{target}` could not be written or run (`Permission denied`), and without the command huh cannot tell which. \
+                 A path under /etc, /var, /usr and the like needs administrator rights to change, and its files are not meant to be made executable; \
+                 if you were writing to it, `sudo tee {target}` writes as administrator (for example `echo text | sudo tee {target}`)."
+            ),
+            "nothing",
+        ));
+    }
     let stat_note = if let Ok(meta) = Path::new(&target).metadata() {
         #[cfg(unix)]
         {
@@ -470,16 +505,19 @@ fn diagnose_command_not_found(last: &Last) -> Option<String> {
     use crate::platform::{self, Found};
     let lower = last.output.to_lowercase();
     let from_output = missing_from_output(&last.output);
-    if last.exit != Some(127) && from_output.is_none() && !lower.contains("unknown command:") {
+    if last.exit != Some(127) && from_output.is_none() && !lower.contains("fish: unknown command:") {
         return None;
     }
+    // Only say "exit code 127" when it was given (a piped `command not found` has no code).
+    let code = if last.exit == Some(127) { ", exit code 127" } else { "" };
+    let code_paren = if last.exit == Some(127) { " (exit code 127)" } else { "" };
 
     let (_, cmd, _) = extract_command_parts(&last.command);
     let missing = from_output.unwrap_or_else(|| cmd.to_string());
     if missing.is_empty() {
-        return Some(format_answer("The command was not found (exit code 127).", "nothing"));
+        return Some(format_answer(&format!("The command was not found{code_paren}."), "nothing"));
     }
-    let intro = format!("The command `{missing}` is not installed (`command not found`, exit code 127)");
+    let intro = format!("The command `{missing}` is not installed (`command not found`{code})");
 
     // The program is here after all: do not tell the user to install it.
     match platform::locate(&missing) {
@@ -499,9 +537,7 @@ fn diagnose_command_not_found(last: &Last) -> Option<String> {
             let run = fix_command(&last.command, &missing, &file.display().to_string());
             let run = if last.command.trim().is_empty() { format!("sudo {missing}") } else { run };
             return Some(format_answer(
-                &format!(
-                    "`{missing}` is installed in `{dir}`, which is not on your PATH (`command not found`, exit code 127)."
-                ),
+                &format!("`{missing}` is installed in `{dir}`, which is not on your PATH (`command not found`{code})."),
                 &run,
             ));
         }
@@ -526,9 +562,7 @@ fn diagnose_command_not_found(last: &Last) -> Option<String> {
     };
     let typo_answer = |correction: String| {
         format_answer(
-            &format!(
-                "The command `{missing}` was not found (exit code 127), which looks like a typo for `{correction}`."
-            ),
+            &format!("The command `{missing}` was not found{code_paren}, which looks like a typo for `{correction}`."),
             fix_command(&last.command, &missing, &correction).trim(),
         )
     };
@@ -558,23 +592,29 @@ fn diagnose_command_not_found(last: &Last) -> Option<String> {
     if let Some(advice) = advice {
         return Some(format_answer(
             &format!(
-                "The command `{missing}` is not installed or not in your PATH (`command not found`, exit code 127). \
+                "The command `{missing}` is not installed or not in your PATH (`command not found`{code}). \
                  This system's package manager can tell you which package provides it."
             ),
             &advice.command,
         ));
     }
-    Some(format_answer(&format!("The command `{missing}` was not found (exit code 127)."), "nothing"))
+    Some(format_answer(&format!("The command `{missing}` was not found{code_paren}."), "nothing"))
 }
 
 fn diagnose_pacman(last: &Last) -> Option<String> {
     let lower = last.output.to_lowercase();
     if lower.contains("you cannot perform this operation unless you are root") {
         let command = last.command.trim();
-        let fix = if command.is_empty() { "sudo pacman -S <package>".to_string() } else { format!("sudo {command}") };
+        if command.is_empty() {
+            return Some(format_answer(
+                "Pacman changes the system's packages, so it must run as root (`you cannot perform this operation unless you are root`); run the same pacman command with sudo in front of it.",
+                "nothing",
+            ));
+        }
+        let command = command.strip_prefix("sudo ").unwrap_or(command);
         return Some(format_answer(
             "Pacman changes the system's packages, so it must run as root (`you cannot perform this operation unless you are root`); run it with sudo.",
-            &fix,
+            &format!("sudo {command}"),
         ));
     }
     if lower.contains("unable to lock database") || lower.contains("db.lck") {
@@ -623,9 +663,12 @@ fn diagnose_pacman(last: &Last) -> Option<String> {
 
 fn diagnose_git(last: &Last) -> Option<String> {
     let lower = last.output.to_lowercase();
-    if lower.contains("[rejected]") && lower.contains("fetch first") {
+    if lower.contains("[rejected]") && (lower.contains("fetch first") || lower.contains("non-fast-forward")) {
+        let why = if lower.contains("non-fast-forward") { "non-fast-forward" } else { "fetch first" };
         return Some(format_answer(
-            "Git rejected the push (`[rejected] ... (fetch first)`) because the remote branch has commits you do not have locally yet.",
+            &format!(
+                "Git rejected the push (`[rejected] ... ({why})`) because the remote branch has commits you do not have locally yet. Pull them in (and fix any conflict) before pushing again; force-pushing instead would throw those commits away."
+            ),
             "git pull",
         ));
     }
@@ -900,6 +943,7 @@ fn writes_to_file(command: &str, output: &str) -> bool {
     let first = output.lines().next().unwrap_or("").trim_start().to_lowercase();
     (command.contains('>') && (first.starts_with("bash:") || first.starts_with("sh:") || first.starts_with("zsh:")))
         || matches!(prog, "touch" | "mkdir" | "rm" | "rmdir" | "mv" | "tee" | "ln" | "truncate")
+        || command.split('|').any(|stage| extract_command_parts(stage).1 == "tee")
 }
 
 fn diagnose_tools_and_code(last: &Last) -> Option<String> {
@@ -950,9 +994,16 @@ fn diagnose_tools_and_code(last: &Last) -> Option<String> {
     }
     if let Some(err_line) = last.output.lines().find(|l| l.trim_start().starts_with("error[E")) {
         let detail = err_line.trim();
+        let place = last
+            .output
+            .lines()
+            .skip_while(|l| *l != err_line)
+            .find_map(|l| l.trim_start().strip_prefix("--> "))
+            .map(|p| format!(" at `{}`", p.trim()))
+            .unwrap_or_default();
         return Some(format_answer(
             &format!(
-                "The Rust compiler rejected the source code (`{detail}`), so the code itself must be adjusted before building again."
+                "The Rust compiler rejected the source code{place} (`{detail}`), so the code itself must be adjusted before building again. `rustc --explain` describes the error code."
             ),
             "nothing",
         ));
@@ -995,7 +1046,19 @@ fn diagnose_fallback(last: &Last) -> String {
             })
             .or_else(|| last_meaningful_line(&last.output))
             .unwrap_or("incorrect command usage or syntax");
-        let help_cmd = if prog.is_empty() { "nothing".to_string() } else { format!("{prog} --help") };
+        // Only offer `--help` for a program known to have failed: the first word of a pipeline
+        // or a `&&` chain may be a different one.
+        let failed_prog = last
+            .output
+            .lines()
+            .find_map(|l| l.split_once(':').map(|(p, _)| p.trim()))
+            .filter(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c)));
+        let single = !last.command.contains(['|', '&', ';']);
+        let help_cmd = match failed_prog {
+            Some(p) => format!("{p} --help"),
+            None if single && !prog.is_empty() => format!("{prog} --help"),
+            None => "nothing".to_string(),
+        };
         return format_answer(
             &format!(
                 "The command failed due to incorrect usage, flags, or syntax (exit code {}: `{evidence}`).",
@@ -1218,10 +1281,30 @@ fn path_in(before: &str) -> Option<String> {
             }
         }
     }
-    let piece = before.rsplit_once(": ").map_or(before, |(_, piece)| piece).trim();
+    let mut segments = before.rsplit(": ");
+    let mut piece = segments.next().unwrap_or(before).trim();
+    // `tar: x.tar: Cannot open`: the lead-in is the last part and the file the one before it.
+    if matches!(
+        piece.to_lowercase().as_str(),
+        "cannot open"
+            | "cannot read"
+            | "cannot stat"
+            | "cannot access"
+            | "cannot find"
+            | "unable to open"
+            | "could not open"
+            | "can't open"
+            | "can't read"
+    ) && let Some(previous) = segments.next()
+    {
+        piece = previous.trim();
+    }
+    let piece = piece;
     let lower = piece.to_lowercase();
     let mut piece = piece;
     for lead in [
+        "can't read ",
+        "can't open ",
         "could not open file ",
         "could not open ",
         "cannot open file ",
@@ -1335,7 +1418,7 @@ fn permission_advice(path: &str, writing: bool, command: &str) -> (String, Strin
         if trimmed.is_empty() || trimmed.starts_with("sudo ") || is_shell_builtin(trimmed) {
             format!("ls -ld {path}")
         } else {
-            format!("sudo {trimmed}")
+            sudo_form(trimmed, path)
         }
     };
     let me = my_uid();
@@ -1637,7 +1720,7 @@ fn externally_managed() -> bool {
 
 fn diagnose_python_module(module: &str) -> String {
     let top = module.split('.').next().unwrap_or(module);
-    let evidence = format!("`ModuleNotFoundError: No module named '{module}'`");
+    let evidence = format!("`No module named '{module}'`");
     let known = PIP_NAMES.iter().any(|(import, _)| *import == top) || COMMON_PY_MODULES.contains(&top);
     if !known && top.chars().count() >= 4 {
         let mut candidates: Vec<String> = COMMON_PY_MODULES.iter().map(|m| (*m).to_string()).collect();
@@ -1763,17 +1846,23 @@ fn diagnose_python(last: &Last) -> Option<String> {
         return None;
     }
     let frames = python_frames(&last.output);
+    // The user's own code: not the standard library or installed packages. `<string>` (from
+    // `python -c`) and `<stdin>` are the user's.
     let own = |file: &str| {
-        !file.contains("/usr/lib/python")
+        !file.contains("/lib/python")
             && !file.contains("site-packages")
             && !file.contains("dist-packages")
-            && !file.starts_with('<')
+            && !file.starts_with("<frozen")
     };
     let (file, line, code) = frames.iter().rev().find(|(f, ..)| own(f)).or_else(|| frames.last())?.clone();
     let name_of_file = Path::new(&file).file_name().and_then(|n| n.to_str()).unwrap_or(&file).to_string();
     let spot =
         if code.is_empty() { format!("`{file}`, line {line}") } else { format!("`{file}`, line {line} (`{code}`)") };
-    let sed = format!("sed -n '{},{}p' {file}", line.saturating_sub(1).max(1), line + 1);
+    let sed = if file.starts_with('<') {
+        "nothing".to_string()
+    } else {
+        format!("sed -n '{},{}p' {file}", line.saturating_sub(1).max(1), line + 1)
+    };
     let evidence = format!("`{exception}`");
     let explanation = match short {
         "SyntaxError" | "IndentationError" | "TabError" => format!(
@@ -1969,7 +2058,12 @@ fn diagnose_git_more(last: &Last) -> Option<String> {
         || lower.contains("invalid reference:")
         || lower.contains("unknown revision or path not in the working tree")
     {
-        let name = last.output.split('\'').nth(1).unwrap_or("that name");
+        let name = last
+            .output
+            .split('\'')
+            .nth(1)
+            .or_else(|| last.output.split("invalid reference:").nth(1).and_then(|r| r.split_whitespace().next()))
+            .unwrap_or("that name");
         return Some(format_answer(
             &format!(
                 "`{name}` is neither a branch, tag or commit nor a file that git knows (`{}`). Check the spelling against the existing branches.",
@@ -2041,6 +2135,19 @@ fn diagnose_archives(last: &Last) -> Option<String> {
         ));
     }
     if lower.contains("not in gzip format") {
+        // `gzip -d f.gz` and `gunzip f.gz` name the file; `tar xzf` reports `gzip: stdin`.
+        let named = last.output.lines().find_map(|line| {
+            let name = line.trim().strip_prefix("gzip: ")?.strip_suffix(": not in gzip format")?;
+            (name != "stdin").then(|| name.to_string())
+        });
+        if let Some(name) = named {
+            return Some(format_answer(
+                &format!(
+                    "`{name}` is not in gzip format (`gzip: {name}: not in gzip format`), so gzip cannot unpack it. The file is probably not compressed at all, or compressed another way (xz, bzip2, zstd, zip), or it is not an archive, as when a download saved an error page. `file {name}` shows what it really is."
+                ),
+                &format!("file {name}"),
+            ));
+        }
         let archive = extract_tar_archive(last);
         let known = archive.is_some();
         let name = archive.unwrap_or_else(|| "<name>".to_string());
@@ -2050,6 +2157,776 @@ fn diagnose_archives(last: &Last) -> Option<String> {
                 "`tar` was told to decompress {which} as gzip (the `z` flag), but it is not gzip-compressed (`gzip: stdin: not in gzip format`). It may be a plain or differently compressed archive (then drop the `z`, since plain `tar xf` detects the format), or not an archive at all, as when a download saved an error page. `file` shows what it really is."
             ),
             &format!("file {name}"),
+        ));
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
+// Second measurement round: recognisers for failures that used to fall through, and the rule
+// for output that cannot be classified
+// ---------------------------------------------------------------------------
+
+/// The `sudo` form of a refused command. A redirect (`echo x > /etc/foo`) is done by the shell
+/// before `sudo` starts, so `sudo echo x > /etc/foo` fails the same way; `tee` does the write.
+fn sudo_form(command: &str, path: &str) -> String {
+    if let Some(at) = command.find("| tee ") {
+        let (head, tail) = command.split_at(at + 2);
+        return format!("{head}sudo {tail}");
+    }
+    for (op, flag) in [(">>", "-a "), (">", "")] {
+        for gap in [" ", ""] {
+            let needle = format!("{op}{gap}{path}");
+            if let Some(at) = command.find(&needle) {
+                let before = &command[..at];
+                let left = before.trim_end();
+                if left.is_empty() || (op == ">" && before.ends_with('>')) {
+                    continue;
+                }
+                return format!("{left} | sudo tee {flag}{path}");
+            }
+        }
+    }
+    format!("sudo {command}")
+}
+
+/// Does this line have the shape of an error message, as opposed to a sentence that merely
+/// contains a word like "error" or "failed"? An error line starts with a known opener
+/// (`error:`, `fatal:`, `npm ERR!`, `Traceback`, ...), names the program (`cat: x: reason`), or
+/// ends in a well-known reason (`Permission denied`, `command not found`).
+fn error_shaped(line: &str) -> bool {
+    let t = line.trim();
+    if t.is_empty() || is_long_listing_line(t) {
+        return false;
+    }
+    let lower = t.to_lowercase();
+    const OPENERS: &[&str] = &[
+        "error:",
+        "error[",
+        "error response",
+        "err!",
+        "npm err",
+        "npm error",
+        "e: ",
+        "fatal",
+        "traceback",
+        "failed",
+        "cannot ",
+        "can't ",
+        "could not ",
+        "couldn't ",
+        "unable to ",
+        "permission denied",
+        "no such ",
+        "segmentation fault",
+        "killed",
+        "aborted",
+        "panic",
+        "thread '",
+        "job for ",
+        "make:",
+        "make[",
+        "warning: unable",
+        "***",
+        "-bash:",
+        "bash:",
+        "sh:",
+        "zsh:",
+        "fish:",
+    ];
+    const CONTAINS: &[&str] = &[
+        ": command not found",
+        "no such file or directory",
+        "permission denied",
+        "segmentation fault",
+        "out of memory",
+        "not in gzip format",
+        "address already in use",
+        "connection refused",
+        "connection timed out",
+        "name or service not known",
+        "temporary failure in name resolution",
+        "could not resolve",
+        "could not be found",
+        "is a directory",
+        "not a directory",
+        "operation not permitted",
+        "no space left",
+        "read-only file system",
+        "unrecognized option",
+        "invalid option",
+        "unknown option",
+        "undefined reference",
+        "unterminated",
+        "[rejected]",
+        "host key verification failed",
+        "no module named",
+    ];
+    const REASONS: &[&str] = &[
+        "omitting directory",
+        "not something",
+        "no files found",
+        "no rule",
+        "try '",
+        "syntax",
+        "unexpected",
+        "unknown",
+        "invalid",
+        "missing",
+        "illegal",
+        "exists",
+        "not a ",
+        "not supported",
+        "must ",
+    ];
+    if OPENERS.iter().any(|o| lower.starts_with(o)) || CONTAINS.iter().any(|c| lower.contains(c)) {
+        return true;
+    }
+    // `ReferenceError: x is not defined`, `json.decoder.JSONDecodeError: ...`
+    if let Some((head, _)) = t.split_once(": ")
+        && (head.ends_with("Error") || head.ends_with("Exception"))
+        && !head.contains(char::is_whitespace)
+    {
+        return true;
+    }
+    // `program: something: reason`: a lowercase program name with no spaces, then a reason.
+    if let Some((head, rest)) = t.split_once(": ") {
+        let head_ok = head.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c == '/' || c == '.')
+            && head.chars().all(|c| c.is_ascii_alphanumeric() || "-_./+".contains(c));
+        let rest_lower = rest.to_lowercase();
+        if head_ok && (is_error_line(rest) || REASONS.iter().any(|r| rest_lower.contains(r))) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Output without an exit code and without any line shaped like an error.
+fn diagnose_unrecognised(last: &Last) -> String {
+    let tail = " If the command did go wrong, run `huh why` right after it, or pipe in the lines that show the error.";
+    if describe_output(&last.output) != "ordinary program output" {
+        return diagnose_not_an_error(last);
+    }
+    if let Some(line) = last.output.lines().map(str::trim).find(|l| is_error_line(l)) {
+        return format_answer(
+            &format!(
+                "huh does not recognise this output as a failure. The closest line is {}, but it reads like ordinary text, not an error message (those look like `error: ...`, `fatal: ...` or `program: file: reason`), and no exit code was given.{tail}",
+                quote_line(line)
+            ),
+            "nothing",
+        );
+    }
+    format_answer(
+        &format!(
+            "huh does not recognise an error in this output: it looks like ordinary program output, but without an exit code huh cannot be sure the command succeeded.{tail}"
+        ),
+        "nothing",
+    )
+}
+
+/// Text between the first quote after `marker` and its closing quote (`'x'`, `` `x' ``, `‘x’`).
+fn quoted_after(line: &str, marker: &str) -> Option<String> {
+    let rest = &line[line.find(marker)? + marker.len()..];
+    let start = rest.find(['\'', '`', '‘'])?;
+    let rest = &rest[start + rest[start..].chars().next()?.len_utf8()..];
+    let end = rest.find(['\'', '’', '`'])?;
+    (end > 0).then(|| rest[..end].to_string())
+}
+
+/// The first line of `output` containing `needle` (compared in lower case).
+fn line_with<'a>(output: &'a str, needle: &str) -> Option<&'a str> {
+    output.lines().map(str::trim).find(|l| l.to_lowercase().contains(needle))
+}
+
+/// The word after `marker` in `text`.
+fn word_after<'a>(text: &'a str, marker: &str) -> Option<&'a str> {
+    text.split_once(marker)?.1.split_whitespace().next()
+}
+
+fn diagnose_measured(last: &Last) -> Option<String> {
+    let lower = last.output.to_lowercase();
+    measured_docker(last, &lower)
+        .or_else(|| measured_git(last, &lower))
+        .or_else(|| measured_files(last, &lower))
+        .or_else(|| measured_libraries(last, &lower))
+        .or_else(|| measured_net(last, &lower))
+        .or_else(|| measured_build(last, &lower))
+        .or_else(|| measured_runtime(last, &lower))
+}
+
+fn measured_docker(last: &Last, lower: &str) -> Option<String> {
+    let out = last.output.as_str();
+    if let Some(line) = line_with(out, "is not a docker command") {
+        let name = quoted_after(line, "docker: ").unwrap_or_default();
+        return Some(format_answer(
+            &format!(
+                "Docker has no command called `{name}` (`{line}`). `docker --help` lists the commands it does have."
+            ),
+            "docker --help",
+        ));
+    }
+    if let Some(line) = line_with(out, "unknown command:") {
+        let at = line.to_lowercase().find("unknown command:")? + "unknown command:".len();
+        let words: Vec<&str> = line[at..].split_whitespace().collect();
+        if words.first() == Some(&"docker") && words.len() > 1 {
+            let name = words[1..].join(" ");
+            let help = if words.len() > 2 {
+                format!("docker {} --help", words[1..words.len() - 1].join(" "))
+            } else {
+                "docker --help".to_string()
+            };
+            return Some(format_answer(
+                &format!("Docker has no command called `{name}` (`{line}`). `{help}` lists the commands it does have."),
+                &help,
+            ));
+        }
+    }
+    if lower.contains("no such container")
+        && let Some(name) =
+            word_after(&last.output, "No such container: ").or_else(|| word_after(&last.output, "no such container: "))
+    {
+        return Some(format_answer(
+            &format!(
+                "Docker has no container called `{name}` (`Error response from daemon: No such container: {name}`): it was never created, was already removed, or the name is misspelled. `docker ps -a` lists the containers that exist, running or not."
+            ),
+            "docker ps -a",
+        ));
+    }
+    None
+}
+
+fn measured_git(last: &Last, lower: &str) -> Option<String> {
+    let out = last.output.as_str();
+    let cmd = last.command.trim();
+    let committing = cmd.contains("git commit") || (cmd.is_empty() && last.exit.is_some());
+    if committing
+        && (lower.contains("nothing to commit")
+            || lower.contains("nothing added to commit")
+            || lower.contains("no changes added to commit"))
+    {
+        if lower.contains("working tree clean") {
+            return Some(format_answer(
+                "`git commit` had nothing to commit: the working tree is clean, so no file has changed since the last commit. Change a file first, then `git add` it; `git status` shows the state.",
+                "nothing",
+            ));
+        }
+        if lower.contains("untracked files present") {
+            return Some(format_answer(
+                "`git commit` had nothing to commit: the only new files are untracked, and a commit takes only what is staged. `git add` stages them (`git status` lists them first).",
+                "git add .",
+            ));
+        }
+        if lower.contains("no changes added to commit") {
+            return Some(format_answer(
+                "`git commit` had nothing to commit: files are modified but none is staged (`no changes added to commit`). `git add` stages the changes; `git add -u` stages every modified tracked file.",
+                "git add -u",
+            ));
+        }
+        return Some(format_answer(
+            "`git commit` had nothing to commit (`nothing to commit (create/copy files and use \"git add\" to track)`): the repository has no files that git could record yet. Create or copy files in, then `git add` them and commit; `git status` shows what git sees.",
+            "git status",
+        ));
+    }
+    if let Some(line) = line_with(out, "not something we can merge") {
+        let name = line.strip_prefix("merge: ").and_then(|r| r.split(" - ").next()).unwrap_or("that name");
+        return Some(format_answer(
+            &format!(
+                "`git merge` cannot merge `{name}` (`{line}`): it is not a branch, tag or commit in this repository. Check the spelling against the branches that exist."
+            ),
+            "git branch -a",
+        ));
+    }
+    if let Some(line) = line_with(out, "is not a git command") {
+        let bad = quoted_after(line, "git: ").unwrap_or_default();
+        let suggestion = out
+            .lines()
+            .skip_while(|l| !l.starts_with("The most similar command"))
+            .nth(1)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        return Some(match suggestion {
+            Some(sug) => {
+                let fixed = if cmd.is_empty() { format!("git {sug}") } else { fix_command(cmd, &bad, sug) };
+                format_answer(
+                    &format!(
+                        "`{bad}` is not a git command (`{line}`); git suggests `{sug}`, so it is probably a typo."
+                    ),
+                    &fixed,
+                )
+            }
+            None => format_answer(
+                &format!("`{bad}` is not a git command (`{line}`). `git help -a` lists the commands there are."),
+                "nothing",
+            ),
+        });
+    }
+    if let Some(line) = line_with(out, "pathspec")
+        && lower.contains("did not match any files")
+        && !lower.contains("known to git")
+    {
+        let name = quoted_after(line, "pathspec").unwrap_or_default();
+        return Some(format_answer(
+            &format!(
+                "`git add` found no file matching `{name}` (`{line}`): the name is misspelled, or you are in a different folder from the file. `git status` shows the files git knows about."
+            ),
+            "git status",
+        ));
+    }
+    if lower.contains("no configured push destination") {
+        return Some(format_answer(
+            "`git push` has nowhere to push to (`No configured push destination`): this repository has no remote. Add one with `git remote add origin <url>` (the address of the repository on GitHub or your server), then push again; `git remote -v` shows the remotes there are.",
+            "git remote -v",
+        ));
+    }
+    if lower.contains("is not fully merged") {
+        let branch = quoted_after(out, "The branch ").unwrap_or_else(|| "the branch".to_string());
+        return Some(format_answer(
+            &format!(
+                "Git will not delete `{branch}` with `-d` because it holds commits that no other branch has, so deleting it would lose them (`error: The branch '{branch}' is not fully merged.`). Look at what is on it first; only if you are sure you do not need those commits, `git branch -D {branch}` deletes it anyway."
+            ),
+            &format!("git log --oneline HEAD..{branch}"),
+        ));
+    }
+    if (lower.contains("fatal: repository") && (lower.contains("does not exist") || lower.contains("not found")))
+        || lower.contains("repository not found")
+    {
+        let repo = line_with(out, "fatal: repository").and_then(|l| quoted_after(l, "repository")).unwrap_or_default();
+        let (what, fix) = if repo.is_empty() {
+            ("the repository".to_string(), "nothing".to_string())
+        } else {
+            (format!("`{repo}`"), format!("git ls-remote {repo}"))
+        };
+        return Some(format_answer(
+            &format!(
+                "Git could not find {what} (`fatal: repository ... does not exist`/`not found`): the address or path is misspelled, the repository was deleted or renamed, or it is private and your account has no access. Check the address character by character."
+            ),
+            &fix,
+        ));
+    }
+    if let Some(line) = line_with(out, "already exists")
+        && lower.contains("remote ")
+        && lower.contains("error: remote")
+    {
+        let name = word_after(line, "remote ").unwrap_or("origin");
+        return Some(format_answer(
+            &format!(
+                "This repository already has a remote called `{name}` (`{line}`). `git remote -v` shows where it points; `git remote set-url {name} <url>` changes the address."
+            ),
+            "git remote -v",
+        ));
+    }
+    None
+}
+
+fn measured_files(last: &Last, lower: &str) -> Option<String> {
+    let out = last.output.as_str();
+    let cmd = last.command.trim();
+    if let Some(line) =
+        out.lines().map(str::trim).find(|l| l.to_lowercase().trim_end_matches('.').ends_with(": is a directory"))
+    {
+        let prog = line.split(':').next().unwrap_or_default();
+        let before = &line[..line.len() - ": Is a directory".len()];
+        let path = path_in(before)?;
+        if prog == "rm" {
+            return Some(format_answer(
+                &format!(
+                    "`rm` does not delete folders unless told to (`{line}`): `{path}` is a folder. If it is empty, `rmdir {path}` removes it. `rm -r {path}` removes the folder and everything inside it, with no way back, so look at `ls {path}` before using it."
+                ),
+                &format!("rmdir {path}"),
+            ));
+        }
+        return Some(format_answer(
+            &format!(
+                "`{path}` is a folder, and `{prog}` works on files, not folders (`{line}`). `ls {path}` shows what is inside it."
+            ),
+            &format!("ls {path}"),
+        ));
+    }
+    if let Some(line) = line_with(out, "-r not specified; omitting directory") {
+        let dir = quoted_after(line, "directory").unwrap_or_default();
+        let fix = if cmd.starts_with("cp ") { cmd.replacen("cp ", "cp -r ", 1) } else { "nothing".to_string() };
+        return Some(format_answer(
+            &format!(
+                "`cp` skipped the folder `{dir}` (`{line}`): it copies a folder only with `-r`, which copies everything inside it too."
+            ),
+            &fix,
+        ));
+    }
+    if lower.contains("cannot create directory") && lower.trim_end().ends_with("file exists") {
+        let line = line_with(out, "cannot create directory")?;
+        let path = quoted_after(line, "directory")?;
+        return Some(format_answer(
+            &format!(
+                "`{path}` already exists (`{line}`), as a folder or as a file, so `mkdir` has nothing to create. `mkdir -p {path}` would accept an existing folder silently."
+            ),
+            &format!("ls -ld {path}"),
+        ));
+    }
+    if let Some(line) = line_with(out, "unknown predicate") {
+        let name = quoted_after(line, "predicate").unwrap_or_default();
+        return Some(format_answer(
+            &format!(
+                "`find` does not have a test or option called `{name}` (`{line}`): it is misspelled or not a find option. `man find` lists what it accepts."
+            ),
+            "man find",
+        ));
+    }
+    if let Some(line) = out.lines().map(str::trim).find(|l| l.starts_with("No files found for ")) {
+        let unit = line.trim_start_matches("No files found for ").trim_end_matches('.');
+        let user = if cmd.split_whitespace().any(|w| w == "--user") { " --user" } else { "" };
+        let stem = unit.rsplit_once('.').map_or(unit, |(s, _)| s);
+        return Some(format_answer(
+            &format!(
+                "systemd has no unit file called `{unit}` (`{line}`): the service is not installed, or it has another name. `list-unit-files` searches the names."
+            ),
+            &format!("systemctl{user} list-unit-files '*{stem}*'"),
+        ));
+    }
+    if lower.contains("unterminated") && lower.contains("sed:") {
+        let line = line_with(out, "unterminated")?;
+        return Some(format_answer(
+            &format!(
+                "`sed` could not read its expression (`{line}`): a `s` command needs three slashes, as in `s/old/new/`, and this one is missing the closing `/` (or a quote is unbalanced)."
+            ),
+            "nothing",
+        ));
+    }
+    None
+}
+
+/// Development packages for the libraries compilers most often cannot find:
+/// (library names, header prefixes, arch, debian, fedora, suse, alpine).
+const DEV_PACKAGES: &[(&[&str], &[&str], [&str; 5])] = &[
+    (&["ssl", "crypto"], &["openssl/"], ["openssl", "libssl-dev", "openssl-devel", "libopenssl-devel", "openssl-dev"]),
+    (&["z"], &["zlib.h", "zconf.h"], ["zlib", "zlib1g-dev", "zlib-devel", "zlib-devel", "zlib-dev"]),
+    (&["curl"], &["curl/"], ["curl", "libcurl4-openssl-dev", "libcurl-devel", "libcurl-devel", "curl-dev"]),
+    (&["ffi"], &["ffi.h"], ["libffi", "libffi-dev", "libffi-devel", "libffi-devel", "libffi-dev"]),
+    (&["sqlite3"], &["sqlite3.h"], ["sqlite", "libsqlite3-dev", "sqlite-devel", "sqlite3-devel", "sqlite-dev"]),
+    (&["xml2"], &["libxml/"], ["libxml2", "libxml2-dev", "libxml2-devel", "libxml2-devel", "libxml2-dev"]),
+    (&["yaml"], &["yaml.h"], ["libyaml", "libyaml-dev", "libyaml-devel", "libyaml-devel", "yaml-dev"]),
+    (&["png"], &["png.h"], ["libpng", "libpng-dev", "libpng-devel", "libpng16-devel", "libpng-dev"]),
+    (&["bz2"], &["bzlib.h"], ["bzip2", "libbz2-dev", "bzip2-devel", "libbz2-devel", "bzip2-dev"]),
+    (
+        &["readline"],
+        &["readline/"],
+        ["readline", "libreadline-dev", "readline-devel", "readline-devel", "readline-dev"],
+    ),
+    (
+        &["ncurses", "curses"],
+        &["ncurses.h", "curses.h"],
+        ["ncurses", "libncurses-dev", "ncurses-devel", "ncurses-devel", "ncurses-dev"],
+    ),
+    (&[], &["Python.h"], ["python", "python3-dev", "python3-devel", "python3-devel", "python3-dev"]),
+];
+
+/// A missing library (`ld: cannot find -lssl`) or header (`fatal error: openssl/ssl.h: No such
+/// file or directory`): the development package is not installed.
+fn measured_libraries(last: &Last, lower: &str) -> Option<String> {
+    use crate::platform;
+    let out = last.output.as_str();
+    let (what, evidence, library, header): (String, String, Option<String>, Option<String>) =
+        if let Some(line) = line_with(out, "cannot find -l") {
+            let lib =
+                line.split("cannot find -l").nth(1)?.split(|c: char| c == ':' || c.is_whitespace()).next()?.to_string();
+            (format!("the library `-l{lib}`"), line.to_string(), Some(lib), None)
+        } else if lower.contains("fatal error:") && lower.contains(".h: no such file or directory") {
+            let line = line_with(out, ".h: no such file or directory")?;
+            let header = line.split("fatal error:").nth(1)?.split(':').next()?.trim().to_string();
+            (format!("the header `{header}`"), line.to_string(), None, Some(header))
+        } else {
+            return None;
+        };
+    let platforms = platform::detect();
+    let column = match platform::manager(&platforms).as_deref() {
+        Some("arch" | "omarchy") => Some(0),
+        Some("debian") => Some(1),
+        Some("fedora") => Some(2),
+        Some("suse") => Some(3),
+        Some("alpine") => Some(4),
+        _ => None,
+    };
+    let entry = DEV_PACKAGES.iter().find(|(libs, headers, _)| {
+        library.as_ref().is_some_and(|l| libs.contains(&l.as_str()))
+            || header.as_ref().is_some_and(|h| headers.iter().any(|p| h.starts_with(p)))
+    });
+    let known = entry.and_then(|(_, _, names)| column.map(|c| names[c]));
+    if let (Some(package), Some(install)) = (known, platform::fact(&platforms, "pkg_install")) {
+        return Some(format_answer(
+            &format!(
+                "The compiler could not use {what} (`{evidence}`) because the library's development files (headers and link library) are not installed; the plain runtime package is not enough. Install the development package, `{package}` on this system, then build again."
+            ),
+            &platform::fill(&install, package),
+        ));
+    }
+    let search_for = header.clone().or_else(|| library.as_ref().map(|l| format!("lib{l}.so")))?;
+    let fix =
+        platform::fact(&platforms, "pkg_provides").map_or("nothing".to_string(), |t| platform::fill(&t, &search_for));
+    Some(format_answer(
+        &format!(
+            "The compiler could not use {what} (`{evidence}`). If it belongs to a library, that library's development package (headers and link library) is not installed; if it is your own file, check its path. The package manager can tell you which package provides it."
+        ),
+        &fix,
+    ))
+}
+
+/// The host a curl or ssh command talks to.
+fn url_host(command: &str) -> Option<String> {
+    let url = command
+        .split_whitespace()
+        .find(|t| t.starts_with("http://") || t.starts_with("https://") || t.starts_with("ftp://"))?;
+    let rest = url.split("://").nth(1)?;
+    let host = rest.split(['/', '?']).next()?;
+    let host = host.rsplit('@').next()?;
+    let host =
+        if host.starts_with('[') { host.split(']').next()?.trim_start_matches('[') } else { host.split(':').next()? };
+    (!host.is_empty()).then(|| host.to_string())
+}
+
+fn measured_net(last: &Last, lower: &str) -> Option<String> {
+    let out = last.output.as_str();
+    if lower.contains("curl: (28)") {
+        let line = line_with(out, "curl: (28)")?;
+        let host = url_host(&last.command);
+        let (target, fix) = match &host {
+            Some(h) => (format!("`{h}`"), format!("ping -c 3 {h}")),
+            None => ("the server".to_string(), "nothing".to_string()),
+        };
+        return Some(format_answer(
+            &format!(
+                "curl gave up waiting for {target} (`{line}`): the machine is switched off or unreachable, a firewall silently drops the traffic, or the network is down. Unlike `Connection refused`, nothing answered at all."
+            ),
+            &fix,
+        ));
+    }
+    if lower.contains("host key verification failed") || lower.contains("remote host identification has changed") {
+        let host = line_with(out, "host key for ")
+            .and_then(|l| word_after(l, "Host key for ").or_else(|| word_after(l, "host key for ")))
+            .map(str::to_string)
+            .or_else(|| extract_ssh_target(&last.command, out).map(|t| t.rsplit('@').next().unwrap_or(&t).to_string()));
+        let changed = lower.contains("has changed") || lower.contains("offending");
+        if changed {
+            let file = line_with(out, "offending ").and_then(|l| word_after(l, " in ")).unwrap_or("~/.ssh/known_hosts");
+            let fix = host.as_ref().map_or("nothing".to_string(), |h| format!("ssh-keygen -R {h}"));
+            return Some(format_answer(
+                &format!(
+                    "SSH refused to connect because the host key the server presented is not the one saved for it in your known_hosts file (`Host key verification failed`; the entry is in `{file}`). This is normal after the server was reinstalled or its address was given to another machine, but it is also exactly what a man-in-the-middle attack looks like, so confirm with whoever runs the server that the key really changed. Only then remove the old entry with `ssh-keygen -R` and connect again."
+                ),
+                &fix,
+            ));
+        }
+        return Some(format_answer(
+            "SSH could not verify the server's host key (`Host key verification failed`): the host is not in your known_hosts file, and ssh could not ask you to trust it (a script, or a non-interactive session). Connect once by hand and compare the fingerprint it shows with the server's before accepting it.",
+            "nothing",
+        ));
+    }
+    None
+}
+
+fn measured_build(last: &Last, lower: &str) -> Option<String> {
+    let out = last.output.as_str();
+    let cmd = last.command.trim();
+    if let Some(line) = line_with(out, "error: no such command:") {
+        let bad = quoted_after(line, "command:").unwrap_or_default();
+        return Some(
+            match out
+                .lines()
+                .find_map(|l| l.contains("Did you mean").then(|| quoted_after(l, "Did you mean")).flatten())
+            {
+                Some(sug) => {
+                    let fixed = if cmd.is_empty() { format!("cargo {sug}") } else { fix_command(cmd, &bad, &sug) };
+                    format_answer(
+                        &format!(
+                            "Cargo has no command `{bad}` (`{line}`); it suggests `{sug}`, so this is probably a typo."
+                        ),
+                        &fixed,
+                    )
+                }
+                None => format_answer(
+                    &format!("Cargo has no command `{bad}` (`{line}`). `cargo --list` shows the commands that exist."),
+                    "cargo --list",
+                ),
+            },
+        );
+    }
+    if let Some(line) = out.lines().map(str::trim).find(|l| l.contains("undefined reference to")) {
+        let name = quoted_after(line, "undefined reference to").unwrap_or_default();
+        return Some(format_answer(
+            &format!(
+                "The program compiled but could not be linked: nothing defines `{name}` (`{line}`). The source file or library that defines it is missing from the build (for a library, a `-l` flag), or the name is misspelled."
+            ),
+            "nothing",
+        ));
+    }
+    if let Some((place, message)) = out.lines().map(str::trim).find_map(|t| {
+        let (place, rest) = t.split_once(": ")?;
+        let mut parts = place.split(':');
+        let (_, line, _) = (parts.next()?, parts.next()?, parts.next());
+        (line.chars().all(|c| c.is_ascii_digit())
+            && !line.is_empty()
+            && (rest.starts_with("error: ") || rest.starts_with("fatal error: ")))
+        .then(|| (place.to_string(), rest.to_string()))
+    }) {
+        return Some(format_answer(
+            &format!(
+                "The compiler rejected the code at `{place}`: `{message}`. Fix that line (or the one just before it); later errors are often just follow-ons of the first."
+            ),
+            "nothing",
+        ));
+    }
+    if let Some(line) = out
+        .lines()
+        .map(str::trim)
+        .find(|l| ["ReferenceError: ", "SyntaxError: ", "TypeError: ", "RangeError: "].iter().any(|k| l.starts_with(k)))
+        && !out.contains("Traceback")
+        && !out.contains("File \"")
+        && (out.contains("Node.js v") || out.contains("node:internal") || out.contains("\n    at "))
+    {
+        let place = out
+            .lines()
+            .map(str::trim)
+            .take_while(|l| *l != line)
+            .find(|l| {
+                !l.contains(char::is_whitespace)
+                    && l.rsplit_once(':').is_some_and(|(_, n)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+            })
+            .map(|p| format!(" at `{p}`"))
+            .unwrap_or_default();
+        let explanation = if line.starts_with("ReferenceError") {
+            format!(
+                "Node stopped{place}: `{line}`. The code uses a name that was never declared or imported where it is used: check the spelling, or add the missing `require`/`import` or declaration."
+            )
+        } else if line.starts_with("SyntaxError") {
+            format!(
+                "Node could not parse the code{place}: `{line}`. There is a typo in the syntax on that line or just before it (a missing bracket, quote or operand)."
+            )
+        } else {
+            format!(
+                "Node stopped{place} with `{line}`; the line it points to used a value of the wrong type or out of range."
+            )
+        };
+        return Some(format_answer(&explanation, "nothing"));
+    }
+    if (lower.contains("npm err! code e404") || lower.contains("npm error code e404"))
+        && let Some(name) = out
+            .lines()
+            .find_map(|l| l.split("registry.npmjs.org/").nth(1).and_then(|r| r.split_whitespace().next()))
+            .map(|n| n.replace("%2f", "/").replace("%2F", "/"))
+            .or_else(|| out.lines().find_map(|l| quoted_after(l, "404").map(|q| q.trim_end_matches("@*").to_string())))
+    {
+        return Some(format_answer(
+            &format!(
+                "npm could not find a package called `{name}` in the registry (`404 Not Found`): the name is misspelled, or the package is private or was removed (then you need to log in or set the right registry)."
+            ),
+            &format!("npm search {name}"),
+        ));
+    }
+    if let Some(line) = line_with(out, "no matching distribution found for") {
+        let name = word_after(line, "for ").unwrap_or("the package");
+        return Some(format_answer(
+            &format!(
+                "pip found no package called `{name}` that it can install (`{line}`): the name is misspelled, the package is not on PyPI, or no version of it supports this Python. Check the spelling of the name."
+            ),
+            &format!("pip index versions {name}"),
+        ));
+    }
+    if let Some(line) = line_with(out, "make: *** no rule to make target") {
+        let target = quoted_after(line, "target").unwrap_or_default();
+        let file = cmd.split_whitespace().skip_while(|t| *t != "-f").nth(1).unwrap_or("Makefile");
+        let fix = format!("grep -nE '^[A-Za-z0-9_.-]+:' {file}");
+        return Some(match quoted_after(line, "needed by") {
+            Some(from) => format_answer(
+                &format!(
+                    "`make` needs `{target}` to build `{from}` (`{line}`), but no such file exists and the Makefile has no rule that creates it. The name in the Makefile may be misspelled, or the file is missing."
+                ),
+                &fix,
+            ),
+            None => format_answer(
+                &format!(
+                    "The Makefile has no target called `{target}`, and no file of that name exists (`{line}`). Check the spelling against the targets the Makefile defines."
+                ),
+                &fix,
+            ),
+        });
+    }
+    if lower.contains("no targets specified and no makefile found") {
+        return Some(format_answer(
+            "`make` found no Makefile in this folder (`No targets specified and no makefile found`): you are probably in the wrong folder, or the project builds some other way.",
+            "ls",
+        ));
+    }
+    if lower.contains("jq: error") && lower.contains("compile error") {
+        let line = line_with(out, "jq: error")?;
+        return Some(format_answer(
+            &format!(
+                "jq could not compile its filter (`{line}`): the filter has a syntax error, usually an unclosed `[`, `(` or quote. Keep the filter in single quotes so the shell does not change it."
+            ),
+            "nothing",
+        ));
+    }
+    if (lower.starts_with("awk:") || lower.starts_with("gawk:") || lower.starts_with("mawk:"))
+        && (lower.contains("syntax error") || lower.contains("unexpected") || lower.contains("line:"))
+    {
+        let line = out.lines().map(str::trim).rfind(|l| !l.is_empty())?;
+        return Some(format_answer(
+            &format!(
+                "awk could not parse its program (`{line}`): there is a syntax error, usually a missing closing `}}`, `)` or quote. Keep the program in single quotes so the shell does not change it."
+            ),
+            "nothing",
+        ));
+    }
+    if let Some(line) = out.lines().map(str::trim).find(|l| l.starts_with("curl: try 'curl --help'")) {
+        return Some(format_answer(
+            &format!(
+                "curl was started without a URL, or with arguments it could not use (`{line}`). It needs an address to fetch, as in `curl https://example.com`."
+            ),
+            "curl --help",
+        ));
+    }
+    None
+}
+
+fn measured_runtime(last: &Last, lower: &str) -> Option<String> {
+    let out = last.output.as_str();
+    let cmd = last.command.trim();
+    if let Some(line) = line_with(out, "panicked at") {
+        let rest = line.split("panicked at ").nth(1)?.trim();
+        let (place, message) = if rest.starts_with(['\'', '"']) {
+            let (message, place) = rest[1..].rsplit_once(", ").map_or((rest, ""), |(m, p)| (m, p));
+            (place.trim().to_string(), message.trim_end_matches(['\'', '"']).to_string())
+        } else {
+            let message =
+                out.lines().skip_while(|l| !l.contains("panicked at")).nth(1).unwrap_or("").trim().to_string();
+            (rest.trim_end_matches(':').to_string(), message)
+        };
+        let fix = if cmd.is_empty() || cmd.contains("RUST_BACKTRACE") {
+            "nothing".to_string()
+        } else {
+            format!("RUST_BACKTRACE=1 {cmd}")
+        };
+        return Some(format_answer(
+            &format!(
+                "The Rust program panicked at `{place}`: `{message}`. That is a bug in the program (or input it did not expect), not a build problem. Running it again with `RUST_BACKTRACE=1` prints the chain of calls that led there."
+            ),
+            &fix,
+        ));
+    }
+    if lower.contains("javascript heap out of memory") || lower.contains("reached heap limit") {
+        let fix = if extract_command_parts(cmd).1 == "node" {
+            cmd.replacen("node ", "node --max-old-space-size=4096 ", 1)
+        } else if cmd.is_empty() {
+            "nothing".to_string()
+        } else {
+            format!("NODE_OPTIONS=--max-old-space-size=4096 {cmd}")
+        };
+        return Some(format_answer(
+            "Node ran out of memory (`JavaScript heap out of memory`): the program tried to hold more than node's default heap limit allows. Either raise the limit with `--max-old-space-size` (in megabytes), or find what keeps so much in memory (a leak, or a huge file read whole).",
+            &fix,
+        ));
+    }
+    if lower.contains("fatal error: runtime: out of memory") || lower.contains("fatal error: out of memory") {
+        return Some(format_answer(
+            "The Go program ran out of memory (`fatal error: runtime: out of memory`): the machine, a container or a ulimit had no memory left to give it. Reduce what the program holds in memory at once, or free memory; `free -h` shows what is available.",
+            "free -h",
         ));
     }
     None
@@ -2450,17 +3327,18 @@ fn last_meaningful_line(output: &str) -> Option<&str> {
     lines.last().copied()
 }
 
-fn user_in_group(group: &str) -> bool {
-    let Ok(user) = std::env::var("USER") else { return false };
-    let Ok(groups) = std::fs::read_to_string("/etc/group") else { return false };
-    groups.lines().any(|line| {
+/// Is the user in `group`? `None` when that could not be looked up.
+fn user_in_group_checked(group: &str) -> Option<bool> {
+    let user = std::env::var("USER").ok()?;
+    let groups = std::fs::read_to_string("/etc/group").ok()?;
+    Some(groups.lines().any(|line| {
         let mut cols = line.split(':');
         let Some(name) = cols.next() else { return false };
         if name != group {
             return false;
         }
         cols.nth(2).is_some_and(|members| members.split(',').any(|m| m.trim() == user))
-    })
+    }))
 }
 
 fn scan_path_executables() -> Vec<String> {

@@ -189,7 +189,7 @@ Try: omarchy pkg add jq
 (Nothing was run.)
 ```
 
-`huh why` says so when it does not know: output with no error line and no exit code is reported as "does not look like an error" (with what it seems to be), and an unrecognised failure quotes the line that reports it instead of guessing a fix. Refused access to a file is checked against the file itself (owner and mode, read-only), so `sudo` is suggested only for other users' or system files; a missing Python or node module that looks like a typo is called one rather than installed.
+`huh why` says so when it does not know. Without an exit code, only a line shaped like an error message (`error: ...`, `fatal: ...`, `program: file: reason`) counts as a failure; output with none is called "not an error" only when it is recognised success text (a clean `git status`, a passing test run, a listing), and otherwise huh says it does not recognise the output and quotes the closest line. An unrecognised failure quotes the line that reports it instead of guessing a fix, an exit code is only stated when it was given, and facts about this computer (such as docker group membership) are labelled as checks made here. A refused write into a system path gets `sudo tee`, never `chmod +x`; `pacman` keeps the operation you ran; a missing library or header names the development package for your distro. Refused access to a file is checked against the file itself (owner and mode, read-only), so `sudo` is suggested only for other users' or system files; a missing Python or node module that looks like a typo is called one rather than installed.
 
 ### Other commands
 

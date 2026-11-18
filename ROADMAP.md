@@ -35,14 +35,14 @@ Known limits: stdout and stderr arrive mixed in the terminal, so the tutor goes 
 
 ### Next (from that measurement)
 
-1. **`huh why` confident wrong answers**:
+1. ~~**`huh why` confident wrong answers**~~ Done 2026-11-18 (see "Completed: Error doctor, second measurement round"). Original findings:
    - `echo x > /etc/foo` (Permission denied on a write) is called "not executable" with `chmod +x`.
    - `pacman -Syu` and `-R` as a user are rewritten to `sudo pacman -S <package>`.
    - "Your user is in the docker group" is a claim about this machine, not the output.
    - The gzip errors are explained with tar wording.
    - JSON decode errors point at the library frame instead of the user's code.
    - About 15 real failures are called "not an error" (`git commit` with nothing staged, `make nosuchtarget`, `sed` syntax errors, …). When unsure, huh should say it does not recognise the output rather than "not an error".
-2. **`huh why` coverage**: about 40% of real failures still get only the restated error line. These include curl exit 7/28, git push rejections and missing remotes, the missing dev library or header (`-lssl`, `ssl.h`), cargo/rustc/gcc errors, node errors, jq/awk syntax, and `mkdir`/`rm` on folders.
+2. ~~**`huh why` coverage**~~ Done 2026-11-18 (same entry). Original findings: about 40% of real failures still get only the restated error line. These include curl exit 7/28, git push rejections and missing remotes, the missing dev library or header (`-lssl`, `ssl.h`), cargo/rustc/gcc errors, node errors, jq/awk syntax, and `mkdir`/`rm` on folders.
 3. ~~**Requests: wrong noun in a slot**~~ done 2026-11-18, see "Completed: Slot filling, round 2".
 4. **Requests: state questions answered with actions** ("is vlc installed" → install, "what wifi am i connected to" → connect, "put the computer to sleep" → stay awake, "connect bluetooth headphones" → power off), values as targets ("set volume to 50%"), and stray words accepting off-topic requests ("order a pizza" → `sort`). Needs a minimum-evidence floor for `<placeholder>`-only suggestions.
 5. **Catalog gaps seen repeatedly** (also "unmount drive" → `lsblk` at 29%; should be `udisksctl unmount -b <device>` / `umount`):
@@ -63,6 +63,16 @@ Known limits: stdout and stderr arrive mixed in the terminal, so the tutor goes 
 - **No more silent drops**: new on existing entries: `unzip -d`, `docker logs --tail`, `docker exec -u`, `pkill -u`, `git stash -u`, `dig @server`, `curl -C -`, `sort -u`, `tar` one member, `useradd -s`, `grep`/`rsync` exclude; "older than N" gets a "not included" note when the line has no place for it.
 - **Catalog entries touched** (slots/flags only, no new entries): useradd, pkill, unzip, docker logs, docker exec, git stash, dig, curl, sort, tar, rsync, grep (new slot or flag); `type` added to journalctl, search service log, systemctl, systemctl --user, add user to group, chown, docker exec/logs/restart/stop/rm/start.
 - **Not handled**: "reset to origin/main" (no catalog fit: ranking/entry), "vacuum journal logs older than 7 days" (no `journalctl --vacuum-time` entry; it now gives plain `journalctl` plus a note), "docker compose restart service web" (no compose restart entry: gives `systemctl restart web`), and containers/packages cannot be checked against a list.
+
+## Completed: Error doctor, second measurement round (2026-11-18)
+
+Items 1 and 2 of "Next (from that measurement)". New suite `evals/errors-measured.toml` (66 cases, outputs produced in Debian containers; pasted text for pacman, docker daemon, ssh host keys, missing dev libraries and out-of-memory kills). Before the fixes: causes 35/65 (54%), fixes 30/65 (46%). After: 66/66 and 66/66 (the suite gained one case), and the other three error suites stay at 100%.
+
+- **Wrong answers removed**: a refused redirect or `tee` is a write (`echo x | sudo tee /etc/foo`, never `chmod +x`); with no command, `bash: /etc/foo: Permission denied` is "could not be written or run" and names the admin-rights problem; `pacman` keeps the user's operation (`sudo pacman -Syu`), and piped without a command it says "run the same pacman command with sudo" with no placeholder; `docker nosuchsub` no longer claims exit code 127 (the code is only stated when given); the docker-group sentence is labelled "On this computer" and only claimed when `/etc/group` was read; gzip/gunzip errors use gzip wording and the real file name; `-lssl` / `ssl.h` name the development package per family (libssl-dev, openssl-devel, openssl, ...), else the provides search; Python tracebacks point at the last frame outside the standard library and site-packages (including `<string>`).
+- **No more "does not look like an error" without evidence**: with no exit code, only a line shaped like an error (`error:`, `fatal:`, `npm ERR!`, `Traceback`, `Name: ... reason`, a well-known reason such as `Permission denied`) counts as a failure. Output with none is "not an error" only when it is recognised success text; otherwise huh says it does not recognise the output and quotes the most error-like line. Sentences that merely contain "error" or "failed" are no longer called failures.
+- **Garbled subjects fixed**: `tar: x.tar: Cannot open`, `sed: can't read x`, `git switch nosuch`.
+- **New coverage**: curl exit 28, `Host key verification failed` (`ssh-keygen -R`, with the security meaning), git (no push destination, non-fast-forward, `branch -d` not merged, clone of a missing repository, `add nofile`, remote already exists, `commit` with nothing to commit, `merge nosuch`, command typos), `cargo biuld`, rustc error location, gcc errors and undefined references, node Reference/SyntaxError, npm E404, jq and awk syntax, `find -nme`, `mkdir` exists, `rm dir`, `cat dir`, `cp dir`, `sed` unterminated, `curl` with no URL, `systemctl cat` of a missing unit, `make` with no rule, docker unknown command and missing container, pip "No matching distribution", Rust panics, Node heap and Go out-of-memory.
+- **Next**: `cargo`/`pytest` failures with many errors still report only the first; the dev-library table covers about a dozen libraries; `ssh-keygen -R` ignores non-default ports.
 
 ## Completed: Safety (2026-11-18)
 

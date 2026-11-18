@@ -260,7 +260,7 @@ output = '''
 Hello, world!
 42
 '''
-mention = ["does not look like an error"]
+mention = ["does not recognise an error"]
 forbid = ["failed with"]
 fix = "nothing"
 
