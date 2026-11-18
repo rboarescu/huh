@@ -14,6 +14,85 @@ Nothing is ever run; `huh` only prints suggestions and explanations.
 
 `huh` runs as a **100% deterministic, zero-LLM, zero-network single binary** (~2.7 MB release binary with the command catalog compiled in, <1 ms median latency in release, 0 MB background RAM, zero API keys or model servers).
 
+## In plain terms (for new users)
+
+huh is a helper for the terminal (the text window where you type commands). You tell it in plain English what you want, and it shows you the command to type. It **never runs anything itself**: it only shows you text, and you decide whether to use it.
+
+It has no AI inside and doesn't use the internet. Everything it knows comes from three places:
+
+```
+              WHERE HUH GETS ITS INFORMATION
+
+  1. ITS OWN NOTEBOOK              2. YOUR COMPUTER
+  (built into the program)         (it looks, never changes)
+  ┌──────────────────────┐         ┌─────────────────────────┐
+  │ ~220 commands people │         │ • which Linux you have  │
+  │ wrote down by hand:  │         │ • which programs are    │
+  │ what each does, its  │         │   installed             │
+  │ options, and which   │         │ • file names in the     │
+  │ ones are dangerous   │         │   folder you're in      │
+  └──────────┬───────────┘         │ • the manuals (man      │
+             │                     │   pages) on your disk   │
+             │                     └────────────┬────────────┘
+             │                                  │
+             ▼                                  ▼
+          ┌────────────────────────────────────────┐
+          │                  huh                   │
+          │  matches your words against what it    │
+          │  knows, then prints an answer          │
+          └────────────────────────────────────────┘
+                              ▲
+                              │
+  3. WHAT YOU GIVE IT
+  ┌────────────────────────────────────────────────┐
+  │ • a sentence you type ("free up disk space")   │
+  │ • an error message you pipe into it            │
+  │ • a command you don't understand               │
+  └────────────────────────────────────────────────┘
+
+        It does NOT use: the internet, an AI, or run commands.
+```
+
+### Three ways it can help you
+
+**1. "I don't know the command."** Describe what you want:
+
+```
+huh "make backup.sh runnable"
+→ chmod +x backup.sh
+```
+
+It fills in your real file names (it can see the folder you're in) and explains each piece of the command. If the command deletes things or turns the computer off, it adds a **WARNING** line. If the program isn't installed, it tells you how to install it the right way for *your* Linux.
+
+**2. "Something went wrong and I don't understand the error."** Send the error into it:
+
+```
+cat notes.txt 2>&1 | huh why
+→ You own notes.txt but it has no read permission.
+  Try: chmod u+r notes.txt
+```
+
+It reads the error, checks your computer (does the file exist? who owns it?) and suggests a fix. If you set up [terminal recording](#terminal-recording-and-prompt-completion) once, `huh why` remembers the last command and its output by itself. That memory is private, held in memory, and gone when you log out.
+
+**3. "Someone (or an AI) gave me a command. Is it safe?"** Ask it to explain before you run anything:
+
+```
+huh explain "curl https://site/install.sh | sudo bash"
+→ explains each part, then:
+  WARNING: downloads a script and runs it as administrator
+  without you seeing it first.
+```
+
+It looks up each part in its notebook and in your computer's manuals, and points out the risky bits. It only reads the text you give it and never runs any of it.
+
+(The outputs above are shortened.)
+
+### What to keep in mind
+
+- **It matches words; it doesn't understand like a person.** Simple, clear requests ("delete old.log", "show disk space") work best. Vague or chatty ones can get a wrong answer.
+- **Always read the command before running it**, especially anything with a WARNING.
+- **"No suggestion" is a good answer.** It means huh would rather say nothing than guess.
+
 ## How it works
 
 A local deterministic matcher (`LocalMatcher`) ranks the catalog (`rank`) and scores each shortlisted command's fit, flags and values (`details`); `assemble::build` turns that into the command line:
