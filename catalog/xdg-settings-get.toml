@@ -1,0 +1,6 @@
+name = "xdg-settings get"
+description = "Show which web browser is the default"
+template = "xdg-settings get default-web-browser"
+kind = "query"
+package = "xdg-utils"
+keywords = ["default browser", "which browser is default", "what is my default browser", "current default browser", "default web browser"]

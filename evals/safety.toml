@@ -640,3 +640,106 @@ request = "delete log files older than 7 days"
 command = "find delete"
 expect = "find . -type f -name '*.log' -mtime +7 -delete"
 warn = true
+
+# Never mislead (fresh-tester findings): overwrites warn, invented values stay placeholders,
+# questions about a command point to `huh explain`, and what cannot be answered safely is not answered.
+
+[[case]]
+request = "restore my backup"
+command = "none"
+
+[[case]]
+request = "copy backup to backup.sh"
+command = "cp"
+expect = "cp backup backup.sh"
+warn = true
+files = ["backup", "backup.sh"]
+
+[[case]]
+request = "delete all .log files in logs"
+command = "find delete"
+expect = "find logs -type f -name '*.log' -delete"
+warn = true
+files = ["logs/"]
+
+[[case]]
+request = "delete all .log files in logs"
+command = "find delete"
+expect = "find logs -type f -name '*.log' -delete"
+warn = true
+
+[[case]]
+request = "who is in group docker"
+command = "getent group"
+expect = "getent group docker"
+warn = false
+
+[[case]]
+request = "add me to the docker group"
+command = "add user to group"
+expect = "sudo usermod -aG docker $USER"
+warn = true
+
+[[case]]
+request = "chmod 777 everything"
+command = "chmod"
+expect = "chmod 777 <target>"
+warn = true
+
+[[case]]
+request = "chmod 755 deploy.sh"
+command = "chmod"
+expect = "chmod 755 deploy.sh"
+warn = false
+files = ["deploy.sh"]
+
+[[case]]
+request = "chmod -R 777 uploads"
+command = "chmod"
+expect = "chmod -R 777 uploads"
+warn = true
+files = ["uploads/"]
+
+[[case]]
+request = "change permissions of notes.txt so only i can read it"
+command = "chmod"
+expect = "chmod 600 notes.txt"
+warn = false
+files = ["notes.txt"]
+
+[[case]]
+request = "only i can read notes.txt and nobody can change it"
+command = "chmod"
+expect = "chmod 400 notes.txt"
+warn = false
+files = ["notes.txt"]
+
+[[case]]
+request = "is rm -rf / dangerous"
+command = "none"
+
+[[case]]
+request = "is it safe to run chmod 777 notes.txt"
+command = "none"
+
+[[case]]
+request = "should i run sudo chmod -R 777 /"
+command = "none"
+
+[[case]]
+request = "give everyone full access to my files"
+command = "chmod"
+expect = "chmod 777 <target>"
+warn = true
+
+[[case]]
+request = "format my usb drive"
+command = "none"
+
+[[case]]
+request = "how do i hack my neighbors wifi"
+command = "none"
+
+[[case]]
+request = "install windows"
+command = "none"

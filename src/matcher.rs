@@ -131,6 +131,19 @@ impl LocalMatcher {
         Self { entries, by_name, vocab, postings }
     }
 
+    /// Whether the request asks about the state of the system ("is ssh running", "what's my
+    /// volume", "sound isnt working") rather than ordering a change.
+    pub fn asks_about_state(&self, request: &str) -> bool {
+        let norm = normalize_text(request);
+        request_mood(&norm, &raw_lower_words(&norm)) == Mood::Question
+    }
+
+    /// Whether the catalog entry of this name changes the system (an action) rather than only
+    /// looking at it.
+    pub fn is_action(&self, name: &str) -> bool {
+        self.by_name.get(name).is_some_and(|&i| self.entries[i].kind == Kind::Action)
+    }
+
     /// Whether some catalog command runs a program of this name.
     pub fn knows_program(&self, name: &str) -> bool {
         self.entries.iter().any(|entry| entry.command.program() == name)
@@ -244,6 +257,9 @@ impl LocalMatcher {
             if let Some(reader) = &slot.extract {
                 *pick = match crate::extract::extract(reader, request) {
                     Some(value) => SlotPick::Value { named: 0.95, value },
+                    // A choice slot with a reader takes a typed value ("chmod 755") when there
+                    // is one, else the option it scored.
+                    None if slot.kind == SlotKind::Choice => pick.clone(),
                     None => SlotPick::Unnamed,
                 };
             } else if let SlotPick::Value { value, .. } = pick
@@ -251,6 +267,16 @@ impl LocalMatcher {
                 && slot.what.as_deref().is_some_and(|what| what.contains("process ID"))
             {
                 // A number after "port" is a port, never a process ID.
+                *pick = SlotPick::Unnamed;
+            }
+        }
+        // A common word that the request does not present as a name ("slow", "synced", "PATH",
+        // the command's own name) is not a value: leave the placeholder.
+        for (slot, pick) in command.slots.iter().zip(slots.iter_mut()) {
+            if slot.extract.is_none()
+                && let SlotPick::Value { value, .. } = pick
+                && is_stray_value(command, slot, value, candidates, &q)
+            {
                 *pick = SlotPick::Unnamed;
             }
         }
@@ -267,7 +293,13 @@ impl LocalMatcher {
         } else {
             fit
         };
-        let fit = if self.rests_on_generic_words(entry, &q) { fit.min(0.14) } else { fit };
+        // A value the request spells out for the command ("777") is evidence beyond generic words.
+        let typed = command
+            .slots
+            .iter()
+            .zip(&slots)
+            .any(|(slot, pick)| slot.kind == SlotKind::Choice && matches!(pick, SlotPick::Value { .. }));
+        let fit = if !typed && self.rests_on_generic_words(entry, &q) { fit.min(0.14) } else { fit };
         Some(Details { fit, flags, slots })
     }
 
@@ -807,6 +839,10 @@ fn request_mood(norm: &str, words: &[String]) -> Mood {
         return Mood::Instruction;
     }
     if !QUESTION_OPENERS.iter().any(starts) {
+        // "sound isnt working": a report of trouble describes the state; it does not order a change.
+        if reports_trouble(&w) && !w.iter().any(|x| CHANGE_VERBS.contains(x)) {
+            return Mood::Question;
+        }
         return Mood::Instruction;
     }
     // A question that goes on to ask for a change is an instruction.
@@ -817,6 +853,27 @@ fn request_mood(norm: &str, words: &[String]) -> Mood {
         return Mood::Instruction;
     }
     Mood::Question
+}
+
+/// "my sound is not working", "wifi doesnt connect": a symptom, not a command.
+fn reports_trouble(words: &[&str]) -> bool {
+    const NEGATIONS: &[&str] = &["not", "isnt", "doesnt", "dont", "wont", "cant", "never", "stopped", "no"];
+    const SYMPTOMS: &[&str] = &[
+        "working",
+        "work",
+        "works",
+        "responding",
+        "loading",
+        "connecting",
+        "showing",
+        "starting",
+        "opening",
+        "playing",
+    ];
+    words
+        .iter()
+        .enumerate()
+        .any(|(i, w)| NEGATIONS.contains(w) && words.iter().skip(i + 1).take(2).any(|next| SYMPTOMS.contains(next)))
 }
 
 /// What the kind of the command, the mood of the request and the opposites do to the score:
@@ -1515,6 +1572,9 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
     let age_phrase = q.has_any(&["older than", "more than", "days old", "weeks old", "not modified", "not changed", "stale"])
         && q.has_any(&["day", "days", "week", "weeks", "month", "months"]);
     let delete_verb = q.has_any(&["delete", "remove", "clean", "clean up", "purge", "erase", "get rid of", "wipe"]);
+    // "delete all .log files in logs": files matching a pattern inside a folder, never the folder itself.
+    let pattern_delete = delete_verb && crate::extract::extract("file_glob", q.raw).is_some_and(|g| g.contains('*'))
+        && q.has_any(&["files", "file"]);
     let installs = q.has_any(&["install", "uninstall", "package", "remove"]);
     let dns_lookup = !installs && q.has_any(&["dns lookup", "dns record", "dns records", "mx record", "mx records", "dig", "nameserver", "nameservers", "txt record", "resolve the domain", "look up the domain"])
         || (q.has_exact_word("mx") && q.has_domain_token());
@@ -1532,7 +1592,7 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "systemctl status" if !power_machine && !git_words && !docker_words
             && ((q.has_word("status") && !q.has_any(&["tailscale", "battery", "wifi", "network", "omarchy", "vpn", "raid", "user service"]))
                 || (has_is_running && q.has_any(&["service", "daemon", "unit"]))) => bonus += 9.5,
-        "find delete" if delete_verb && age_phrase => bonus += 13.0,
+        "find delete" if delete_verb && (age_phrase || pattern_delete) => bonus += 13.0,
         "kill port" if kills && q.names_port() && !q.has_any(&["listening", "what", "which", "who"]) => bonus += 14.0,
         "kill port" if q.has_phrase("already in use") => bonus += 14.0,
         "ss port" if q.names_port() && !port_check && q.has_any(&["listening", "listens", "using", "uses", "used", "what", "which", "who", "program", "process"]) && !kills => bonus += 14.0,
@@ -1555,7 +1615,10 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "curl headers" if q.has_any(&["headers", "header"]) && (has_url || q.has_domain_token()) => bonus += 14.0,
         "man" if is_meta_man => bonus += 9.5,
         "which" if is_meta_which => bonus += 9.5,
-        "df" if (q.has_any(&["free", "out of", "left"]) && q.has_any(&["disk", "space", "storage", "full"])) || q.has_phrase("disk full") => bonus += 7.5,
+        "df" if (q.has_any(&["free", "out of", "left"]) && q.has_any(&["disk", "space", "storage", "full"])) || q.has_phrase("disk full") || (q.has_any(&["almost", "nearly"]) && q.has_word("full") && q.has_any(&["disk", "drive", "storage", "space"])) => bonus += 7.5,
+        "stat" if q.mood == Mood::Question && !q.has_any(&["package", "packages"]) && q.has_any(&["permissions", "permission", "owner", "owns", "who owns"]) && q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text)) => bonus += 10.0,
+        "echo shell" if q.has_exact_word("shell") && q.mood == Mood::Question && !q.has_any(&["reload", "config", "alias", "variable", "script", "change", "set", "switch", "bash", "zsh", "fish"]) => bonus += 12.0,
+        "echo path" if q.has_exact_word("path") && !q.has_any(&["value of", "environment", "printenv", "file", "folder", "directory", "to", "add", "put", "append", "export", "set", "remove"]) => bonus += 12.0,
         "du" if q.has_any(&["how big", "space", "size"])
             && q.has_any(&["folder", "directory", "file", "this folder"])
             && !q.has_any(&["free", "most space", "taking up", "largest", "biggest", "out of", "permissions"]) => bonus += 7.0,
@@ -1633,7 +1696,7 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "xdg-open" if q.has_any(&["open", "viewer", "default app"]) && !q.has_any(&["port", "shell", "web app", "webapp", "nobody", "change", "terminal", "every time"]) => bonus += 6.0,
         "zbarimg" if q.has_any(&["qr", "barcode"]) => bonus += 9.5,
         "chmod" if (q.has_any(&["executable", "runnable", "as a program", "permission", "permissions", "chmod", "nobody but me", "protect", "read only", "modified"])
-            || (q.has_any(&["stop", "prevent"]) && q.has_word("editing")))
+            || (q.has_any(&["stop", "prevent"]) && q.has_word("editing")) || crate::extract::extract("chmod_mode", q.raw).is_some())
             && !q.has_any(&["rust", "docker", "container", "ollama", "frozen", "dotfiles"])
             && !(q.has_any(&["show", "list", "which", "what"]) && crate::extract::extract("file_age", q.raw).is_some()) => bonus += 9.0,
         "chown" if q.has_any(&["owner", "ownership", "chown"]) => bonus += 8.5,
@@ -1641,7 +1704,7 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "cp" if q.has_any(&["copy", "duplicate", "back up", "backup"]) && !q.has_any(&["clipboard", "screenshot", "remote", "server", "over the network", "snapshot"]) && !q.has_remote_scp() => bonus += 7.0,
         "mv" if q.has_any(&["move", "rename", "put"]) && q.has_any(&["to", "into"]) && !q.has_any(&["branch", "theme", "new directory", "trash", "recycle bin"]) && !q.raw.contains(".zip") && !q.raw.contains(".tar") => bonus += 9.0,
         "gio trash" if q.has_any(&["trash", "recycle bin", "discard"]) && !q.has_any(&["permanently", "permanent", "empty"]) && !q.asks_recovery() => bonus += 9.5,
-        "rm" if q.has_any(&["delete", "remove", "erase", "get rid of"]) && !q.has_any(&["container", "image", "model", "duplicate", "uninstall", "package", "branch", "vm", "trash", "recycle bin"]) && !age_phrase && !q.asks_recovery() => bonus += 6.5,
+        "rm" if q.has_any(&["delete", "remove", "erase", "get rid of"]) && !q.has_any(&["container", "image", "model", "duplicate", "uninstall", "package", "branch", "vm", "trash", "recycle bin"]) && !age_phrase && !pattern_delete && !q.asks_recovery() => bonus += 6.5,
         "mkdir" if q.has_any(&["create", "make", "new"]) && q.has_any(&["folder", "folders", "directory", "directories"]) && !q.has_any(&["shortcut", "archive", "zip", "copy"]) => bonus += 8.0,
         "touch" if q.has_any(&["empty file", "new file", "create an empty file"]) => bonus += 8.5,
         "pwd" if q.has_any(&["which directory", "which folder", "where am i", "current directory", "current folder"]) || (q.has_word("what") && q.has_any(&["folder", "directory"]) && q.has_word("this")) || q.has_any(&["folder am i in", "directory am i in", "folder i am in", "directory i am in"]) => bonus += 9.0,
@@ -1890,8 +1953,8 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
     let name = cmd.name.as_str();
     let has = |words: &[&str]| q.has_any(words);
 
-    // Asking to get something back is never answered with a command that deletes.
-    if q.asks_recovery() && (cmd.destructive || name == "gio trash") && name != "git restore" {
+    // Asking to get something back is never answered with a command that deletes or overwrites.
+    if q.asks_recovery() && (cmd.destructive || matches!(name, "gio trash" | "cp" | "mv" | "rsync")) && name != "git restore" {
         return false;
     }
 
@@ -1917,7 +1980,7 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         "sensors" => return has(&["temperature", "temperatures", "temp", "temps", "hot", "overheating", "overheat", "thermal", "fan", "fans", "sensors", "heat"]),
         "last" => return has(&["login", "logins", "logged in", "log ins"]) && !has(&["who is logged in", "who's logged in", "currently"]),
         "graphics card" => return has(&["graphics", "gpu", "video card", "vga"]),
-        "program version" => return has(&["version", "versions"]) && !has(&["omarchy", "kernel", "linux", "distro", "os", "git"]),
+        "program version" => return has(&["version", "versions"]) && (!has(&["omarchy", "kernel", "linux", "distro", "os", "git"]) || has(&["version of git", "git version", "version git"])),
         "run script" => return has(&["script", "run", "execute"])
             && (has(&["script"]) || q.raw_tokens.iter().any(|t| [".sh", ".py", ".bash", ".pl", ".rb"].iter().any(|ext| t.lower.ends_with(ext)))),
         "userdel" => return has(&["user", "account"]) && has(&["delete", "remove", "erase", "get rid of"]) && !has(&["group", "package"]),
@@ -1929,6 +1992,17 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         "curl post json" => return has(&["post"]) && has(&["json", "curl", "api", "body", "data"]),
         "wl-copy" => return has(&["clipboard"]) && !has(&["paste", "screenshot"]),
         "wl-paste" => return has(&["clipboard", "paste"]) && has(&["paste", "show", "print", "contents", "what"]),
+        "wpctl get-volume" => return has(&["volume", "sound", "audio", "muted", "loud"]) && !has(&["microphone", "mic", "input", "working", "broken", "stopped", "isnt", "not"]),
+        "wpctl status" => return has(&["audio", "output", "outputs", "speaker", "speakers", "sound", "sink", "headphones"]) && !has(&["working", "fix", "broken"]),
+        "brightnessctl info" => return has(&["brightness", "bright", "backlight"]),
+        "xdg-settings get" => return has(&["default"]) && has(&["browser", "web browser"]),
+        "timedatectl" => return has(&["clock", "time", "ntp", "timezone", "time zone", "synced", "synchronized", "synchronised"]) && !has(&["time in"]),
+        "echo path" => return has(&["path"]) && !has(&["file", "folder", "directory", "to"]) || has(&["my path", "the path variable", "path variable"]),
+        "echo shell" => return has(&["shell"]) && has(&["which", "what", "current", "using", "my", "login"]) && !has(&["reload", "config", "alias", "variable", "script"]),
+        "id" => return has(&["root", "admin", "sudo", "uid", "user id"]) && has(&["am i", "do i have", "my", "i am", "i'm"]) && !has(&["become", "run", "install"]),
+        "getent group" => return has(&["group", "groups"]) && has(&["who", "members", "member", "users", "belongs", "belong", "list", "show"]) && !has(&["add", "my groups", "which groups"]),
+        "findmnt" => return has(&["mounted", "mount", "mounts", "mountpoints", "mount points"]) && !has(&["unmount", "umount", "eject"]),
+        "systemctl running" => return has(&["service", "services", "daemons", "daemon"]) && has(&["running", "active", "list", "started"]) && !has(&["failed", "failing", "restart", "start", "stop", "enable", "disable"]),
         "wpctl set-volume" => return percent && has(&["volume", "sound", "audio"]),
         "omarchy brightness set" => return percent && has(&["brightness", "backlight", "bright", "dim", "screen"]),
         "omarchy audio output volume" if percent => return false,
@@ -2075,7 +2149,7 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         "which" => has(&["which", "where is", "where", "installed", "location"]),
         "sha256sum" => has(&["checksum", "sha256", "sha256sum", "hash", "verify", "intact"]),
         "chmod" => (has(&["chmod", "executable", "runnable", "as a program", "permission", "permissions", "read only", "nobody but me", "protect", "modified"])
-            || (has(&["stop", "prevent"]) && has(&["editing"])))
+            || (has(&["stop", "prevent"]) && has(&["editing"])) || crate::extract::extract("chmod_mode", q.raw).is_some())
             && !has(&["dotfiles"])
             && !(has(&["show", "list", "which", "what"]) && crate::extract::extract("file_age", q.raw).is_some()),
         "chown" => has(&["chown", "owner", "ownership"]),
@@ -2092,10 +2166,11 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
             && !has(&["stop", "prevent", "protect", "nobody", "modified"])
             && !q.raw_tokens.iter().any(|t| is_upper_env_name(&t.text)),
         "stat" => !has(&["dotfiles", "hidden"]),
+        "pwd" => has(&["pwd", "working directory", "where am i", "current folder", "current directory", "which folder", "which directory", "what folder", "what directory"]),
         "gh auth login" => has(&["gh", "github"]) && has(&["log in", "login", "auth", "authenticate"]),
         // Whether there is something to open is checked in `details`, once values are bound.
         "xdg-open" => has(&["open", "viewer", "xdg-open"]) && !has(&["resize", "convert", "port", "shell", "terminal", "every time", "change it"]),
-        "free" => has(&["ram", "memory"]) && !has(&["model", "ollama", "docker", "container"]),
+        "free" => has(&["ram", "memory", "swap"]) && !has(&["model", "ollama", "docker", "container"]),
         _ => true,
     }
 }
@@ -2823,6 +2898,111 @@ fn is_binary_name(name: &str) -> bool {
         "wav", "flac", "ogg", "webm", "iso", "img", "exe", "bin", "so", "o", "db", "sqlite", "epub",
     ];
     name.rsplit_once('.').is_some_and(|(stem, ext)| !stem.is_empty() && BINARY.contains(&ext.to_lowercase().as_str()))
+}
+
+/// Adjectives, participles and verbs that show up as "values" by accident: "show the slow log",
+/// "is my clock synced", "restore my backup".
+const STRAY_WORDS: &[&str] = &[
+    "slow",
+    "fast",
+    "quick",
+    "big",
+    "small",
+    "large",
+    "old",
+    "new",
+    "high",
+    "low",
+    "long",
+    "short",
+    "hot",
+    "cold",
+    "full",
+    "empty",
+    "busy",
+    "free",
+    "clock",
+    "time",
+    "restore",
+    "recover",
+    "shorten",
+    "lengthen",
+    "sync",
+    "synced",
+    "not",
+    "path",
+    "everything",
+    "anything",
+    "something",
+    "nothing",
+    "all",
+    "it",
+    "them",
+    "this",
+    "that",
+    "these",
+    "those",
+    "stuff",
+    "things",
+    "thing",
+    "here",
+    "there",
+    "right",
+    "wrong",
+    "good",
+    "bad",
+    "ok",
+    "okay",
+    "correct",
+    "enough",
+    "almost",
+    "again",
+    "still",
+    "really",
+    "very",
+    "much",
+    "many",
+    "more",
+    "most",
+    "less",
+    "least",
+];
+
+/// A word taken as a name that the request does not present as one. Entries of the current
+/// folder, paths, quoted text, numbers and words with a label ("folder logs", "called x") are
+/// never stray.
+fn is_stray_value(command: &Command, slot: &Slot, value: &str, candidates: &Candidates, q: &QueryContext<'_>) -> bool {
+    let bare = value.trim_end_matches('/');
+    if candidates.entry_kind(bare) != EntryKind::NotEntry
+        || bare.is_empty()
+        || value.starts_with('<')
+        || bare.contains(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+        || is_digits(bare)
+    {
+        return false;
+    }
+    let lower = bare.to_lowercase();
+    let Some(token) = find_raw_token(bare, q) else { return false };
+    if token.quoted || matches!(token.prev_word.as_str(), "called" | "named" | "group" | "user" | "service" | "unit") {
+        return false;
+    }
+    if matches!(token.next_word.as_str(), "folder" | "directory" | "dir" | "file" | "service" | "group" | "user") {
+        return false;
+    }
+    let first_program_word = command.name.split_whitespace().next().unwrap_or_default().to_lowercase();
+    // Search words and the like may be any word; names of files, services and users may not be
+    // adjectives, participles or the command's own name.
+    let names_a_thing = slot.kind == SlotKind::Path || slot.value_type.is_some() || slot.id == "unit";
+    if !names_a_thing {
+        return false;
+    }
+    let participle =
+        slot.kind == SlotKind::Path && lower.len() > 4 && (lower.ends_with("ed") || lower.ends_with("ing"));
+    STRAY_WORDS.contains(&lower.as_str())
+        || participle
+        || lower == command.program()
+        || lower == first_program_word
+        || (slot.kind == SlotKind::Path && is_upper_env_name(bare))
 }
 
 fn is_digits(s: &str) -> bool {
@@ -3829,7 +4009,12 @@ fn score_by_role(
         .unwrap_or("");
 
     let is_named_dir_or_file = kind == SlotKind::Path
-        && matches!(next, "folder" | "directory" | "dir" | "file")
+        && (matches!(next, "folder" | "directory" | "dir" | "file")
+            // "the directory build": the label comes first.
+            || matches!(prev, "folder" | "directory" | "dir")
+                && rt_opt.is_some_and(|r| {
+                    r.word_pos >= 2 && matches!(q.words.get(r.word_pos - 2).map(String::as_str), Some("the" | "a" | "my"))
+                }))
         && (!is_adjective_or_determiner(&lower) || is_from_files);
     let is_path = looks_like_path_or_file(cand) || indirect > 0.0 || is_from_files || is_named_dir_or_file;
     let explicitly_labeled = matches!(prev, "called" | "named")
@@ -3842,6 +4027,8 @@ fn score_by_role(
         && !is_multi_phrase
             && !is_upper_env_name(cand)
             && !(matches!(role, SlotRole::ServiceUnit | SlotRole::ProgramName) && prev == "for")
+            // "delete .log files in logs": a folder named like a thing.
+            && !(role == SlotRole::FindWhere && matches!(lower.as_str(), "logs" | "log") && matches!(prev, "in" | "under" | "inside" | "within"))
         {
             return 0.0;
         }
@@ -4525,6 +4712,41 @@ mod tests {
         let misses: Vec<&String> = report.lines.iter().filter(|line| line.starts_with("MISS")).collect();
         assert!(report.top1.total > 0, "no safety cases ran");
         assert!(misses.is_empty(), "safety evals must be at 100%: {misses:#?}");
+    }
+
+    /// Never mislead (evals/mislead.toml): questions about state never get actions, dangerous
+    /// entries need the verb and the object named, invented values stay placeholders.
+    #[test]
+    fn mislead_evals_all_pass() {
+        let arch = vec!["arch".to_string(), "omarchy".to_string()];
+        let matcher = LocalMatcher::new(&catalog::usable(load_catalog(), &arch, false));
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals/mislead.toml");
+        let report = eval::score_for(&matcher, &file, &arch).unwrap();
+        let misses: Vec<&String> = report.lines.iter().filter(|line| line.starts_with("MISS")).collect();
+        for line in &misses {
+            println!("{line}");
+        }
+        println!("mislead: {} misses of {} cases", misses.len(), report.lines.len());
+        assert!(report.lines.len() >= 100, "mislead.toml should hold the never-mislead cases");
+        assert!(misses.is_empty(), "mislead evals must be at 100%: {} misses", misses.len());
+    }
+
+    /// Measurement helper, not a check: `HUH_DUMP=<file> cargo test dump_request_evals -- --ignored`
+    /// writes every request case's outcome line, to compare before and after a change.
+    #[test]
+    #[ignore]
+    fn dump_request_evals() {
+        let Ok(out) = std::env::var("HUH_DUMP") else { return };
+        let arch = vec!["arch".to_string(), "omarchy".to_string()];
+        let matcher = LocalMatcher::new(&catalog::usable(load_catalog(), &arch, false));
+        let mut text = String::new();
+        for name in ["cases", "heldout", "safety", "slots", "slots2", "intent", "mislead"] {
+            let file = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("evals/{name}.toml"));
+            for line in eval::score_for(&matcher, &file, &arch).unwrap().lines {
+                text.push_str(&format!("{name}: {line}\n"));
+            }
+        }
+        std::fs::write(out, text).unwrap();
     }
 
     #[test]

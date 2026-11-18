@@ -1,0 +1,11 @@
+name = "getent group"
+description = "Show the members of a group"
+template = "getent group {group}"
+kind = "query"
+keywords = ["who is in group", "who is in the group", "members of group", "group members", "users in group", "who belongs to group", "list group members"]
+
+[[slots]]
+id = "group"
+kind = "text"
+type = "group"
+what = "the group to look up"

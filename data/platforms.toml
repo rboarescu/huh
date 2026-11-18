@@ -33,7 +33,7 @@ same = [
   "jq", "strace", "lsof", "socat", "ethtool", "fzf", "bat", "eza", "tcpdump",
   "smartmontools", "upower", "ripgrep", "neovim", "pciutils", "usbutils", "traceroute", "mtr",
   "docker-compose", "ncdu", "zsh", "less", "gcc", "whois", "cmake",
-  "bubblewrap",
+  "bubblewrap", "brightnessctl",
 ]
 
 # Tools that belong to one distro or package manager. huh never suggests installing them

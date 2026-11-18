@@ -1,0 +1,5 @@
+name = "wpctl get-volume"
+description = "Show the current sound volume (and whether it is muted)"
+template = "wpctl get-volume @DEFAULT_AUDIO_SINK@"
+kind = "query"
+keywords = ["current volume", "what is the volume", "volume level", "how loud is it", "volume right now", "sound level now", "is the sound muted", "is it muted"]

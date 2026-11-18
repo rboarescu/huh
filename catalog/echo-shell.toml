@@ -1,0 +1,5 @@
+name = "echo shell"
+description = "Show which shell is your login shell"
+template = "echo $SHELL"
+kind = "query"
+keywords = ["which shell", "what shell", "current shell", "my shell", "shell am i using", "login shell"]

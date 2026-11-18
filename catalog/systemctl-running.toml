@@ -1,0 +1,5 @@
+name = "systemctl running"
+description = "List the background services that are running right now"
+template = "systemctl list-units --type=service --state=running"
+kind = "query"
+keywords = ["running services", "which services are running", "what services are running", "active services", "list services", "services running now"]

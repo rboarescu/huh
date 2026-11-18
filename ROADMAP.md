@@ -68,6 +68,18 @@ Known limits: stdout and stderr arrive mixed in the terminal, so the tutor goes 
 
 The next step is a fresh measurement round (error tests inside a container) against the targets: beginner ≥ 85%, sysadmin ≥ 65%, `huh why` useful fix ≥ 65%, ≤ 5 misleading, 0 non-errors called errors, 0 dangerous suggestions without a WARNING.
 
+## Completed: never mislead (requests) (2026-11-18)
+
+Governing principle: a wrong answer is worse than "No suggestion". Findings: the "Dangerous" and "State questions" bullets of the round-3 measurement.
+
+- **Evals**: `evals/mislead.toml` (132 cases: the fresh-tester failures, 60+ variants of state questions, casual dangerous requests, and positive controls so abstention does not eat right answers). 70 of the 98 cases of the first draft failed on the old code; `cargo test` requires 100%. The part-1 findings were also added to `evals/safety.toml` (18 cases).
+- **Abstention** (`src/guard.rs`, called from `suggest`): state questions never get action entries (new `LocalMatcher::asks_about_state` / `is_action`; symptom reports like "sound isnt working" count as questions unless they ask for a change); dangerous suggestions need evidence (a named value, a typed mode or pattern, or the kind of thing named); refusals for hacking, drive formatting or wiping, and installing an operating system; safety questions about a command point to `huh explain`.
+- **Truthfulness**: cp/mv onto an existing file warns; typed chmod modes (new `chmod_mode` reader; a choice slot may now take a typed value) with a warning for modes everyone can write; adding a user to a group always warns; placeholder-only lines are capped at 60%.
+- **Binding** (minimal): stray words (`STRAY_WORDS`, participles, upper-case names for paths, the command's own name) never fill path or named slots; "the directory build" and "in logs" bind; `find delete` outranks `rm` for a pattern of files ("delete all .log files in logs"); recovery requests never get `cp`, `mv` or `rsync`.
+- **New entries**: `wpctl get-volume`, `wpctl status`, `brightnessctl info`, `findmnt`, `systemctl running`, `xdg-settings get`, `timedatectl`, `echo $PATH`, `echo $SHELL`, `id`, `getent group`; `nc` is now a query; `df` answers "almost full"; `free` answers swap.
+- **Abstention cost**: across cases, heldout, safety, slots, slots2 and intent (693 cases) no suggestion turned into "No suggestion"; one line changed for the better (`rm -r <target>` to `rm -r build`).
+- **Not handled**: "is ssh running" answers with `pgrep -a ssh` (a process check, not the service); the stray-word list is hand-made; volume and brightness have no Omarchy-native query; "which port is ssh on" abstains.
+
 ## Completed: Intent and catalog gaps (2026-11-18)
 
 Items 4 and 5 of "Next (from that measurement)".
