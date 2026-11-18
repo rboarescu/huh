@@ -1,5 +1,25 @@
 # huh: roadmap and status
 
+## Planned: appeal (Radu, 2026-11-19)
+
+1. **Baby-blue look as the standard.**
+   - A `babyblue` theme becomes the default. The Omarchy-following `auto` and the others stay available.
+   - The ASCII "huh" logo is shown in that colour and stays pinned at the top of the tutor pane while its content scrolls, using a terminal scroll region (DECSTBM) so it is not redrawn.
+2. **A pet: a tamagotchi-style owl with a `#!` shebang inside it.**
+   - It lives in the tutor pane next to the logo, small (a few lines of ASCII), with a few moods.
+   - It is fed by successful commands. It gets hungry or sleepy when unused, and is happy after a streak.
+   - Its state is kept locally in `~/.local/state/huh/`. Nothing is sent anywhere.
+   - It must be our own character: Duolingo's mascot is also an owl, so no borrowed design, name or wording.
+3. **Better than a pet: a Linux tutorial for kids and beginners, with scoring and levels.** Mechanics borrowed from Duolingo, not its branding:
+   - **Lessons:** short lessons of 2-5 minutes on a path of units (files and folders, permissions, processes, packages, networking…), with levels that unlock in order.
+   - **Rewards:** XP per correct answer, a daily goal, a streak with a "freeze", and achievements or badges.
+   - **Mistakes:** a few "hearts" per lesson, with immediate feedback and the right answer shown.
+   - **Review:** spaced repetition brings back what you got wrong.
+   - **Practice:** you run the real commands yourself in a throwaway practice folder (`~/.local/share/huh/practice`), and huh checks the result by reading files and the recorded output. It still never runs anything itself.
+   - **Question types:** "what does this command do", "type the command for…", "read this output", "spot the danger".
+   - **The pet** reacts to progress, which ties idea 2 into this one.
+   - **Scope:** offline and local-only, kid-friendly wording, and it reuses huh's catalog, `explain`, output explanations and risk categories.
+
 ## Measured: round 5 (2026-11-18)
 
 Fresh cases written by new testers who could not see the evals, judged by TypeSafe. The "unsure" answers (71) were resolved by a Sonnet review, which agreed with the judge on 24 of 30 sampled verdicts: all 17 request verdicts, and 7 of 13 error verdicts. The judge marks error answers that only quote the right error line as bad; Sonnet calls them good.

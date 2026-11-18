@@ -265,8 +265,12 @@ pub fn fzf_argv(query: &str, huh: &Path, color: bool) -> Vec<String> {
     let huh = shell_quote(&huh.display().to_string());
     let when = if color { "always" } else { "never" };
     let preview = format!("{huh} find --describe {{1}} --color {when}");
+    // huh ranks, fzf only shows: fzf's own matching scatters a query over long descriptions and
+    // ignores huh's order (catalog first, names before descriptions). Each keystroke asks huh again.
+    let reload = format!("change:reload:{huh} find {{q}} --color never");
     let mut argv = strings(&["fzf", "--query", query, "--delimiter", " \u{2014} ", "--preview", &preview]);
     argv.extend(strings(&["--preview-window", "right,55%,wrap", "--header", "Enter: details   Esc: quit"]));
+    argv.extend(strings(&["--disabled", "--bind", &reload, "--layout", "reverse", "--no-hscroll", "--no-sort"]));
     if color {
         argv.push("--ansi".into());
     }
@@ -330,6 +334,13 @@ mod tests {
                 "right,55%,wrap",
                 "--header",
                 "Enter: details   Esc: quit",
+                "--disabled",
+                "--bind",
+                "change:reload:/opt/huh/bin/huh find {q} --color never",
+                "--layout",
+                "reverse",
+                "--no-hscroll",
+                "--no-sort",
                 "--ansi",
             ])
         );

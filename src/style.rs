@@ -318,7 +318,9 @@ impl Style {
 
     /// `omarchy` falls back to `auto` when the desktop theme file is missing or unreadable.
     pub fn new(theme: Theme, on: bool) -> Style {
-        let omarchy = if on && theme == Theme::Omarchy { load_omarchy() } else { None };
+        // On Omarchy every terminal uses the theme's palette, whose slots may not mean what their
+        // ANSI names say (a theme can put green in "red"): auto then uses the theme's own colours.
+        let omarchy = if on && matches!(theme, Theme::Omarchy | Theme::Auto) { load_omarchy() } else { None };
         Style::with_omarchy(theme, on, omarchy)
     }
 
@@ -328,8 +330,7 @@ impl Style {
         }
         let looks = match theme {
             Theme::Mono => mono_looks(),
-            Theme::Auto => Palette::auto().looks(),
-            Theme::Omarchy => omarchy.unwrap_or_else(Palette::auto).looks(),
+            Theme::Auto | Theme::Omarchy => omarchy.unwrap_or_else(Palette::auto).looks(),
             other => Palette::builtin(other).unwrap_or_else(Palette::auto).looks(),
         };
         Style { on, looks }
@@ -495,7 +496,9 @@ pub fn themes_text(on: bool) -> String {
     for theme in ALL {
         let style = Style::new(theme, on);
         let label = match theme {
-            Theme::Auto => "auto (default): the terminal's own 16 colours",
+            Theme::Auto => {
+                "auto (default): the current Omarchy theme's colours when there is one, else the terminal's own 16 colours"
+            }
             Theme::Omarchy if load_omarchy().is_none() => "omarchy: desktop theme not found, so it looks like auto",
             Theme::Omarchy => "omarchy: colours of the current Omarchy theme",
             Theme::Mono => "mono: bold, dim and underline only",
@@ -570,7 +573,8 @@ mod tests {
 
     #[test]
     fn auto_uses_only_the_16_ansi_colours() {
-        let style = Style::new(Theme::Auto, true);
+        // Without an Omarchy theme (on Omarchy, auto takes the theme's own colours instead).
+        let style = Style::with_omarchy(Theme::Auto, true, None);
         assert_eq!(style.paint(Role::Warning, "W"), "\x1b[1;31mW\x1b[0m");
         assert_eq!(style.paint(Role::Part, "-r"), "\x1b[36m-r\x1b[0m");
         assert_eq!(style.paint(Role::Dim, "d"), "\x1b[2md\x1b[0m");

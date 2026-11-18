@@ -279,7 +279,7 @@ Output is coloured by role (command lines, flags, WARNING labels, risk categorie
 
 | Theme | Colours |
 |---|---|
-| `auto` (default) | only the terminal's own 16 ANSI colours, so huh follows the palette of your terminal (on Omarchy, the active theme) |
+| `auto` (default) | on Omarchy, the active theme's exact colours (a theme can put green in the "red" slot, so the slot numbers are not trusted); elsewhere, the terminal's own 16 ANSI colours |
 | `omarchy` | truecolour values read at run time from `~/.local/state/omarchy/current/theme/colors.toml` (accent, foreground, background, color1-color6); falls back to `auto` if the file is missing or unreadable |
 | `dark`, `light`, `nord`, `gruvbox`, `catppuccin` | built-in truecolour palettes (One Dark, One Light, Nord, Gruvbox, Catppuccin Mocha) |
 | `mono` | bold, dim and underline only |
