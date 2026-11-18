@@ -18,3 +18,4 @@ description = "Bluetooth should be switched on"
 name = "off"
 value = "off"
 description = "Bluetooth should be switched off"
+opposites = ["connect", "pair", "headphones", "headset", "earbuds"]

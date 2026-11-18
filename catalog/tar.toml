@@ -1,6 +1,7 @@
 name = "tar"
 description = "Pack files into a .tar.gz archive, unpack one, or look inside one"
 template = "tar {action} {archive} {exclude} {outdir} {inputs} {member}"
+kind = "mixed"
 keywords = ["tarball", "tar.gz", "unpack archive", "extract tar", "extract tar.gz", "pack folder", "create tar.gz", "compress folder", "list archive contents", "inspect tar", "whats inside tar"]
 
 [[slots]]

@@ -1,0 +1,18 @@
+name = "git rebase"
+description = "Replay your commits on top of another branch, or rewrite recent commits"
+template = "git rebase {interactive} {onto}"
+kind = "action"
+destructive = true
+warning = "this rewrites commit history; never rebase commits that others already pulled, and expect to push with --force afterwards."
+keywords = ["rebase onto main", "rebase branch", "git rebase", "rebase my commits", "squash commits", "reorder commits", "edit commit history"]
+
+[[flags]]
+id = "interactive"
+value = "-i"
+question = "Does the user want to edit, squash, reorder or drop commits interactively?"
+
+[[slots]]
+id = "onto"
+kind = "text"
+what = "the branch or commit to rebase onto"
+extract = "rebase_target"

@@ -1,0 +1,11 @@
+name = "wpctl set-volume"
+description = "Set the sound volume to an exact level"
+template = "wpctl set-volume @DEFAULT_AUDIO_SINK@ {level}"
+kind = "action"
+keywords = ["set volume to", "volume to percent", "set the volume to 50", "volume at 30 percent", "make the volume exactly", "set sound level"]
+
+[[slots]]
+id = "level"
+kind = "text"
+what = "the volume level, such as 50%"
+extract = "percent"

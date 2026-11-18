@@ -1,0 +1,18 @@
+name = "docker build"
+description = "Build a Docker image from a Dockerfile and give it a name"
+template = "docker build -t {tag} {context}"
+kind = "action"
+keywords = ["build docker image", "build an image", "docker build", "build image from dockerfile", "tag an image", "create docker image"]
+
+[[slots]]
+id = "tag"
+kind = "text"
+what = "the name (and tag) for the image"
+extract = "image_tag"
+
+[[slots]]
+id = "context"
+kind = "path"
+what = "the folder with the Dockerfile"
+extract = "context_dir"
+default = "."

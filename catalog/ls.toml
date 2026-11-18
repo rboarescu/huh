@@ -1,7 +1,7 @@
 name = "ls"
 description = "List the files and folders inside a folder"
 template = "ls {long} {all} {by_time} {target}"
-keywords = ["list files", "show files", "folder contents", "directory listing", "hidden files", "dotfiles", "file sizes", "modified dates", "permissions", "recently changed", "files in folder", "everything in folder"]
+keywords = ["list files", "show files", "folder contents", "directory listing", "hidden files", "dotfiles", "file sizes", "modified dates", "permissions", "recently changed", "files in folder", "everything in folder", "who owns this file", "file owner", "owner of a file", "who owns"]
 
 [[flags]]
 id = "long"

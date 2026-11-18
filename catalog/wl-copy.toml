@@ -1,0 +1,13 @@
+name = "wl-copy"
+description = "Copy text to the clipboard; with a file named, copy that file's contents"
+template = "wl-copy {source}"
+kind = "action"
+keywords = ["copy to clipboard", "copy text to clipboard", "put text on the clipboard", "copy to the clipboard", "clipboard copy", "send output to clipboard", "copy file contents to clipboard"]
+
+[[slots]]
+id = "source"
+kind = "path"
+what = "the file whose contents to copy"
+extract = "filename"
+default = ""
+format = "< {}"

@@ -1,0 +1,17 @@
+name = "curl post json"
+description = "Send JSON to a web address with an HTTP POST request"
+template = "curl -X POST -H 'Content-Type: application/json' -d {data} {url}"
+kind = "action"
+keywords = ["post json", "send json with curl", "http post", "curl post", "post request with json body", "post data to an api", "send a post request"]
+
+[[slots]]
+id = "data"
+kind = "text"
+what = "the JSON to send"
+extract = "json"
+raw = false
+
+[[slots]]
+id = "url"
+kind = "text"
+what = "the web address"

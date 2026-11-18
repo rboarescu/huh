@@ -1,6 +1,7 @@
 name = "systemctl"
 description = "Start, stop, restart or check a background service"
 template = "sudo systemctl {action} {service}"
+kind = "action"
 keywords = ["start service", "stop service", "restart service", "restart nginx", "restart sshd", "restart a daemon", "enable at boot", "disable at boot", "systemd daemon", "background service"]
 
 [[slots]]

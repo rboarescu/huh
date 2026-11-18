@@ -1,0 +1,29 @@
+name = "git branch delete"
+description = "Delete a git branch"
+template = "git branch {mode} {branch}"
+kind = "action"
+destructive = true
+warning = "this deletes the branch; commits that exist only on it become hard to find."
+keywords = ["delete branch", "remove branch", "delete a git branch", "get rid of a branch", "drop branch", "remove local branch"]
+
+[[slots]]
+id = "mode"
+kind = "choice"
+question = "Should the branch be deleted only if it is merged, or forced?"
+
+[[slots.options]]
+name = "merged"
+value = "-d"
+description = "Delete the branch only if it has been merged"
+
+[[slots.options]]
+name = "force"
+value = "-D"
+description = "Force-delete the branch even if it has unmerged commits"
+warning = "this force-deletes the branch even if it has commits that are not merged anywhere else."
+opposites = ["merged"]
+
+[[slots]]
+id = "branch"
+kind = "text"
+what = "the branch to delete"

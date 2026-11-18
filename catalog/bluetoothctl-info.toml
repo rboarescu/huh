@@ -1,0 +1,11 @@
+name = "bluetoothctl info"
+description = "Show whether a Bluetooth device such as headphones is connected, and its details"
+template = "bluetoothctl info {device}"
+kind = "query"
+keywords = ["is my bluetooth headphones connected", "is the bluetooth device connected", "bluetooth connection status", "are my headphones connected", "bluetooth device info", "is my bluetooth speaker connected"]
+
+[[slots]]
+id = "device"
+kind = "text"
+what = "the Bluetooth device's address (see bluetoothctl devices)"
+extract = "mac"

@@ -33,25 +33,26 @@ Idea (2026-11-18, from a real session: `huh "unmount drive"` gave `lsblk`, then 
 
 Known limits: stdout and stderr arrive mixed in the terminal, so the tutor goes by exit code and error-looking lines; full-screen programs (vim, htop, less) are only named, not explained; bash only until the zsh/fish hooks exist.
 
-### Next (from that measurement)
+### Next (from that measurement): all done 2026-11-18
 
-1. ~~**`huh why` confident wrong answers**~~ Done 2026-11-18 (see "Completed: Error doctor, second measurement round"). Original findings:
-   - `echo x > /etc/foo` (Permission denied on a write) is called "not executable" with `chmod +x`.
-   - `pacman -Syu` and `-R` as a user are rewritten to `sudo pacman -S <package>`.
-   - "Your user is in the docker group" is a claim about this machine, not the output.
-   - The gzip errors are explained with tar wording.
-   - JSON decode errors point at the library frame instead of the user's code.
-   - About 15 real failures are called "not an error" (`git commit` with nothing staged, `make nosuchtarget`, `sed` syntax errors, …). When unsure, huh should say it does not recognise the output rather than "not an error".
-2. ~~**`huh why` coverage**~~ Done 2026-11-18 (same entry). Original findings: about 40% of real failures still get only the restated error line. These include curl exit 7/28, git push rejections and missing remotes, the missing dev library or header (`-lssl`, `ssl.h`), cargo/rustc/gcc errors, node errors, jq/awk syntax, and `mkdir`/`rm` on folders.
-3. ~~**Requests: wrong noun in a slot**~~ done 2026-11-18, see "Completed: Slot filling, round 2".
-4. **Requests: state questions answered with actions** ("is vlc installed" → install, "what wifi am i connected to" → connect, "put the computer to sleep" → stay awake, "connect bluetooth headphones" → power off), values as targets ("set volume to 50%"), and stray words accepting off-topic requests ("order a pizza" → `sort`). Needs a minimum-evidence floor for `<placeholder>`-only suggestions.
-5. **Catalog gaps seen repeatedly** (also "unmount drive" → `lsblk` at 29%; should be `udisksctl unmount -b <device>` / `umount`):
-   - packages: package cache clean, list installed, is X installed;
-   - users: userdel, usermod -L;
-   - system: suspend, `nmcli radio wifi on/off`, bluetoothctl, udisksctl mount/eject, sensors, `last`, `lspci` for the GPU;
-   - git: git branch -d, rebase;
-   - docker: docker build, docker rm;
-   - others: ssh -L, curl -X POST, wl-copy, set volume or brightness to a value.
+1. ~~`huh why` confident wrong answers~~ and 2. ~~`huh why` coverage~~: see "Completed: Error doctor, second measurement round".
+3. ~~Requests: wrong noun in a slot~~: see "Completed: Slot filling, round 2".
+4. ~~Requests: state questions answered with actions~~ and 5. ~~catalog gaps~~ (including "unmount drive"): see "Completed: Intent and catalog gaps".
+
+The next step is a fresh measurement round (error tests inside a container) against the targets: beginner ≥ 85%, sysadmin ≥ 65%, `huh why` useful fix ≥ 65%, ≤ 5 misleading, 0 non-errors called errors, 0 dangerous suggestions without a WARNING.
+
+## Completed: Intent and catalog gaps (2026-11-18)
+
+Items 4 and 5 of "Next (from that measurement)".
+
+- **Evals**: `evals/intent.toml` (100 cases: the measured failures, question and instruction forms of the same topic, polite forms, off-topic requests). 74 of 100 failed on the old matcher; all pass now and `cargo test` requires 100%. Per-family cases for "is X installed", "list installed packages" and "clean up old packages" went into `evals/platforms.toml`.
+- **Mood** (`matcher.rs` `QueryContext::mood`): a question about state versus an instruction, read from the opening words. Questions demote action entries by 4.0; instructions demote a bare query by 1.0 only when an action scores within 1.5 of it and the request does not ask to show or list.
+- **`kind`** on catalog entries (`query`, `action`, `mixed`), derived when left out (`Command::kind`), and **`opposites`** on entries and choice options (negation-aware; see README).
+- **Minimum-evidence floor** (`rests_on_generic_words`): a match built only on generic words or a shared program name is rejected.
+- **New facts** `pkg_query`, `pkg_list`, `pkg_clean` for every family in `data/platforms.toml`.
+- **New entries**: package installed / list / cache clean, wifi current, `nmcli radio wifi`, suspend, hibernate, `bluetoothctl` connect / disconnect / devices / info, bluetooth status, `udisksctl` mount / unmount / power-off, `umount`, sensors, `last -n`, graphics card, `<program> --version`, run script, userdel (`-r` only when the home folder is asked for), `usermod -L`, docker build, `docker rm -f`, `git branch -d/-D`, `git rebase` (`-i`), `ssh -L`, `curl -X POST` with JSON, `wl-copy`, `wl-paste`, `wpctl set-volume`, `omarchy brightness display N%`.
+- **Changed expectations**: safety.toml "turn off wifi" (was none, now `nmcli radio wifi off`) and "delete user bob and home directory" (was none, now `sudo userdel -r bob` with a warning).
+- **Not handled**: `brightnessctl set` on non-Omarchy systems; "who owns this file" lists the folder with `ls -l` (no file named); the mood reader knows English openers only; the floor's generic-word list is hand-made; opposites are checked only for the option the matcher would pick.
 
 ## Completed: Slot filling, round 2 (2026-11-18)
 

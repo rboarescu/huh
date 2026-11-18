@@ -1,0 +1,5 @@
+name = "wifi current"
+description = "Show which Wi-Fi network the computer is connected to right now"
+template = "nmcli -t -f active,ssid dev wifi | grep '^yes'"
+kind = "query"
+keywords = ["which wifi am i on", "what wifi am i connected to", "current wifi", "connected wifi network", "name of the wifi", "which network am i connected to", "my ssid", "current ssid"]

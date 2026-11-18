@@ -17,7 +17,17 @@ use std::sync::OnceLock;
 const EMBEDDED: &str = include_str!("../data/platforms.toml");
 
 /// Catalog placeholders that are filled from the family's package manager.
-pub const PKG_FACTS: &[&str] = &["pkg_install", "pkg_remove", "pkg_search", "pkg_update", "pkg_owns", "pkg_provides"];
+pub const PKG_FACTS: &[&str] = &[
+    "pkg_install",
+    "pkg_remove",
+    "pkg_search",
+    "pkg_update",
+    "pkg_owns",
+    "pkg_provides",
+    "pkg_query",
+    "pkg_list",
+    "pkg_clean",
+];
 
 #[derive(Deserialize, Default, Clone, Debug)]
 #[serde(deny_unknown_fields)]
@@ -36,6 +46,12 @@ struct Family {
     owns: Option<String>,
     /// Which package would provide a program, for programs huh has no package name for.
     provides: Option<String>,
+    /// Whether one package is installed.
+    query: Option<String>,
+    /// Every installed package.
+    list: Option<String>,
+    /// Empty the package cache and drop what is no longer needed.
+    clean: Option<String>,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -72,7 +88,7 @@ impl Data {
             macro_rules! take {
                 ($($field:ident),*) => { $( if add.$field.is_some() { family.$field = add.$field; } )* };
             }
-            take!(ids, detect, extends, install, remove, search, update, owns, provides);
+            take!(ids, detect, extends, install, remove, search, update, owns, provides, query, list, clean);
         }
     }
 
@@ -262,6 +278,9 @@ pub fn fact(platforms: &[String], id: &str) -> Option<String> {
         "pkg_update" => data.field(&family, |f| f.update.as_ref()),
         "pkg_owns" => data.field(&family, |f| f.owns.as_ref()),
         "pkg_provides" => data.field(&family, |f| f.provides.as_ref()),
+        "pkg_query" => data.field(&family, |f| f.query.as_ref()),
+        "pkg_list" => data.field(&family, |f| f.list.as_ref()),
+        "pkg_clean" => data.field(&family, |f| f.clean.as_ref()),
         _ => None,
     }?;
     Some(template.to_string())

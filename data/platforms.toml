@@ -98,6 +98,13 @@ man = "man-db"
 xdg-open = "xdg-utils"
 fuser = "psmisc"
 iostat = "sysstat"
+bluetoothctl = "bluez-utils"
+udisksctl = "udisks2"
+sensors = "lm_sensors"
+userdel = "shadow"
+wl-copy = "wl-clipboard"
+wl-paste = "wl-clipboard"
+wpctl = "wireplumber"
 
 # package key -> family -> package name. `*` is the name on every family without its own
 # entry; "" means the family has no such package (so huh stays quiet instead of guessing).
@@ -149,6 +156,12 @@ rustc = { "*" = "rustc", arch = "rust", suse = "rust", alpine = "rust", void = "
 
 # Remarks printed with an install command when the package is missing from some releases of
 # the family. package key -> family -> text.
+bluez-utils = { arch = "bluez-utils", debian = "bluez", fedora = "bluez", suse = "bluez", alpine = "bluez", void = "bluez", nixos = "bluez", gentoo = "net-wireless/bluez" }
+udisks2 = { arch = "udisks2", debian = "udisks2", fedora = "udisks2", suse = "udisks2", alpine = "udisks2", void = "udisks2", nixos = "udisks", gentoo = "sys-fs/udisks" }
+lm_sensors = { arch = "lm_sensors", debian = "lm-sensors", fedora = "lm_sensors", suse = "sensors", alpine = "lm-sensors", void = "lm_sensors", nixos = "lm_sensors", gentoo = "sys-apps/lm-sensors" }
+wl-clipboard = { "*" = "wl-clipboard", gentoo = "gui-apps/wl-clipboard" }
+wireplumber = { "*" = "wireplumber", gentoo = "media-video/wireplumber" }
+
 [notes]
 eza = { debian = "eza is not in Debian 11/12 or Ubuntu before 24.04; there, find it with `apt-file search bin/eza` or install it from upstream." }
 btop = { debian = "btop is not in Debian 11 or Ubuntu 20.04; on those releases install it from a backport or upstream." }
@@ -163,6 +176,9 @@ search = "pacman -Ss"
 update = "sudo pacman -Syu"
 owns = "pacman -Qo"
 provides = "pacman -F {}"
+query = "pacman -Q"
+list = "pacman -Q"
+clean = "sudo pacman -Sc"
 
 [families.omarchy]
 extends = "arch"
@@ -181,6 +197,9 @@ search = "apt search"
 update = "sudo apt update && sudo apt upgrade"
 owns = "dpkg -S"
 provides = "apt-file search bin/{}"
+query = "dpkg -s"
+list = "apt list --installed"
+clean = "sudo apt autoremove && sudo apt clean"
 
 [families.fedora]
 ids = ["fedora", "rhel", "centos", "rocky", "almalinux", "ol", "amzn", "nobara", "bazzite", "scientific", "eurolinux", "centos-stream"]
@@ -191,6 +210,9 @@ search = "dnf search"
 update = "sudo dnf upgrade"
 owns = "rpm -qf"
 provides = "dnf provides '*/bin/{}'"
+query = "rpm -q"
+list = "dnf list --installed"
+clean = "sudo dnf clean all"
 
 [families.suse]
 ids = ["opensuse", "opensuse-leap", "opensuse-tumbleweed", "opensuse-microos", "opensuse-slowroll", "suse", "sles", "sled", "sle-micro", "geckolinux"]
@@ -201,6 +223,9 @@ search = "zypper search"
 update = "sudo zypper update"
 owns = "rpm -qf"
 provides = "zypper search --provides {}"
+query = "rpm -q"
+list = "zypper search --installed-only"
+clean = "sudo zypper clean --all"
 
 [families.alpine]
 ids = ["alpine", "postmarketos", "wolfi"]
@@ -211,6 +236,9 @@ search = "apk search"
 update = "sudo apk update && sudo apk upgrade"
 owns = "apk info -W"
 provides = "apk search -e cmd:{}"
+query = "apk info -e"
+list = "apk info"
+clean = "sudo apk cache clean"
 
 [families.void]
 ids = ["void"]
@@ -221,6 +249,9 @@ search = "xbps-query -Rs"
 update = "sudo xbps-install -Su"
 owns = "xbps-query -o"
 provides = "xlocate {}"
+query = "xbps-query"
+list = "xbps-query -l"
+clean = "sudo xbps-remove -O"
 
 [families.gentoo]
 ids = ["gentoo", "funtoo", "calculate", "pentoo", "redcore", "sabayon"]
@@ -231,6 +262,9 @@ search = "emerge --search"
 update = "sudo emerge --sync && sudo emerge --ask --update --deep --newuse @world"
 owns = "equery belongs"
 provides = "e-file {}"
+query = "equery list"
+list = "equery list \"*\""
+clean = "sudo eclean-dist"
 
 # NixOS itself: the system is configured declaratively, so updating means rebuilding it.
 [families.nixos]
@@ -240,6 +274,9 @@ remove = "nix profile remove {}"
 search = "nix search nixpkgs {}"
 update = "sudo nixos-rebuild switch --upgrade"
 provides = "nix-locate bin/{}"
+query = "nix-env -q"
+list = "nix profile list"
+clean = "sudo nix-collect-garbage"
 
 # The Nix package manager on some other system (no NixOS in os-release, but `nix` on PATH, as
 # in the nixos/nix container): there is no system to rebuild, only the user's profile to upgrade.

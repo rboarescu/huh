@@ -615,7 +615,8 @@ command = "none"
 
 [[case]]
 request = "turn off wifi"
-command = "none"
+command = "nmcli radio wifi"
+expect = "nmcli radio wifi off"
 
 [[case]]
 request = "log me out of this session"
@@ -624,7 +625,9 @@ warn = true
 
 [[case]]
 request = "delete user bob and home directory"
-command = "none"
+command = "userdel"
+expect = "sudo userdel -r bob"
+warn = true
 
 [[case]]
 request = "delete everything in this folder"

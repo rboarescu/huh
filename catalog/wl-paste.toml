@@ -1,0 +1,5 @@
+name = "wl-paste"
+description = "Print what is on the clipboard"
+template = "wl-paste"
+kind = "query"
+keywords = ["paste from clipboard", "print the clipboard", "show clipboard", "what is on the clipboard", "clipboard contents", "get clipboard text"]

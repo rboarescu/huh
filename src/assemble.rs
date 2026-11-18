@@ -115,6 +115,13 @@ pub fn build(
         values.insert(&slot.id, value);
     }
 
+    // `python` is Python 2 or nothing on most systems; the version question means Python 3.
+    if command.name == "program version"
+        && let Some(value) = values.get_mut("program")
+        && value == "python"
+    {
+        *value = "python3".into();
+    }
     let line =
         package_line(command, &mut values, &mut notes, &mut parts).unwrap_or_else(|| fill(&command.template, &values));
 
@@ -154,7 +161,7 @@ fn package_line<'a>(
         }
         return None;
     }
-    if !matches!(role, "pkg_install" | "pkg_remove") || value.starts_with('<') || value.contains(' ') {
+    if !matches!(role, "pkg_install" | "pkg_remove" | "pkg_query") || value.starts_with('<') || value.contains(' ') {
         return None;
     }
     match platform::wanted_package(&value, &platforms) {

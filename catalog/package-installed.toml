@@ -1,0 +1,10 @@
+name = "package installed"
+description = "Check whether a program or package is installed on this system"
+template = "{pkg_query}"
+kind = "query"
+keywords = ["is installed", "is it installed", "do i have installed", "check if installed", "installed or not", "is the package installed", "pacman -Q", "dpkg -s", "rpm -q"]
+
+[[slots]]
+id = "package"
+kind = "text"
+what = "the program or package to look for"

@@ -1,6 +1,7 @@
 name = "omarchy network speedtest"
 description = "Measure how fast the internet connection is"
 template = "omarchy network speedtest {direction}"
+kind = "query"
 platform = "omarchy"
 keywords = ["network speed", "wifi speed", "internet speed", "connection speed", "speedtest", "download speed", "upload speed", "bandwidth test"]
 

@@ -1,0 +1,11 @@
+name = "run script"
+description = "Run a script file in the current folder"
+template = "./{script}"
+kind = "action"
+keywords = ["run a script", "run the script", "execute a script", "run backup.sh", "run the shell script", "launch the script", "execute the file", "how do i run a script"]
+
+[[slots]]
+id = "script"
+kind = "path"
+what = "the script to run"
+extract = "filename"

@@ -1,0 +1,19 @@
+name = "userdel"
+description = "Delete a user account"
+template = "sudo userdel {home} {user}"
+kind = "action"
+destructive = true
+warning = "this deletes the user account; any running processes of that user may be left behind."
+keywords = ["delete user", "remove user account", "delete a user", "remove a user", "delete user account", "get rid of a user"]
+
+[[flags]]
+id = "home"
+value = "-r"
+question = "Does the user want the home folder and mail spool deleted too?"
+warning = "this also deletes the user's home folder and everything in it."
+
+[[slots]]
+id = "user"
+kind = "text"
+what = "the account to delete"
+extract = "user_name"

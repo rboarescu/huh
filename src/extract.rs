@@ -18,6 +18,18 @@ pub fn extract(reader: &str, request: &str) -> Option<String> {
         "host" => host(request, &words),
         "service" => service(&words),
         "dns_server" => dns_server(request),
+        "percent" => percent(request),
+        "device" => device(request),
+        "local_port" => forwarded_port(&words, 0),
+        "remote_port" => forwarded_port(&words, 1),
+        "json" => json_body(request),
+        "context_dir" => context_dir(request),
+        "user_name" => user_name(&words),
+        "image_tag" => image_tag(&words),
+        "rebase_target" => rebase_target(&words),
+        "versioned_program" => versioned_program(&words),
+        "filename" => filename(request),
+        "mac" => mac_address(request),
         _ => None,
     }
 }
@@ -306,6 +318,307 @@ fn service(words: &[String]) -> Option<String> {
 }
 
 /// "last 5 commits", "5 lines": a small count.
+/// The ports of a forwarding request, in the order they are named: "forward local port 8080 to
+/// port 80" gives 8080 then 80. A single port is both ends.
+fn forwarded_port(words: &[String], index: usize) -> Option<String> {
+    let ports: Vec<&String> =
+        words.iter().filter(|w| !w.is_empty() && w.len() <= 5 && w.chars().all(|c| c.is_ascii_digit())).collect();
+    ports.get(index).or(if index == 1 { ports.first() } else { None }).map(|p| p.to_string())
+}
+
+const NOT_NAMES: &[&str] = &[
+    "the",
+    "a",
+    "an",
+    "my",
+    "this",
+    "that",
+    "user",
+    "users",
+    "account",
+    "accounts",
+    "named",
+    "called",
+    "and",
+    "his",
+    "her",
+    "their",
+    "its",
+    "home",
+    "folder",
+    "directory",
+    "dir",
+    "from",
+    "on",
+    "of",
+    "for",
+    "to",
+    "with",
+    "too",
+    "also",
+    "please",
+    "now",
+    "it",
+    "me",
+    "i",
+    "everything",
+    "all",
+    "files",
+    "completely",
+    "permanently",
+    "entirely",
+    "login",
+    "password",
+    "locally",
+    "system",
+    "machine",
+    "computer",
+    "so",
+    "cannot",
+    "can",
+    "not",
+];
+
+/// The user a request is about: "delete user bob", "lock bob's account", "remove the account alice".
+fn user_name(words: &[String]) -> Option<String> {
+    let ok = |w: &str| {
+        !NOT_NAMES.contains(&w) && w.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+    };
+    for (i, word) in words.iter().enumerate() {
+        // "bob's account"
+        if let Some(name) = word.strip_suffix("'s")
+            && words.get(i + 1).is_some_and(|w| matches!(w.as_str(), "account" | "login" | "user"))
+            && ok(name)
+        {
+            return Some(name.to_string());
+        }
+        // "user bob", "account alice", "named bob", "called bob", "account of alice"
+        if matches!(word.as_str(), "user" | "users" | "account" | "named" | "called" | "of")
+            && let Some(name) = words[i + 1..].iter().take(3).find(|w| ok(w))
+            && !(matches!(word.as_str(), "of") && !words[..i].iter().any(|w| w == "account"))
+        {
+            return Some(name.clone());
+        }
+    }
+    None
+}
+
+/// The name for a Docker image: "tagged myapp", "named web:1.0", "build image myapp".
+fn image_tag(words: &[String]) -> Option<String> {
+    const SKIP: &[&str] = &[
+        "the",
+        "a",
+        "an",
+        "my",
+        "this",
+        "from",
+        "of",
+        "in",
+        "with",
+        "using",
+        "current",
+        "folder",
+        "directory",
+        "dockerfile",
+        "docker",
+        "image",
+        "to",
+        "for",
+        "here",
+        "new",
+        "called",
+        "named",
+        "tagged",
+        "as",
+        "tag",
+        "it",
+    ];
+    for (i, word) in words.iter().enumerate() {
+        if matches!(word.as_str(), "tagged" | "named" | "called" | "as" | "tag" | "-t")
+            && let Some(name) = words[i + 1..].iter().take(2).find(|w| !SKIP.contains(&w.as_str()))
+        {
+            return Some(name.clone());
+        }
+    }
+    if let Some(tagged) = words.iter().find(|w| {
+        w.split_once(':').is_some_and(|(name, tag)| {
+            !name.is_empty()
+                && !tag.is_empty()
+                && !name.contains('/')
+                && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        })
+    }) {
+        return Some(tagged.clone());
+    }
+    let at = words.iter().position(|w| w == "image")?;
+    words[at + 1..].iter().find(|w| !SKIP.contains(&w.as_str())).cloned()
+}
+
+/// What to rebase onto: "onto main", "on top of develop", "the last 3 commits" (`HEAD~3`).
+fn rebase_target(words: &[String]) -> Option<String> {
+    for (i, word) in words.iter().enumerate() {
+        if matches!(word.as_str(), "onto" | "against" | "top")
+            && let Some(name) = words[i + 1..].iter().find(|w| !matches!(w.as_str(), "of" | "the" | "branch"))
+        {
+            return Some(name.clone());
+        }
+    }
+    let n = words.iter().position(|w| w == "commits" || w == "commit").and_then(|i| {
+        let before = words.get(i.checked_sub(1)?)?;
+        number(before)
+    })?;
+    Some(format!("HEAD~{n}"))
+}
+
+/// The folder a build reads from when the request gives one: `./app`, `~/proj`, `/srv/site`.
+fn context_dir(request: &str) -> Option<String> {
+    request
+        .split_whitespace()
+        .map(|w| w.trim_matches(|c: char| matches!(c, '"' | '\'' | ',' | '?' | '!' | ';')))
+        .find(|w| (w.starts_with("./") || w.starts_with("~/") || w.starts_with('/')) && w.len() > 2)
+        .map(str::to_string)
+}
+
+/// A JSON object written out in the request: `{"name": "x"}` (quotes around it are fine).
+fn json_body(request: &str) -> Option<String> {
+    let start = request.find('{')?;
+    let end = request.rfind('}')?;
+    (end > start).then(|| request[start..=end].to_string())
+}
+
+/// The program a version question is about: "version of node", "python version", "which node".
+fn versioned_program(words: &[String]) -> Option<String> {
+    const SKIP: &[&str] = &[
+        "the",
+        "a",
+        "an",
+        "my",
+        "of",
+        "is",
+        "are",
+        "do",
+        "i",
+        "have",
+        "what",
+        "which",
+        "whats",
+        "installed",
+        "current",
+        "check",
+        "show",
+        "get",
+        "tell",
+        "me",
+        "version",
+        "versions",
+        "on",
+        "this",
+        "machine",
+        "system",
+        "computer",
+        "running",
+        "using",
+        "use",
+        "program",
+        "command",
+        "latest",
+        "number",
+        "for",
+        "out",
+        "find",
+        "software",
+        "app",
+        "does",
+        "it",
+        "can",
+        "you",
+        "please",
+        "how",
+        "to",
+        "see",
+        "and",
+        "that",
+        "am",
+        "now",
+        "here",
+    ];
+    let ok = |w: &String| !SKIP.contains(&w.as_str()) && w.chars().any(|c| c.is_ascii_alphabetic());
+    let at = words.iter().position(|w| w == "version" || w == "versions")?;
+    // "version of node", "version of node do i have"
+    if words.get(at + 1).is_some_and(|w| w == "of")
+        && let Some(found) = words[at + 2..].iter().find(|w| ok(w))
+    {
+        return Some(found.clone());
+    }
+    // "node version", "check python version"
+    words[..at].iter().rev().find(|w| ok(w)).cloned()
+}
+
+/// A device file named in the request: `/dev/sdb1`.
+fn device(request: &str) -> Option<String> {
+    request
+        .split_whitespace()
+        .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric() && c != '/' && c != '-' && c != '_'))
+        .find(|w| w.starts_with("/dev/") && w.len() > 5)
+        .map(str::to_string)
+}
+
+/// A file named with an extension or a path: `backup.sh`, `./run`, `~/notes.txt`.
+fn filename(request: &str) -> Option<String> {
+    request
+        .split_whitespace()
+        .map(|w| w.trim_matches(|c: char| matches!(c, '"' | '\'' | ',' | '?' | '!' | ';')))
+        .map(|w| w.trim_end_matches('.'))
+        .find(|w| {
+            if w.contains("://") || w.contains('@') {
+                return false;
+            }
+            if w.starts_with("./") || w.starts_with("~/") || w.starts_with('/') {
+                return w.len() > 2;
+            }
+            w.rsplit_once('.').is_some_and(|(stem, ext)| {
+                !stem.is_empty() && (1..=5).contains(&ext.len()) && ext.chars().all(|c| c.is_ascii_alphanumeric())
+            })
+        })
+        .map(str::to_string)
+}
+
+/// A Bluetooth address: six pairs of hex digits separated by colons.
+fn mac_address(request: &str) -> Option<String> {
+    request
+        .split_whitespace()
+        .map(|w| w.trim_matches(|c: char| !c.is_ascii_hexdigit() && c != ':'))
+        .find(|w| {
+            let parts: Vec<&str> = w.split(':').collect();
+            parts.len() == 6 && parts.iter().all(|p| p.len() == 2 && p.chars().all(|c| c.is_ascii_hexdigit()))
+        })
+        .map(str::to_uppercase)
+}
+
+/// A level given as a percentage: "50%", "50 %" or "50 percent" gives `50%`.
+fn percent(request: &str) -> Option<String> {
+    let lower = request.to_lowercase();
+    let tokens: Vec<&str> = lower.split_whitespace().collect();
+    for (i, token) in tokens.iter().enumerate() {
+        let token = token.trim_matches(|c: char| !c.is_alphanumeric() && c != '%');
+        if let Some(digits) = token.strip_suffix('%')
+            && !digits.is_empty()
+            && digits.chars().all(|c| c.is_ascii_digit())
+        {
+            return Some(format!("{digits}%"));
+        }
+        if !token.is_empty()
+            && token.chars().all(|c| c.is_ascii_digit())
+            && tokens.get(i + 1).is_some_and(|next| {
+                next.trim_matches(|c: char| !c.is_alphanumeric() && c != '%') == "percent" || next.starts_with('%')
+            })
+        {
+            return Some(format!("{token}%"));
+        }
+    }
+    None
+}
+
 fn count(words: &[String]) -> Option<String> {
     for (i, word) in words.iter().enumerate() {
         let Some(n) = number(word).filter(|_| !matches!(word.as_str(), "a" | "an")) else { continue };
@@ -410,6 +723,41 @@ mod tests {
         assert_eq!(read("service", "is the nginx service running").as_deref(), Some("nginx"));
         assert_eq!(read("service", "is sshd running").as_deref(), Some("sshd"));
         assert_eq!(read("service", "status"), None);
+    }
+
+    #[test]
+    fn filenames() {
+        assert_eq!(read("filename", "how do i run backup.sh?").as_deref(), Some("backup.sh"));
+        assert_eq!(read("filename", "copy ~/notes.txt to the clipboard").as_deref(), Some("~/notes.txt"));
+        assert_eq!(read("filename", "copy text to clipboard"), None);
+        assert_eq!(read("filename", "open example.com/page"), None);
+    }
+
+    #[test]
+    fn forwarding_and_versions() {
+        let w = |t: &str| words(t);
+        assert_eq!(forwarded_port(&w("forward local port 8080 to port 80 on myserver"), 0).as_deref(), Some("8080"));
+        assert_eq!(forwarded_port(&w("forward local port 8080 to port 80 on myserver"), 1).as_deref(), Some("80"));
+        assert_eq!(forwarded_port(&w("tunnel port 5432"), 1).as_deref(), Some("5432"));
+        assert_eq!(json_body("post {\"a\": 1} to https://x.io").as_deref(), Some("{\"a\": 1}"));
+        assert_eq!(user_name(&w("delete the user bob and his home folder")).as_deref(), Some("bob"));
+        assert_eq!(user_name(&w("lock bob's account")).as_deref(), Some("bob"));
+        assert_eq!(user_name(&w("remove the account alice")).as_deref(), Some("alice"));
+        assert_eq!(user_name(&w("delete a user")), None);
+        assert_eq!(image_tag(&w("build a docker image tagged myapp from here")).as_deref(), Some("myapp"));
+        assert_eq!(image_tag(&w("build docker image myapp:1.0")).as_deref(), Some("myapp:1.0"));
+        assert_eq!(rebase_target(&w("rebase onto main")).as_deref(), Some("main"));
+        assert_eq!(rebase_target(&w("squash the last 3 commits")).as_deref(), Some("HEAD~3"));
+        assert_eq!(versioned_program(&w("what version of node do i have")).as_deref(), Some("node"));
+        assert_eq!(versioned_program(&w("check python version")).as_deref(), Some("python"));
+        assert_eq!(versioned_program(&w("which version of docker is installed")).as_deref(), Some("docker"));
+    }
+
+    #[test]
+    fn percentages() {
+        assert_eq!(read("percent", "set volume to 50%").as_deref(), Some("50%"));
+        assert_eq!(read("percent", "brightness 30 percent").as_deref(), Some("30%"));
+        assert_eq!(read("percent", "turn the volume up"), None);
     }
 
     #[test]

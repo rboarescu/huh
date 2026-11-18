@@ -1,0 +1,12 @@
+name = "udisksctl power-off"
+description = "Power off a USB drive after unmounting it so it can be unplugged"
+template = "udisksctl power-off -b {device}"
+kind = "action"
+keywords = ["eject usb", "eject drive", "power off usb", "eject external disk", "eject flash drive", "remove usb stick safely", "eject the disk"]
+opposites = ["mount my", "insert"]
+
+[[slots]]
+id = "device"
+kind = "text"
+extract = "device"
+what = "the drive's device name, e.g. /dev/sdb"

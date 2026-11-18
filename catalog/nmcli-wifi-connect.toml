@@ -1,6 +1,7 @@
 name = "nmcli wifi connect"
 description = "Connect to a Wi-Fi network"
 template = "nmcli --ask device wifi connect {ssid}"
+opposites = ["off", "disable", "disconnect"]
 keywords = ["join wifi", "connect to wireless", "switch wifi network", "wifi password"]
 
 [[slots]]

@@ -1,0 +1,5 @@
+name = "bluetoothctl devices"
+description = "List known and paired Bluetooth devices"
+template = "bluetoothctl devices"
+kind = "query"
+keywords = ["list bluetooth devices", "paired bluetooth devices", "show bluetooth devices", "which bluetooth devices", "bluetooth headphones list", "known bluetooth devices", "what bluetooth devices do i have"]

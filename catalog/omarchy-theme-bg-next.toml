@@ -1,5 +1,6 @@
 name = "omarchy theme bg next"
 description = "Change the desktop wallpaper to the next background of the current theme"
 template = "omarchy theme bg next"
+kind = "action"
 platform = "omarchy"
 keywords = ["wallpaper", "background", "next wallpaper", "different wallpaper", "change background", "cycle wallpaper", "desktop wallpaper"]

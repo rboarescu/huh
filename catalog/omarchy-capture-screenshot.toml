@@ -1,6 +1,7 @@
 name = "omarchy capture screenshot"
 description = "Take a screenshot"
 template = "omarchy capture screenshot {area} {output}"
+kind = "action"
 platform = "omarchy"
 keywords = ["take screenshot", "screen capture", "snip screen", "copy screenshot to clipboard", "save screenshot", "screenshot window", "fullscreen screenshot"]
 

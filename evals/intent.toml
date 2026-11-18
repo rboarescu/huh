@@ -1,0 +1,504 @@
+# Intent evals: a question about state must not get an action, an instruction must not get a
+# bare query, opposites must not be mixed up, and requests that only share a stray word with
+# the catalog get nothing. Scored on an Omarchy system like cases.toml.
+
+# ---- package queries ----
+[[case]]
+request = "is vlc installed"
+command = "package installed"
+expect = "pacman -Q vlc"
+
+[[case]]
+request = "do i have firefox installed"
+command = "package installed"
+expect = "pacman -Q firefox"
+
+[[case]]
+request = "check if htop is installed"
+command = "package installed"
+expect = "pacman -Q htop"
+
+[[case]]
+request = "list installed packages"
+command = "package list"
+expect = "pacman -Q"
+
+[[case]]
+request = "what packages do i have installed"
+command = "package list"
+expect = "pacman -Q"
+
+[[case]]
+request = "can you show me all the installed packages"
+command = "package list"
+expect = "pacman -Q"
+
+[[case]]
+request = "install vlc"
+command = "package install"
+expect = "omarchy pkg add vlc"
+
+[[case]]
+request = "can you install vlc for me"
+command = "package install"
+expect = "omarchy pkg add vlc"
+
+[[case]]
+request = "clean up old packages"
+command = "package cache clean"
+expect = "sudo pacman -Sc"
+warn = true
+
+[[case]]
+request = "clear the package cache"
+command = "package cache clean"
+expect = "sudo pacman -Sc"
+warn = true
+
+# ---- wifi ----
+[[case]]
+request = "what wifi am i connected to"
+command = "wifi current"
+expect = "nmcli -t -f active,ssid dev wifi | grep '^yes'"
+
+[[case]]
+request = "which wifi network am i on"
+command = "wifi current"
+
+[[case]]
+request = "turn wifi back on"
+command = "nmcli radio wifi"
+expect = "nmcli radio wifi on"
+
+[[case]]
+request = "turn off wifi"
+command = "nmcli radio wifi"
+expect = "nmcli radio wifi off"
+
+[[case]]
+request = "disable the wifi"
+command = "nmcli radio wifi"
+expect = "nmcli radio wifi off"
+
+[[case]]
+request = "switch wifi on"
+command = "nmcli radio wifi"
+expect = "nmcli radio wifi on"
+
+[[case]]
+request = "join the wifi network CoffeeShop"
+command = "nmcli wifi connect"
+expect = "nmcli --ask device wifi connect CoffeeShop"
+
+# ---- sleep ----
+[[case]]
+request = "put the computer to sleep"
+command = "suspend"
+expect = "systemctl suspend"
+
+[[case]]
+request = "suspend the laptop"
+command = "suspend"
+expect = "systemctl suspend"
+
+[[case]]
+request = "hibernate"
+command = "hibernate"
+expect = "systemctl hibernate"
+
+[[case]]
+request = "keep the computer awake"
+command = "omarchy toggle idle"
+expect = "omarchy toggle idle stay-awake"
+
+[[case]]
+request = "stop the computer from going to sleep"
+command = "omarchy toggle idle"
+expect = "omarchy toggle idle stay-awake"
+
+# ---- bluetooth ----
+[[case]]
+request = "connect to my bluetooth headphones"
+command = "bluetoothctl connect"
+expect = "bluetoothctl connect <device>"
+
+[[case]]
+request = "disconnect my bluetooth headphones"
+command = "bluetoothctl disconnect"
+expect = "bluetoothctl disconnect <device>"
+
+[[case]]
+request = "list bluetooth devices"
+command = "bluetoothctl devices"
+expect = "bluetoothctl devices"
+
+[[case]]
+request = "which bluetooth devices are paired"
+command = "bluetoothctl devices"
+
+[[case]]
+request = "turn bluetooth on"
+command = "omarchy bluetooth power"
+expect = "omarchy bluetooth power on"
+
+# ---- state questions answered by queries ----
+[[case]]
+request = "what folder am i in"
+command = "pwd"
+expect = "pwd"
+
+[[case]]
+request = "who owns this file"
+command = "ls"
+expect = "ls -l"
+
+[[case]]
+request = "how hot is my cpu"
+command = "sensors"
+expect = "sensors"
+
+[[case]]
+request = "check the cpu temperature"
+command = "sensors"
+expect = "sensors"
+
+[[case]]
+request = "what graphics card do i have"
+command = "graphics card"
+expect = "lspci | grep -i vga"
+
+[[case]]
+request = "check python version"
+command = "program version"
+expect = "python3 --version"
+
+[[case]]
+request = "what version of node do i have"
+command = "program version"
+expect = "node --version"
+
+[[case]]
+request = "how do i run backup.sh"
+command = "run script"
+expect = "./backup.sh"
+
+[[case]]
+request = "run the script deploy.sh"
+command = "run script"
+expect = "./deploy.sh"
+
+[[case]]
+request = "show the last 5 logins"
+command = "last"
+expect = "last -n 5"
+
+# ---- off-topic: a stray word is not evidence ----
+[[case]]
+request = "order a pizza"
+command = "none"
+
+[[case]]
+request = "how do i make coffee"
+command = "none"
+
+[[case]]
+request = "set up git"
+command = "none"
+
+[[case]]
+request = "undo the last command"
+command = "none"
+
+[[case]]
+request = "my program is not responding"
+command = "none"
+
+[[case]]
+request = "book me a flight to paris"
+command = "none"
+
+[[case]]
+request = "write me a poem"
+command = "none"
+
+# ---- clipboard ----
+[[case]]
+request = "copy text to clipboard"
+command = "wl-copy"
+expect = "wl-copy"
+
+[[case]]
+request = "paste from the clipboard"
+command = "wl-paste"
+expect = "wl-paste"
+
+# ---- values, not targets ----
+[[case]]
+request = "set volume to 50%"
+command = "wpctl set-volume"
+expect = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 50%"
+
+[[case]]
+request = "set brightness to 30%"
+command = "omarchy brightness set"
+expect = "omarchy brightness display 30%"
+
+[[case]]
+request = "turn the volume up"
+command = "omarchy audio output volume"
+expect = "omarchy audio output volume raise"
+
+# ---- question and instruction forms of the same topic ----
+[[case]]
+request = "how much disk space is left"
+command = "df"
+
+[[case]]
+request = "can you show my disk space"
+command = "df"
+
+[[case]]
+request = "is docker running"
+command = "systemctl status|pgrep|docker ps"
+
+[[case]]
+request = "can you start the nginx service"
+command = "systemctl"
+expect = "sudo systemctl start nginx"
+
+[[case]]
+request = "what is my ip address"
+command = "ip"
+
+[[case]]
+request = "which processes are using the most memory"
+command = "ps|top"
+
+[[case]]
+request = "is port 8080 in use"
+command = "ss port"
+
+[[case]]
+request = "could you free port 8080"
+command = "kill port"
+warn = true
+
+[[case]]
+request = "is the battery charging"
+command = "battery status"
+
+[[case]]
+request = "how long has the computer been on"
+command = "uptime"
+
+[[case]]
+request = "please restart the wifi"
+command = "omarchy restart"
+expect = "omarchy restart wifi"
+
+[[case]]
+request = "is bluetooth on"
+command = "bluetooth status"
+expect = "bluetoothctl show | grep Powered"
+
+# ---- more bluetooth, wifi and package wording ----
+[[case]]
+request = "is my bluetooth speaker connected?"
+command = "bluetoothctl info"
+expect = "bluetoothctl info <device>"
+
+[[case]]
+request = "connect my headphones"
+command = "bluetoothctl connect"
+expect = "bluetoothctl connect <device>"
+
+[[case]]
+request = "what is my wifi name"
+command = "wifi current"
+
+[[case]]
+request = "am i connected to wifi"
+command = "wifi current"
+
+[[case]]
+request = "turn on wifi"
+command = "nmcli radio wifi"
+expect = "nmcli radio wifi on"
+
+[[case]]
+request = "is git installed"
+command = "package installed"
+expect = "pacman -Q git"
+
+[[case]]
+request = "which packages are installed"
+command = "package list"
+expect = "pacman -Q"
+
+[[case]]
+request = "free up disk space from old packages"
+command = "package cache clean"
+expect = "sudo pacman -Sc"
+warn = true
+
+[[case]]
+request = "is nginx running"
+command = "pgrep|systemctl status"
+
+[[case]]
+request = "restart nginx"
+command = "systemctl"
+expect = "sudo systemctl restart nginx"
+warn = true
+
+# ---- catalog gaps ----
+[[case]]
+request = "unmount my usb drive /dev/sdb1"
+command = "udisksctl unmount"
+expect = "udisksctl unmount -b /dev/sdb1"
+
+[[case]]
+request = "eject the usb stick /dev/sdb"
+command = "udisksctl power-off"
+expect = "udisksctl power-off -b /dev/sdb"
+
+[[case]]
+request = "mount my usb stick /dev/sdb1"
+command = "udisksctl mount"
+expect = "udisksctl mount -b /dev/sdb1"
+
+[[case]]
+request = "unmount /mnt/data"
+command = "umount"
+expect = "sudo umount /mnt/data"
+
+[[case]]
+request = "delete the user bob"
+command = "userdel"
+expect = "sudo userdel bob"
+warn = true
+
+[[case]]
+request = "delete user bob and his home folder"
+command = "userdel"
+expect = "sudo userdel -r bob"
+warn = true
+
+[[case]]
+request = "lock bob's account"
+command = "usermod lock"
+expect = "sudo usermod -L bob"
+
+[[case]]
+request = "build docker image myapp:1.0"
+command = "docker build"
+expect = "docker build -t myapp:1.0 ."
+
+[[case]]
+request = "build a docker image tagged web from ./app"
+command = "docker build"
+expect = "docker build -t web ./app"
+
+[[case]]
+request = "remove the docker container web"
+command = "docker rm"
+expect = "docker rm web"
+warn = true
+
+[[case]]
+request = "force remove docker container web"
+command = "docker rm"
+expect = "docker rm -f web"
+warn = true
+
+[[case]]
+request = "delete the git branch feature-x"
+command = "git branch delete"
+expect = "git branch -d feature-x"
+warn = true
+
+[[case]]
+request = "force delete the git branch feature-x"
+command = "git branch delete"
+expect = "git branch -D feature-x"
+warn = true
+
+[[case]]
+request = "list my git branches"
+command = "git branch"
+expect = "git branch"
+
+[[case]]
+request = "rebase my branch onto main"
+command = "git rebase"
+expect = "git rebase main"
+warn = true
+
+[[case]]
+request = "interactively rebase the last 3 commits"
+command = "git rebase"
+expect = "git rebase -i HEAD~3"
+warn = true
+
+[[case]]
+request = "forward local port 8080 to port 80 on myserver"
+command = "ssh tunnel"
+expect = "ssh -N -L 8080:localhost:80 myserver"
+
+[[case]]
+request = "post json to https://api.example.com/items"
+command = "curl post json"
+expect = "curl -X POST -H 'Content-Type: application/json' -d <data> https://api.example.com/items"
+
+[[case]]
+request = "hibernate the computer"
+command = "hibernate"
+expect = "systemctl hibernate"
+
+[[case]]
+request = "list the last 20 logins"
+command = "last"
+expect = "last -n 20"
+
+[[case]]
+request = "what version of docker do i have"
+command = "program version"
+expect = "docker --version"
+
+[[case]]
+request = "copy the contents of notes.txt to the clipboard"
+command = "wl-copy"
+expect = "wl-copy < notes.txt"
+
+[[case]]
+request = "what is on the clipboard"
+command = "wl-paste"
+expect = "wl-paste"
+
+[[case]]
+request = "set the volume to 30 percent"
+command = "wpctl set-volume"
+expect = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 30%"
+
+[[case]]
+request = "set the screen brightness to 70%"
+command = "omarchy brightness set"
+expect = "omarchy brightness display 70%"
+
+[[case]]
+request = "make the screen brighter"
+command = "omarchy brightness display"
+expect = "omarchy brightness display +10%"
+
+# ---- nothing fits ----
+[[case]]
+request = "make me a sandwich"
+command = "none"
+
+[[case]]
+request = "play some music"
+command = "none"
+
+[[case]]
+request = "compose a new email"
+command = "none"

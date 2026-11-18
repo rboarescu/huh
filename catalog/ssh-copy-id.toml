@@ -1,6 +1,7 @@
 name = "ssh-copy-id"
 description = "Set up key login to another computer, so SSH stops asking for a password"
 template = "ssh-copy-id {host}"
+kind = "action"
 keywords = ["passwordless ssh", "copy ssh key", "setup ssh key", "login without password", "ssh key auth"]
 
 [[slots]]

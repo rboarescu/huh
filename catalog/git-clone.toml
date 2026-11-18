@@ -1,6 +1,7 @@
 name = "git clone"
 description = "Download a copy of a git repository from a web address"
 template = "git clone {url}"
+kind = "action"
 keywords = ["download git repo", "clone repository", "checkout remote repo"]
 
 [[slots]]

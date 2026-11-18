@@ -1,0 +1,5 @@
+name = "sensors"
+description = "Show the temperature of the processor and other hardware sensors, and fan speeds"
+template = "sensors"
+kind = "query"
+keywords = ["cpu temperature", "how hot is my cpu", "how hot is the processor", "check temperature", "hardware temperature", "fan speed", "thermal sensors", "is my cpu overheating", "temps"]

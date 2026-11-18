@@ -1,0 +1,12 @@
+name = "udisksctl mount"
+description = "Mount a USB stick or other drive so its files can be used"
+template = "udisksctl mount -b {device}"
+kind = "action"
+keywords = ["mount usb stick", "mount my usb", "mount drive", "mount flash drive", "mount external disk", "mount sd card", "mount a partition"]
+opposites = ["unmount", "umount", "eject"]
+
+[[slots]]
+id = "device"
+kind = "text"
+extract = "device"
+what = "the drive's device name, e.g. /dev/sdb1"

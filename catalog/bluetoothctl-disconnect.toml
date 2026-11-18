@@ -1,0 +1,11 @@
+name = "bluetoothctl disconnect"
+description = "Disconnect a connected Bluetooth device such as headphones or a speaker"
+template = "bluetoothctl disconnect {device}"
+kind = "action"
+keywords = ["disconnect bluetooth headphones", "disconnect bluetooth speaker", "disconnect my headphones", "disconnect earbuds", "disconnect bluetooth device", "unpair bluetooth"]
+
+[[slots]]
+id = "device"
+kind = "text"
+what = "the Bluetooth device's address (see bluetoothctl devices)"
+extract = "mac"

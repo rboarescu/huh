@@ -1,0 +1,10 @@
+name = "umount"
+description = "Unmount a mounted folder or drive by its mount point"
+template = "sudo umount {mountpoint}"
+kind = "action"
+keywords = ["unmount mount point", "umount folder", "unmount a folder", "unmount network share", "unmount partition"]
+
+[[slots]]
+id = "mountpoint"
+kind = "path"
+what = "the mount point to unmount"

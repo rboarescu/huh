@@ -1,6 +1,7 @@
 name = "systemctl --user"
 description = "Start, stop, restart or check one of my own user services, the ones that run without root"
 template = "systemctl --user {action} {service}"
+kind = "action"
 keywords = ["user service", "start user service", "restart user service", "user daemon", "systemd user unit", "autostart at login"]
 
 [[slots]]
