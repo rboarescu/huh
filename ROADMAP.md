@@ -1,5 +1,14 @@
 # huh: roadmap and status
 
+## Completed: Slot filling (2026-11-18)
+
+- **Entries**: the current folder now marks folders (`projects/`), so "the projects folder" is the folder, never `projects-download.zip`. An entry matches only when the request says all its distinctive words (stopwords and "my" never count) and an exact name beats a partial one. A multi-word name ("Vacation Photos") is consumed whole; a folder that receives a copy gets a trailing `/`.
+- **Values**: "my home folder" is `~`, "my files"/"this folder" is `.` for grep, "jpg files" is `*.jpg`, "a file named notes" is `-name 'notes*'`, a path written in the request beats an entry that shares a word with it, flags typed as written (`-ri`, `-R`) are never values and turn their options on, `-r` follows what is being copied, deleted or searched.
+- **Leftover words**: verbs, fillers and question words ("word", "working", "respond", "see", "each", "usb", "port") are not values; "for the word X" gives `X`. A bare word with no cue ("called", quotes, path shape, known program) scores low, so the line carries a "not sure" note (or asks) instead of passing for certain.
+- **Modifiers**: `ssh` takes `user@` and `-p`, `ping` a count, `tar` `--exclude=` and `-C`, `journalctl` `--since`, `git log` `-N`, `usermod` a user (catalog: new slots in those six entries). A modifier no slot can hold (`excluding X`, `since X`, `on port N`, `as user` for ssh) gets "not included: `...`" under the line.
+- **Tests**: `evals/slots.toml` (52 cases, 39 failed before; `cargo test` requires all, new optional `note` field), plus the existing evals unchanged.
+- **Not handled**: wrong commands from ranking (e.g. "compress the projects folder into a tar.gz" gives `gzip`, "force quit spotify" gives `kill -9`, "go back to the previous folder" has no `cd -`); `scp`/`rsync` ports and users; several values for one slot; relative dates beyond the words after `since`.
+
 ## Completed: Platform and package-name fixes from the Docker verification (2026-11-17)
 
 - **Names**: "install dig/docker" map program to package per family (the `[programs]`/`[packages]` data, via `pkg_role` on package tasks and `assemble::package_line`); fixed suse (`btrfsprogs`, `iperf`, `rust`), void (`fish-shell`, `rust`, `bind-utils`; `nmap`/`unrar` fall back to `xlocate`), alpine (`rust`; `snapper`/`unrar` marked not packaged with `""`), nixos (`gnumake`, npm in `nodejs`). Names were checked in containers.
@@ -64,11 +73,7 @@ The evals score 100%, but four simulated users (beginner on Omarchy, sysadmin, f
    - "kill the process on port 3000" gives `kill 3000`, treating the port as a PID.
    - "discard changes in f" gives `gio trash f`.
    - "remove dangling docker images" gives `docker rmi dangling`.
-2. **Slot filling** (the biggest source of wrong lines)
-   - Folder names prefix-match files: "the projects folder" fills in `projects-download.zip`, including for `rm -r` and `cp`.
-   - "my" fills in `My Resume.pdf`.
-   - Leftover words become values: `grep password 'word password'`, `ping -c 4 working`.
-   - Modifiers are dropped silently: user@ in ssh, `-p` port, `--exclude`, `--since`, `-9`, `-C dir`, the owner in chown, the user in usermod.
+2. ~~**Slot filling**~~ Done 2026-11-18 (see "Completed: Slot filling"). Left: scp/rsync users and ports, several values for one slot.
 3. **Error doctor (`huh why`)**: only 22 of 96 real failures got a useful fix.
    - Every "Permission denied" is blamed on root.
    - A misspelled module gets `pip install <typo>`.

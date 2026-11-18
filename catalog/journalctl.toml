@@ -1,6 +1,6 @@
 name = "journalctl"
 description = "Read the system log, or the log of one background service"
-template = "journalctl {boot} {follow} {unit} {lines}"
+template = "journalctl {boot} {follow} {unit} {since} {lines}"
 keywords = ["service logs", "systemd logs", "system log", "journal", "follow logs", "boot logs", "last log lines", "daemon logs"]
 
 [[flags]]
@@ -26,3 +26,10 @@ kind = "text"
 what = "the number of most recent log lines to show"
 format = "-n {} --no-pager"
 default = ""
+
+[[slots]]
+id = "since"
+kind = "text"
+what = "how far back to read (for example 1 hour ago, yesterday)"
+default = ""
+format = "--since {}"

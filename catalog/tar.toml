@@ -1,6 +1,6 @@
 name = "tar"
 description = "Pack files into a .tar.gz archive, unpack one, or look inside one"
-template = "tar {action} {archive} {inputs}"
+template = "tar {action} {archive} {exclude} {outdir} {inputs}"
 keywords = ["tarball", "tar.gz", "unpack archive", "extract tar", "extract tar.gz", "pack folder", "create tar.gz", "compress folder", "list archive contents", "inspect tar", "whats inside tar"]
 
 [[slots]]
@@ -33,3 +33,17 @@ id = "inputs"
 kind = "path"
 what = "the file or folder to put into a new archive"
 default = ""
+
+[[slots]]
+id = "exclude"
+kind = "text"
+what = "a name or pattern to leave out of the new archive"
+default = ""
+format = "--exclude={}"
+
+[[slots]]
+id = "outdir"
+kind = "path"
+what = "the folder to unpack into"
+default = ""
+format = "-C {}"

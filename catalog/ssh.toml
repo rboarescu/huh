@@ -1,9 +1,23 @@
 name = "ssh"
 description = "Log in to another computer over the network"
-template = "ssh {host}"
+template = "ssh {port} {user}{host}"
 keywords = ["remote login", "connect to server", "remote shell", "ssh into"]
 
 [[slots]]
 id = "host"
 kind = "text"
 what = "the computer to log in to"
+
+[[slots]]
+id = "user"
+kind = "text"
+what = "the user name to log in as"
+default = ""
+format = "{}@"
+
+[[slots]]
+id = "port"
+kind = "text"
+what = "the port the SSH server listens on"
+default = ""
+format = "-p {}"

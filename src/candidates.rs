@@ -3,7 +3,7 @@
 //! current folder for paths.
 
 use crate::catalog::SlotKind;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 const MAX_TOKENS: usize = 30;
 pub const MAX_FILES: usize = 40;
@@ -15,17 +15,53 @@ const STOPWORDS: &[&str] = &[
     "some", "just",
 ];
 
+/// What a value is, as far as the current folder says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EntryKind {
+    /// Not an entry of the current folder: a word, path or phrase from the request.
+    NotEntry,
+    /// A folder (listed with a trailing `/`).
+    Dir,
+    /// An entry that is not known to be a folder.
+    File,
+}
+
 pub struct Candidates {
     pub tokens: Vec<String>,
+    /// Entry names of the current folder, without the trailing `/` that marks folders.
     pub files: Vec<String>,
     pub phrases: Vec<String>,
+    dirs: HashSet<String>,
 }
 
 impl Candidates {
+    /// `files` are the entries of the current folder; folders carry a trailing `/`.
     pub fn new(request: &str, files: Vec<String>) -> Self {
-        let tokens = tokens(request);
+        let mut dirs = HashSet::new();
+        let files: Vec<String> = files
+            .into_iter()
+            .map(|name| match name.strip_suffix('/') {
+                Some(bare) if !bare.is_empty() => {
+                    dirs.insert(bare.to_string());
+                    bare.to_string()
+                }
+                _ => name,
+            })
+            .collect();
+        let mut tokens = tokens(request);
+        consume_entry_names(request, &files, &mut tokens);
         let phrases = prepositional_phrases(request, &tokens);
-        Self { tokens, files, phrases }
+        Self { tokens, files, phrases, dirs }
+    }
+
+    pub fn entry_kind(&self, value: &str) -> EntryKind {
+        if self.dirs.contains(value) {
+            EntryKind::Dir
+        } else if self.files.iter().any(|f| f == value) {
+            EntryKind::File
+        } else {
+            EntryKind::NotEntry
+        }
     }
 
     pub fn for_slot(&self, kind: SlotKind) -> BTreeSet<&str> {
@@ -157,7 +193,7 @@ const NAMED_THINGS: &[&str] = &["package", "program", "app", "application", "too
 fn prepositional_phrases(request: &str, existing: &[String]) -> Vec<String> {
     let mut out = Vec::new();
     let words: Vec<&str> = request.split_whitespace().collect();
-    let triggers = ["to", "about", "for", "called", "named", "message", "saying", "use"];
+    let triggers = ["to", "about", "for", "called", "named", "message", "saying", "use", "since"];
     let stops = [
         "in",
         "on",
@@ -177,8 +213,14 @@ fn prepositional_phrases(request: &str, existing: &[String]) -> Vec<String> {
         "command",
         "file",
         "folder",
+        "directory",
+        "dir",
         "minutes",
         "minute",
+        "since",
+        "until",
+        "excluding",
+        "except",
     ];
     let articles = ["the", "a", "an", "my"];
 
@@ -204,6 +246,14 @@ fn prepositional_phrases(request: &str, existing: &[String]) -> Vec<String> {
             } else if matches!(w.as_str(), "for" | "about")
                 && words.get(j).is_some_and(|noun| {
                     matches!(noun.to_lowercase().as_str(), "package" | "program" | "app" | "application" | "software")
+                })
+            {
+                j += 1;
+            }
+            // "for the word password": the label is not part of the value.
+            if matches!(w.as_str(), "for" | "about")
+                && words.get(j).is_some_and(|label| {
+                    matches!(label.to_lowercase().as_str(), "word" | "words" | "term" | "phrase" | "string" | "keyword")
                 })
             {
                 j += 1;
@@ -372,16 +422,144 @@ pub fn tokens(request: &str) -> Vec<String> {
     for phrase in capitalized_phrases(request) {
         push_raw(&phrase);
     }
+    let home = names_home_folder(request);
+    if home {
+        push_raw("~");
+    }
+    for glob in extension_globs(request) {
+        push_raw(&glob);
+    }
+    if names_current_folder(request) {
+        push_raw(".");
+    }
+    if home {
+        // "home" is then the folder, written `~`, not a word to use as a value.
+        out.retain(|token| !token.eq_ignore_ascii_case("home"));
+    }
     out
 }
 
-/// Visible entries of the current folder, sorted, capped.
+/// Modifiers a request can state that a command line may have no place for: ("excluding node_modules",
+/// "node_modules"), ("since 1 hour ago", "1 hour ago"), ("on port 2222", "2222"), ("as deploy", "deploy").
+pub fn modifier_phrases(request: &str) -> Vec<(String, String)> {
+    let words = plain_words(request);
+    let remote = words.iter().any(|w| matches!(w.as_str(), "ssh" | "scp" | "sftp" | "rsync"));
+    let mut out = Vec::new();
+    for (i, word) in words.iter().enumerate() {
+        let rest = &words[i + 1..];
+        let value = match word.as_str() {
+            "excluding" | "except" | "exclude" => rest.first().cloned(),
+            "since" | "until" => {
+                let n = rest.iter().take(4).take_while(|w| !matches!(w.as_str(), "and" | "in" | "on" | "for")).count();
+                Some(rest[..n].join(" ")).filter(|v| !v.is_empty())
+            }
+            "port" => rest.first().filter(|n| n.chars().all(|c| c.is_ascii_digit())).cloned(),
+            "as" if remote => rest.first().cloned(),
+            _ => None,
+        };
+        if let Some(value) = value.filter(|v| !v.is_empty() && !STOPWORDS.contains(&v.as_str())) {
+            let lead = if word == "port" && i > 0 && words[i - 1] == "on" { "on " } else { "" };
+            let phrase = if word == "port" { format!("{lead}port {value}") } else { format!("{word} {value}") };
+            out.push((phrase, value));
+        }
+    }
+    out
+}
+
+/// File types people name by their extension: "jpg files" means `*.jpg`.
+const FILE_EXTENSIONS: &[&str] = &[
+    "jpg", "jpeg", "png", "gif", "svg", "webp", "pdf", "txt", "md", "csv", "json", "yaml", "yml", "toml", "xml",
+    "html", "log", "mp3", "mp4", "mkv", "wav", "flac", "zip", "tar", "gz", "iso", "doc", "docx", "xls", "xlsx", "odt",
+    "py", "rs", "js", "ts", "sh", "c", "cpp", "java", "go",
+];
+
+fn extension_globs(request: &str) -> Vec<String> {
+    let words = plain_words(request);
+    words
+        .windows(2)
+        .filter(|pair| FILE_EXTENSIONS.contains(&pair[0].as_str()) && matches!(pair[1].as_str(), "file" | "files"))
+        .map(|pair| format!("*.{}", pair[0]))
+        .collect()
+}
+
+/// "my files", "all files", "this folder": the folder the person is in, `.`.
+fn names_current_folder(request: &str) -> bool {
+    let lower = plain_words(request).join(" ");
+    [
+        "my files",
+        "all files",
+        "all the files",
+        "every file",
+        "this folder",
+        "this directory",
+        "current folder",
+        "current directory",
+        "files here",
+    ]
+    .iter()
+    .any(|phrase| lower.contains(phrase))
+}
+
+/// "my home folder", "the home directory", "home dir": the person's home folder, `~`.
+fn names_home_folder(request: &str) -> bool {
+    let words = plain_words(request);
+    words.iter().enumerate().any(|(i, w)| {
+        w == "home"
+            && (words.get(i + 1).is_some_and(|n| matches!(n.as_str(), "folder" | "directory" | "dir" | "folders"))
+                || (i > 0 && words[i - 1] == "my" && words.get(i + 1).is_none_or(|n| n != "page")))
+    })
+}
+
+/// Words of a request, lowercased and stripped of punctuation, for matching names.
+fn plain_words(text: &str) -> Vec<String> {
+    text.split_whitespace()
+        .map(|w| {
+            w.trim_matches([',', ';', ':', '!', '?', '(', ')', '"', '\'', '`']).trim_end_matches('.').to_lowercase()
+        })
+        .collect()
+}
+
+/// A multi-word entry name that the request spells out ("Vacation Photos") is one value:
+/// its single words stop being values of their own (unless the request uses them elsewhere).
+fn consume_entry_names(request: &str, files: &[String], tokens: &mut Vec<String>) {
+    let words = plain_words(request);
+    let mut covered = vec![false; words.len()];
+    for name in files.iter().filter(|name| name.contains(' ')) {
+        let parts = plain_words(name);
+        if let Some(start) = words.windows(parts.len()).position(|w| w == parts.as_slice()) {
+            covered[start..start + parts.len()].fill(true);
+        }
+    }
+    if !covered.contains(&true) {
+        return;
+    }
+    tokens.retain(|token| {
+        if token.contains(' ') {
+            return true;
+        }
+        let lower = token.to_lowercase();
+        let mut seen = words.iter().enumerate().filter(|(_, w)| **w == lower).peekable();
+        seen.peek().is_none() || seen.any(|(i, _)| !covered[i])
+    });
+}
+
+/// Visible entries of the current folder, sorted, capped; folders end in `/`.
 pub fn current_folder_entries() -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(".")
         .map(|entries| {
             entries
-                .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
-                .filter(|name| !name.starts_with('.'))
+                .filter_map(|entry| {
+                    let entry = entry.ok()?;
+                    let mut name = entry.file_name().into_string().ok()?;
+                    if name.starts_with('.') {
+                        return None;
+                    }
+                    // Follow symlinks: a link to a folder is a folder.
+                    if std::fs::metadata(entry.path()).is_ok_and(|m| m.is_dir()) {
+                        name.push('/');
+                    }
+                    Some(name)
+                })
                 .collect()
         })
         .unwrap_or_default();
