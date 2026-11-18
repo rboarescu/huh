@@ -5,6 +5,7 @@
 use crate::breakdown::{Block, Explanation, Row};
 use crate::catalog::Command;
 use crate::session;
+use crate::style::{Role, paint};
 use anyhow::{Result, bail};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -166,7 +167,8 @@ fn condensed(e: &Explanation) -> String {
     }
     crate::render::rows(&mut out, &rows, 4);
     if let Some(w) = e.warnings.first() {
-        crate::render::hanging(&mut out, 2, "! ", &format!("[{}] {}", w.risk.name(), w.text));
+        let tag = format!("[{}]", w.risk.name());
+        crate::render::hanging_tagged(&mut out, 2, ("! ", Role::Warning), &tag, &format!("{tag} {}", w.text));
     }
     out
 }
@@ -176,7 +178,18 @@ const ALT_SCREEN: [&str; 3] = ["\x1b[?1049h", "\x1b[?1047h", "\x1b[?47h"];
 /// Everything printed for one finished command (ends with a blank line).
 pub fn block(catalog: &[Command], done: &Finished, explained: Option<&mut HashSet<String>>) -> String {
     let exit = done.exit.map_or("?".to_string(), |c| c.to_string());
-    let mut out = format!("$ {}  (exit {exit})\n", done.command);
+    let exit_role = if done.exit == Some(0) {
+        Role::Success
+    } else if done.exit.is_some() {
+        Role::Warning
+    } else {
+        Role::Dim
+    };
+    let mut out = format!(
+        "{}{}\n",
+        paint(Role::Header, &format!("$ {}", done.command)),
+        paint(exit_role, &format!("  (exit {exit})"))
+    );
     let mut explain_command = !done.command.trim().is_empty();
     if let Some(seen) = explained {
         let names = programs(&done.command);
@@ -187,7 +200,8 @@ pub fn block(catalog: &[Command], done: &Finished, explained: Option<&mut HashSe
         out.push_str(&condensed(&crate::explain::explain_command(catalog, &done.command)));
     }
     if ALT_SCREEN.iter().any(|s| done.raw.contains(s)) {
-        out.push_str("  full-screen program, nothing to explain\n\n");
+        out.push_str(&paint(Role::Dim, "  full-screen program, nothing to explain"));
+        out.push_str("\n\n");
         return out;
     }
     let cleaned = session::clean(&done.raw);
@@ -195,7 +209,7 @@ pub fn block(catalog: &[Command], done: &Finished, explained: Option<&mut HashSe
         let last = session::Last { command: done.command.clone(), exit: done.exit, output: session::tail(&cleaned) };
         let mut answer = String::new();
         let _ = crate::doctor::explain(&last, &mut |text| answer = text.to_string());
-        out.push_str(&format!("\n{}\n", answer.trim_end()));
+        out.push_str(&format!("\n{}\n", crate::style::answer(answer.trim_end())));
     } else if let Some(described) = crate::outputs::describe(&cleaned) {
         out.push_str(&format!("\n{}", described.text));
     }
@@ -239,10 +253,19 @@ pub fn run(catalog: &[Command], quiet: bool, tty: Option<&str>) -> Result<()> {
         log = locate(tty);
     }
     let Some(log) = log else { bail!("{}", how_to_record()) };
+    if crate::welcome::show(crate::welcome::Trigger::Tutor, false, false) == crate::welcome::Shown::Interrupted {
+        return Ok(());
+    }
     catch_ctrl_c();
     let tty_name = tty_of(&log).unwrap_or_else(|| log.display().to_string());
     println!(
-        "huh tutor: following {tty_name}, the terminal that finished a command most recently (Ctrl+C stops). It only reads."
+        "{}",
+        paint(
+            Role::Dim,
+            &format!(
+                "huh tutor: following {tty_name}, the terminal that finished a command most recently (Ctrl+C stops). It only reads."
+            )
+        )
     );
     if tty.is_none() {
         let own = std::env::var_os("HUH_SESSION_LOG").map(PathBuf::from);

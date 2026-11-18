@@ -23,10 +23,12 @@ mod risk_extra;
 mod risk_kinds;
 mod session;
 mod shell;
+mod style;
 mod sysinfo;
 mod tools;
 mod tutor;
 mod values;
+mod welcome;
 
 use anyhow::{Result, bail};
 use assemble::Suggestion;
@@ -36,6 +38,7 @@ use clap::{Parser, Subcommand};
 use matcher::LocalMatcher;
 use std::path::PathBuf;
 use std::time::Instant;
+use style::{Role, paint};
 
 #[derive(Parser)]
 #[command(name = "huh", version, about = "Say what you want to do; get a terminal command back. Nothing is ever run.")]
@@ -69,6 +72,12 @@ struct Cli {
     /// Normal mode, overriding HUH_MODE and the config file
     #[arg(long, global = true)]
     normal: bool,
+    /// Colour theme: auto, omarchy, dark, light, nord, gruvbox, catppuccin or mono (also HUH_THEME or theme = "..." in the config file; see `huh themes`)
+    #[arg(long, global = true, value_name = "NAME")]
+    theme: Option<String>,
+    /// When to use colour: auto (a terminal, no NO_COLOR, TERM not dumb), always or never
+    #[arg(long, global = true, value_enum, default_value = "auto")]
+    color: style::ColorChoice,
     /// Also offer commands that belong to another kind of system (e.g. apt on Arch)
     #[arg(long)]
     all_commands: bool,
@@ -87,6 +96,10 @@ enum Action {
     },
     /// Validate the catalog and list its commands
     Check,
+    /// Show a sample of every colour theme
+    Themes,
+    /// Replay the welcome animation
+    Welcome,
     /// Explain why the last command failed (or pipe output in)
     Why,
     /// Explain what a shell command and each of its flags and arguments do
@@ -455,45 +468,59 @@ fn join_argv(args: &[String]) -> String {
 
 fn print(outcome: &Outcome, catalog: &[Command], brief: bool) {
     if package_task_without_manager(outcome, catalog) {
-        println!("No suggestion: {}", platform::no_manager_message());
+        println!("{}", paint(Role::Note, &format!("No suggestion: {}", platform::no_manager_message())));
         return;
     }
     if let Some(hint) = &outcome.hint {
-        println!("No suggestion: {hint}");
+        println!("{}", paint(Role::Note, &format!("No suggestion: {hint}")));
         if let Some(pointer) = &outcome.pointer {
-            println!("{pointer}");
+            println!("{}", paint(Role::Note, pointer));
         }
         return;
     }
     if outcome.suggestions.is_empty() {
         match &outcome.pointer {
-            Some(pointer) => println!("{pointer}"),
-            None => println!("No suggestion: nothing in the catalog fits that request."),
+            Some(pointer) => println!("{}", paint(Role::Note, pointer)),
+            None => println!("{}", paint(Role::Note, "No suggestion: nothing in the catalog fits that request.")),
         }
         return;
     }
     let platforms = catalog::this_platform();
     for (number, s) in outcome.suggestions.iter().enumerate() {
-        println!("{}. {}", number + 1, s.line);
-        println!("   {} ({:.0}%)", s.description, s.probability * 100.0);
+        println!("{}{}", paint(Role::Dim, &format!("{}. ", number + 1)), paint(Role::Command, &s.line));
+        println!(
+            "   {} {}",
+            paint(Role::Description, &s.description),
+            paint(Role::Value, &format!("({:.0}%)", s.probability * 100.0))
+        );
         if number == 0 && !brief && !s.parts.is_empty() {
             let width = s.parts.iter().map(|(p, _)| p.chars().count()).max().unwrap_or(0).min(24);
             for (piece, explanation) in &s.parts {
-                println!("     {piece:<width$}  {explanation}");
+                println!(
+                    "     {}  {}",
+                    paint(Role::Part, &format!("{piece:<width$}")),
+                    paint(Role::Description, explanation)
+                );
             }
         }
         if let Some(why) = &s.warning {
             match s.risk {
-                Some(risk) => println!("   WARNING ({}): {why}", risk.name()),
-                None => println!("   WARNING: {why}"),
+                Some(risk) => println!(
+                    "   {}{}{} {}",
+                    paint(Role::Warning, "WARNING ("),
+                    paint(Role::Risk, risk.name()),
+                    paint(Role::Warning, "):"),
+                    paint(Role::Warning, why)
+                ),
+                None => println!("   {} {}", paint(Role::Warning, "WARNING:"), paint(Role::Warning, why)),
             }
         }
         // Hiding a missing program would push a worse command to the top, so say it instead.
         if let Some(note) = catalog::missing_note(&s.line, catalog.iter().find(|c| c.name == s.command), &platforms) {
-            println!("   NOTE: {note}");
+            println!("   {} {}", paint(Role::Note, "NOTE:"), paint(Role::Note, &note));
         }
         for note in &s.notes {
-            println!("   {note}");
+            println!("   {}", paint(Role::Note, note));
         }
     }
 }
@@ -523,7 +550,7 @@ fn why() -> Result<()> {
         std::io::stdin().read_to_end(&mut piped)?;
         let text = String::from_utf8_lossy(&piped);
         if let Some(described) = outputs::describe(&text) {
-            print!("{}\n(huh only read this text. Nothing was run.)\n", described.text);
+            print!("{}\n{}\n", described.text, paint(Role::Dim, "(huh only read this text. Nothing was run.)"));
             return Ok(());
         }
         let output = session::tail(&session::clean(&text));
@@ -543,7 +570,7 @@ fn why_last(last: session::Last) -> Result<()> {
     }
     eprintln!();
     doctor::explain(&last, &mut |piece| {
-        print!("{piece}");
+        print!("{}", style::answer(piece));
         std::io::stdout().flush().ok();
     })?;
     println!();
@@ -582,11 +609,43 @@ fn side(quiet: bool, dry_run: bool) -> Result<()> {
     launch::start(plan, &platforms)
 }
 
+/// Chooses the theme and whether to colour, once, before anything is printed. The shell hooks and
+/// `--first-line-only` (the Alt+h key) never read the theme or the config file, so a bad one cannot break them.
+fn setup_style(cli: &Cli) -> Result<()> {
+    use std::io::IsTerminal;
+    if cli.first_line_only || matches!(cli.action, Some(Action::ShellInit { .. } | Action::RecordSink { .. })) {
+        return Ok(());
+    }
+    let theme = style::resolve_theme(
+        cli.theme.as_deref(),
+        std::env::var("HUH_THEME").ok().as_deref(),
+        mode::config_path().as_deref(),
+    )?;
+    let on = style::color_enabled(
+        cli.color,
+        std::io::stdout().is_terminal(),
+        cli.first_line_only,
+        std::env::var_os("NO_COLOR").is_some(),
+        std::env::var("TERM").is_ok_and(|t| t == "dumb"),
+    );
+    style::init(style::Style::new(theme, on));
+    Ok(())
+}
+
+/// The one-time welcome (see welcome.rs). Does nothing unless this is an interactive first run.
+fn first_run_welcome(first_line_only: bool) {
+    if welcome::show(welcome::Trigger::FirstRun, first_line_only, false) == welcome::Shown::Interrupted {
+        std::process::exit(130);
+    }
+}
+
 fn main() -> Result<()> {
     use std::io::IsTerminal;
     #[cfg(unix)]
     exit_quietly_on_closed_pipe();
     let cli = Cli::parse();
+    setup_style(&cli)?;
+    let first_line_only = cli.first_line_only;
 
     // These do not need the catalog, and the shell ones run in every new terminal.
     match &cli.action {
@@ -596,6 +655,16 @@ fn main() -> Result<()> {
         }
         Some(Action::RecordSink { file, pipe }) => return session::sink(file, pipe),
         Some(Action::Tutor { quiet, side: true, dry_run, .. }) => return side(*quiet, *dry_run),
+        Some(Action::Themes) => {
+            print!("{}", style::themes_text(style::enabled()));
+            return Ok(());
+        }
+        Some(Action::Welcome) => {
+            if welcome::show(welcome::Trigger::Welcome, false, true) == welcome::Shown::Interrupted {
+                std::process::exit(130);
+            }
+            return Ok(());
+        }
         Some(Action::Why) => return why(),
         Some(Action::EvalErrors { cases }) => return eval::run_errors(cases),
         None if cli.request.is_empty() => {
@@ -621,7 +690,14 @@ fn main() -> Result<()> {
     let everything = catalog::load_default(cli.catalog)?;
 
     match cli.action {
-        Some(Action::Why | Action::ShellInit { .. } | Action::EvalErrors { .. } | Action::RecordSink { .. }) => {
+        Some(
+            Action::Why
+            | Action::ShellInit { .. }
+            | Action::EvalErrors { .. }
+            | Action::RecordSink { .. }
+            | Action::Themes
+            | Action::Welcome,
+        ) => {
             unreachable!("handled above")
         }
         Some(Action::Tutor { quiet, tty, .. }) => tutor::run(&everything, quiet, tty.as_deref())?,
@@ -657,7 +733,7 @@ fn main() -> Result<()> {
                 bail!("provide a command to explain, e.g. `huh explain \"du -sh * | sort -h\"`");
             }
             if from_stdin && let Some(described) = outputs::describe(&cmd_str) {
-                print!("{}\n(huh only read this text. Nothing was run.)\n", described.text);
+                print!("{}\n{}\n", described.text, paint(Role::Dim, "(huh only read this text. Nothing was run.)"));
                 return Ok(());
             }
             if from_stdin && let Some((plausible, total)) = explain::looks_like_program_output(&cmd_str, &everything) {
@@ -668,6 +744,9 @@ fn main() -> Result<()> {
                      failure, pipe it into `huh why` instead.\n\n(Nothing was run.)"
                 );
                 return Ok(());
+            }
+            if !from_stdin {
+                first_run_welcome(first_line_only);
             }
             let explanation = explain::explain_command(&everything, &cmd_str);
             print!("{}", render::render(&explanation));
@@ -693,6 +772,7 @@ fn main() -> Result<()> {
                 catalog::usable(everything, &catalog::this_platform(), false)
             };
             let files = if cli.no_cwd { vec![] } else { candidates::current_folder_entries() };
+            first_run_welcome(first_line_only);
             let interactive = !cli.no_ask
                 && !cli.first_line_only
                 && std::io::stdin().is_terminal()

@@ -253,6 +253,27 @@ huh tools network --no-desc
 
 The last line says how many matched ("143 of 2214 programs match"). Programs come from the directories of `$PATH` (the first one wins when a name appears twice; files that are not executable are skipped). The description is the catalog's, else the built-in table's, else the NAME line of the program's man page, read from disk (plain or `.gz`; `.xz` and `.zst` pages are skipped). Nothing is run, not even `--help` or `man`, and nothing is cached.
 
+## Colours and themes
+
+Output is coloured by role (command lines, flags, WARNING labels, risk categories, hints, the `Try:` line). The text itself is the same with or without colour.
+
+| Theme | Colours |
+|---|---|
+| `auto` (default) | only the terminal's own 16 ANSI colours, so huh follows the palette of your terminal (on Omarchy, the active theme) |
+| `omarchy` | truecolour values read at run time from `~/.local/state/omarchy/current/theme/colors.toml` (accent, foreground, background, color1-color6); falls back to `auto` if the file is missing or unreadable |
+| `dark`, `light`, `nord`, `gruvbox`, `catppuccin` | built-in truecolour palettes (One Dark, One Light, Nord, Gruvbox, Catppuccin Mocha) |
+| `mono` | bold, dim and underline only |
+
+Run `huh themes` to see a sample of each. Choose one with `--theme NAME`, `HUH_THEME=NAME` or `theme = "nord"` in `~/.config/huh/config.toml` (flag, then environment, then file, then `auto`). An unknown name lists the valid ones.
+
+Colour is off when output is not a terminal (pipes), with `--first-line-only` (the Alt+h key binding), when `NO_COLOR` is set (any value), when `TERM=dumb`, and with `--color never`. `--color always` forces it on. `huh tutor` writes to a terminal, so it is coloured.
+
+## Welcome animation
+
+A small "huh" logo draws itself (under a second; any key skips it), followed by a five-line welcome with three example commands. It plays when `huh tutor` starts (also in the pane or window opened by `--side`), once the first time you run huh in a terminal (recorded in `$XDG_STATE_HOME/huh/welcomed`, default `~/.local/state/huh/welcomed`), and whenever you run `huh welcome`.
+
+It never plays into a pipe or when input is not a terminal, with `--first-line-only`, in a terminal narrower than the art, with `TERM=dumb`, with `HUH_NO_ANIMATION=1`, or with `animation = false` in `~/.config/huh/config.toml`. To switch it off for good, set `animation = false`. To see it again after the first run, use `huh welcome` or delete the `welcomed` file.
+
 ## Terminal recording and prompt completion
 
 Add two lines to `~/.bashrc` (bash) to enable `huh why` without piping and `Alt+h` / `Alt+f` prompt-line replacement:
