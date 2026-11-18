@@ -3569,7 +3569,9 @@ impl TypedValues {
             return score;
         }
         let declared = self.declared.get(slot_id).map(String::as_str);
-        let slot_type = declared.or_else(|| role_type(role));
+        // A slot named after a label kind ("branch", "user", "group") takes that kind of value,
+        // so entries need no explicit `type` for labels to reach them.
+        let slot_type = declared.or_else(|| role_type(role)).or_else(|| label_kind(slot_id));
         let label_word_at = |pos: usize| self.labels.iter().any(|l| l.label_pos == pos);
         let Some(token) = find_raw_token(cand, q) else {
             // A phrase that swallowed a label ("group docker") is not a value.
