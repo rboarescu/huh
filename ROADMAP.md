@@ -210,6 +210,18 @@ Use case: an agent ran a long command and the user wants to know what it did bef
 
 `backend.rs` / `questions.rs` (the text question/answer protocol left from the hosted-model days) are gone: `LocalMatcher::rank` and `LocalMatcher::details` return typed results that `assemble.rs` turns into lines. Output is byte-identical to before. Code is rustfmt-formatted and clippy-clean.
 
+## Completed: sysadmin round (values) (2026-11-18)
+
+Named values that were dropped, misplaced or left as placeholders (`evals/slots3.toml`, 59 cases; 19 of the first 48 failed before the fixes, none after).
+
+- **Roles**: "named/called X" is the program name for `pkill` (never its `-u` user); docker, git, tmux and similar topic words are a name to act on when the request points at them ("is docker running", "enable docker at boot"); "all files" / "every folder" are never a file name; "on/for <file>" fills a path slot for chmod/chown (`chmod 600 on id_rsa`).
+- **New slots on existing entries**: `docker exec` gets a `shell` slot (default `sh`, so `exec bash in container db` works), `curl` an `outdir` slot (`--output-dir`), `journalctl` a `priority` slot (`-p err` from "errors"/"warnings"/"critical"), `ssh tunnel` a `target` slot (default `localhost`) so `-L 8080:db01:5432 jump` is kept whole.
+- **Readers** (`extract.rs`): `forward_spec` parses "<local> to <host>:<port>", "<local> to <host> <port>" and "on/via/through <host>" for `local_port`, `remote_port`, `forward_target` and `tunnel_host`; `log_priority`; `dig` takes a server after "at"/"with" when it is an IP.
+- **Never silent**: "last/first/top N lines" with no place in the line now gets a `not included` note.
+- `pkill` keywords gain "force quit". One expectation changed: `journalctl errors from last boot` now keeps the severity (`journalctl -b -p err`).
+
+Not done: grep has no line-limit flag (only the note); `curl --output-dir` needs curl 7.73+.
+
 ## Completed: Platform module and other distros (2026-11-17)
 
 Fixes "Next" item 4 (other distros) and the install/not-found parts of item 3.

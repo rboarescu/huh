@@ -1,6 +1,6 @@
 name = "curl"
 description = "Download a file from a web address, or show what a web address returns"
-template = "curl -L {resume} {save} {url}"
+template = "curl -L {resume} {save} {outdir} {url}"
 keywords = ["download url", "fetch webpage", "http request", "get url", "save file from url", "api request"]
 
 [[flags]]
@@ -12,6 +12,13 @@ question = "Does the user want the result saved as a file?"
 id = "url"
 kind = "text"
 what = "the web address"
+
+[[slots]]
+id = "outdir"
+kind = "path"
+what = "the folder to save the downloaded file in"
+default = ""
+format = "--output-dir {}"
 
 [[flags]]
 id = "resume"

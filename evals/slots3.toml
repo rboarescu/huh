@@ -1,0 +1,321 @@
+# Slot filling, round 3 (sysadmin values): named values, several values in one sentence, and roles
+# (as -> user, on port -> port, to/into -> destination, named -> name). Expected lines are exact.
+# Users, groups and services come from tests/fixtures/sysinfo (see src/sysinfo.rs).
+
+# --- pkill / pgrep: the program name, never the user slot
+
+[[case]]
+request = "kill process named firefox"
+command = "pkill"
+expect = "pkill firefox"
+warn = true
+
+[[case]]
+request = "kill -9 java process owned by deploy"
+command = "pkill"
+expect = "pkill -9 -u deploy java"
+
+[[case]]
+request = "force quit spotify"
+command = "pkill"
+expect = "pkill -9 spotify"
+warn = true
+
+[[case]]
+request = "kill the process called nginx"
+command = "pkill"
+expect = "pkill nginx"
+
+[[case]]
+request = "pkill processes named chrome owned by alice"
+command = "pkill"
+expect = "pkill -u alice chrome"
+
+[[case]]
+request = "kill all firefox processes"
+command = "pkill"
+expect = "pkill firefox"
+
+[[case]]
+request = "is docker running"
+command = "pgrep"
+expect = "pgrep -a docker"
+
+[[case]]
+request = "is sshd running"
+command = "pgrep"
+expect = "pgrep -a sshd"
+
+[[case]]
+request = "check if firefox is running"
+command = "pgrep"
+expect = "pgrep -a firefox"
+
+# --- systemctl: the named service fills the service slot
+
+[[case]]
+request = "enable docker at boot"
+command = "systemctl"
+expect = "sudo systemctl enable docker"
+
+[[case]]
+request = "disable the bluetooth service"
+command = "systemctl"
+expect = "sudo systemctl disable bluetooth"
+
+[[case]]
+request = "restart the nginx service"
+command = "systemctl"
+expect = "sudo systemctl restart nginx"
+
+[[case]]
+request = "start nginx at boot"
+command = "systemctl"
+expect = "sudo systemctl enable nginx"
+
+[[case]]
+request = "stop the cups service"
+command = "systemctl"
+expect = "sudo systemctl stop cups"
+
+[[case]]
+request = "make sshd start on boot"
+command = "systemctl"
+expect = "sudo systemctl enable sshd"
+
+# --- chmod: mode and file both kept
+
+[[case]]
+request = "chmod 600 on id_rsa"
+command = "chmod"
+expect = "chmod 600 id_rsa"
+
+[[case]]
+request = "chmod 644 for all files in public"
+command = "chmod"
+expect = "chmod -R 644 public"
+files = ["public/", "README.md"]
+
+[[case]]
+request = "chmod 755 build.sh"
+command = "chmod"
+expect = "chmod 755 build.sh"
+
+[[case]]
+request = "chmod 600 ~/.ssh/id_ed25519"
+command = "chmod"
+expect = "chmod 600 ~/.ssh/id_ed25519"
+
+[[case]]
+request = "set permissions 640 on /etc/app.conf"
+command = "chmod"
+expect = "chmod 640 /etc/app.conf"
+
+[[case]]
+request = "chmod 400 server.pem"
+command = "chmod"
+expect = "chmod 400 server.pem"
+
+# --- ssh: user and port together
+
+[[case]]
+request = "ssh to web1 as deploy on port 2222"
+command = "ssh"
+expect = "ssh -p 2222 deploy@web1"
+
+[[case]]
+request = "ssh into 10.0.0.5 as alice port 2200"
+command = "ssh"
+expect = "ssh -p 2200 alice@10.0.0.5"
+
+[[case]]
+request = "connect to db01 over ssh as bob"
+command = "ssh"
+expect = "ssh bob@db01"
+
+[[case]]
+request = "ssh root@192.168.1.10 on port 2022"
+command = "ssh"
+expect = "ssh -p 2022 root@192.168.1.10"
+
+# --- docker exec: shell and user
+
+[[case]]
+request = "exec bash in container db"
+command = "docker exec"
+expect = "docker exec -it db bash"
+
+[[case]]
+request = "docker exec shell into container db as user postgres"
+command = "docker exec"
+expect = "docker exec -it -u postgres db sh"
+
+[[case]]
+request = "open a zsh shell in the container web"
+command = "docker exec"
+expect = "docker exec -it web zsh"
+
+[[case]]
+request = "shell into container api as root"
+command = "docker exec"
+expect = "docker exec -it -u root api sh"
+
+# --- unpacking and downloading into a folder
+
+[[case]]
+request = "unzip release.zip to /opt/app"
+command = "unzip"
+expect = "unzip release.zip -d /opt/app"
+
+[[case]]
+request = "unzip site.zip into /var/www"
+command = "unzip"
+expect = "unzip site.zip -d /var/www"
+
+[[case]]
+request = "extract backup.tar.gz into /opt"
+command = "tar"
+expect = "tar -xzf backup.tar.gz -C /opt"
+
+[[case]]
+request = "untar logs.tar.gz to /srv/logs"
+command = "tar"
+expect = "tar -xzf logs.tar.gz -C /srv/logs"
+
+[[case]]
+request = "download https://example.com/y.tar.gz into /tmp"
+command = "curl"
+expect = "curl -L -O --output-dir /tmp https://example.com/y.tar.gz"
+
+[[case]]
+request = "download https://example.com/a.iso to /srv/isos"
+command = "curl"
+expect = "curl -L -O --output-dir /srv/isos https://example.com/a.iso"
+
+# --- grep, journalctl, dig, chown
+
+[[case]]
+request = "grep ERROR in app.log last 200 lines"
+command = "grep"
+expect = "grep ERROR app.log"
+note = "200"
+
+[[case]]
+request = "show journalctl errors since yesterday"
+command = "journalctl"
+expect = "journalctl -p err --since yesterday"
+
+[[case]]
+request = "journalctl warnings for sshd since 1 hour ago"
+command = "journalctl"
+expect = "journalctl -p warning -u sshd --since '1 hour ago'"
+
+[[case]]
+request = "dig A record for api.example.com at 8.8.8.8"
+command = "dig"
+expect = "dig api.example.com @8.8.8.8"
+
+[[case]]
+request = "dig MX example.org using 1.1.1.1"
+command = "dig"
+expect = "dig example.org MX @1.1.1.1"
+
+[[case]]
+request = "change owner of /srv/app to www-data:www-data recursively"
+command = "chown"
+expect = "sudo chown -R www-data:www-data /srv/app"
+
+[[case]]
+request = "chown deploy:deploy /opt/site"
+command = "chown"
+expect = "sudo chown deploy:deploy /opt/site"
+
+[[case]]
+request = "make alice the owner of /home/shared recursively"
+command = "chown"
+expect = "sudo chown -R alice /home/shared"
+
+# --- ssh port forwarding
+
+[[case]]
+request = "local port forward 8080 to db01:5432 via jump"
+command = "ssh tunnel"
+expect = "ssh -N -L 8080:db01:5432 jump"
+
+[[case]]
+request = "forward local 5433 to the database 5432 on prod"
+command = "ssh tunnel"
+expect = "ssh -N -L 5433:localhost:5432 prod"
+
+[[case]]
+request = "ssh tunnel local port 9000 to localhost:80 on web2"
+command = "ssh tunnel"
+expect = "ssh -N -L 9000:localhost:80 web2"
+
+[[case]]
+request = "forward local port 3307 to db.internal 3306 via bastion"
+command = "ssh tunnel"
+expect = "ssh -N -L 3307:db.internal:3306 bastion"
+
+[[case]]
+request = "ssh port forward 8443 to 10.0.0.9:443 through gateway"
+command = "ssh tunnel"
+expect = "ssh -N -L 8443:10.0.0.9:443 gateway"
+
+# --- more variants
+
+[[case]]
+request = "kill the process named redis-server"
+command = "pkill"
+expect = "pkill redis-server"
+
+[[case]]
+request = "disable docker at boot"
+command = "systemctl"
+expect = "sudo systemctl disable docker"
+
+[[case]]
+request = "is nginx running"
+command = "pgrep"
+expect = "pgrep -a nginx"
+
+[[case]]
+request = "chmod 600 on server.key"
+command = "chmod"
+expect = "chmod 600 server.key"
+
+[[case]]
+request = "ssh to admin@10.1.1.1 on port 2200"
+command = "ssh"
+expect = "ssh -p 2200 admin@10.1.1.1"
+
+[[case]]
+request = "docker exec bash in container web as user root"
+command = "docker exec"
+expect = "docker exec -it -u root web bash"
+
+[[case]]
+request = "unzip data.zip into /srv/data"
+command = "unzip"
+expect = "unzip data.zip -d /srv/data"
+
+[[case]]
+request = "journalctl critical messages since yesterday"
+command = "journalctl"
+expect = "journalctl -p crit --since yesterday"
+
+[[case]]
+request = "dig TXT example.com at 1.1.1.1"
+command = "dig"
+expect = "dig example.com TXT @1.1.1.1"
+
+[[case]]
+request = "grep timeout in server.log last 50 lines"
+command = "grep"
+expect = "grep timeout server.log"
+note = "50"
+
+[[case]]
+request = "local forward 15432 to pg01:5432 through bastion"
+command = "ssh tunnel"
+expect = "ssh -N -L 15432:pg01:5432 bastion"

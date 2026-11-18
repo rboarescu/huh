@@ -22,6 +22,9 @@ pub fn extract(reader: &str, request: &str) -> Option<String> {
         "device" => device(request),
         "local_port" => forwarded_port(&words, 0),
         "remote_port" => forwarded_port(&words, 1),
+        "forward_target" => forward_target(&words),
+        "tunnel_host" => tunnel_host(request, &words),
+        "log_priority" => log_priority(&words),
         "json" => json_body(request),
         "context_dir" => context_dir(request),
         "user_name" => user_name(&words),
@@ -241,6 +244,18 @@ fn file_glob(request: &str, words: &[String]) -> Option<String> {
     None
 }
 
+/// The journal priority a request filters on: "errors" is `err`, "warnings" is `warning`.
+fn log_priority(words: &[String]) -> Option<String> {
+    let has = |list: &[&str]| words.iter().any(|w| list.contains(&w.as_str()));
+    if has(&["critical", "crit", "alert", "emergency"]) {
+        return Some("crit".to_string());
+    }
+    if has(&["error", "errors", "err", "failures", "failure"]) {
+        return Some("err".to_string());
+    }
+    has(&["warning", "warnings", "warn"]).then(|| "warning".to_string())
+}
+
 /// The port number: after "port", after ":" or after "on" (as in "listening on 5432").
 fn port(words: &[String]) -> Option<String> {
     let valid =
@@ -283,6 +298,17 @@ fn is_domain(word: &str) -> bool {
 /// Words that introduce the DNS server to ask rather than the name to look up.
 const SERVER_CUES: &[&str] = &["using", "via", "against", "server", "nameserver", "resolver"];
 
+/// Whether the word at `i` names the server: it follows a cue, or "at" / "from" and is an IP address.
+fn names_server(words: &[&str], i: usize) -> bool {
+    let Some(prev) = i.checked_sub(1).map(|j| words[j].to_lowercase()) else { return false };
+    let Some(word) = words.get(i) else { return false };
+    let word = word.trim_matches(|c: char| !c.is_alphanumeric());
+    SERVER_CUES.contains(&prev.as_str())
+        || (matches!(prev.as_str(), "at" | "with")
+            && is_domain(word)
+            && word.chars().all(|c| c.is_ascii_digit() || c == '.'))
+}
+
 fn domain(request: &str) -> Option<String> {
     let words: Vec<&str> = request.split_whitespace().collect();
     words
@@ -290,8 +316,7 @@ fn domain(request: &str) -> Option<String> {
         .enumerate()
         .filter(|(i, w)| {
             // "@8.8.8.8" and "using 1.1.1.1" name the server, not the domain.
-            !w.starts_with('@')
-                && !i.checked_sub(1).is_some_and(|j| SERVER_CUES.contains(&words[j].to_lowercase().as_str()))
+            !w.starts_with('@') && !names_server(&words, *i)
         })
         .map(|(_, w)| w.trim_matches(|c: char| !c.is_alphanumeric()))
         .map(|w| w.rsplit("://").next().unwrap_or(w).split('/').next().unwrap_or(w))
@@ -309,7 +334,7 @@ fn dns_server(request: &str) -> Option<String> {
                 return Some(format!("@{rest}"));
             }
         }
-        if SERVER_CUES.contains(&word.to_lowercase().as_str())
+        if names_server(&words, i + 1)
             && let Some(next) = words.get(i + 1).map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
             && is_domain(next)
         {
@@ -358,13 +383,129 @@ fn service(words: &[String]) -> Option<String> {
     None
 }
 
-/// "last 5 commits", "5 lines": a small count.
+/// What a forwarding request names: "forward local 5433 to db01:5432 via jump" is local port 5433,
+/// target host db01, remote port 5432, and the ssh host jump.
+#[derive(Default, Debug)]
+struct Forward {
+    local: Option<String>,
+    target: Option<String>,
+    remote: Option<String>,
+    via: Option<String>,
+}
+
+fn is_port_word(w: &str) -> bool {
+    !w.is_empty() && w.len() <= 5 && w.chars().all(|c| c.is_ascii_digit()) && w.parse::<u32>().is_ok_and(|n| n >= 1)
+}
+
+/// Words in a forwarding request that are not a host: "the database 5432" means the one the ssh host runs.
+const GENERIC_TARGETS: &[&str] = &[
+    "the",
+    "a",
+    "an",
+    "its",
+    "remote",
+    "there",
+    "database",
+    "db",
+    "server",
+    "machine",
+    "host",
+    "service",
+    "port",
+    "ports",
+    "box",
+    "same",
+    "that",
+    "this",
+    "it",
+    "local",
+    "localhost",
+    "my",
+];
+
+fn forward_spec(words: &[String]) -> Forward {
+    let mut f = Forward::default();
+    let to = words.iter().position(|w| matches!(w.as_str(), "to" | "->" | "→"));
+    // The ssh host: "via jump", "through bastion", "on prod".
+    let mut end = words.len();
+    for (i, w) in words.iter().enumerate() {
+        if !matches!(w.as_str(), "via" | "through" | "thru" | "on") {
+            continue;
+        }
+        let mut j = i + 1;
+        while words.get(j).is_some_and(|x| matches!(x.as_str(), "the" | "server" | "host" | "machine" | "box")) {
+            j += 1;
+        }
+        let Some(host) = words.get(j) else { continue };
+        if host == "port" || is_port_word(host) || !host.chars().any(|c| c.is_ascii_alphabetic()) {
+            continue;
+        }
+        f.via = Some(host.clone());
+        if to.is_some_and(|t| i > t) {
+            end = i;
+        }
+        break;
+    }
+    let Some(to) = to else { return f };
+    // The local port: the number before "to", best the one after "local" or "port".
+    let before = &words[..to];
+    f.local = before
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(i, w)| is_port_word(w) && *i > 0 && matches!(before[i - 1].as_str(), "local" | "port" | "localhost"))
+        .or_else(|| before.iter().enumerate().find(|(_, w)| is_port_word(w)))
+        .map(|(_, w)| w.clone());
+    let slice = &words[(to + 1).min(end)..end];
+    for (i, tok) in slice.iter().enumerate() {
+        if let Some((host, port)) = tok.rsplit_once(':')
+            && !host.is_empty()
+            && is_port_word(port)
+        {
+            f.target = Some(host.to_string());
+            f.remote = Some(port.to_string());
+            break;
+        }
+        if is_port_word(tok) {
+            f.remote = Some(tok.clone());
+            break;
+        }
+        let next_is_port = slice.get(i + 1).is_some_and(|n| is_port_word(n));
+        let hostish = tok.contains('.') && tok.chars().any(|c| c.is_ascii_alphanumeric());
+        if (hostish || next_is_port) && !GENERIC_TARGETS.contains(&tok.as_str()) {
+            f.target = Some(tok.clone());
+        }
+    }
+    if f.target.as_deref() == Some("localhost") {
+        f.target = None;
+    }
+    f
+}
+
 /// The ports of a forwarding request, in the order they are named: "forward local port 8080 to
 /// port 80" gives 8080 then 80. A single port is both ends.
 fn forwarded_port(words: &[String], index: usize) -> Option<String> {
+    let spec = forward_spec(words);
+    if let Some(port) = if index == 0 { spec.local } else { spec.remote } {
+        return Some(port);
+    }
     let ports: Vec<&String> =
         words.iter().filter(|w| !w.is_empty() && w.len() <= 5 && w.chars().all(|c| c.is_ascii_digit())).collect();
     ports.get(index).or(if index == 1 { ports.first() } else { None }).map(|p| p.to_string())
+}
+
+/// The machine a forward leads to, when it is not the ssh host itself ("to db01:5432 via jump").
+fn forward_target(words: &[String]) -> Option<String> {
+    forward_spec(words).target
+}
+
+/// The ssh host a tunnel goes through: "via jump", "on prod", else the first host named.
+fn tunnel_host(request: &str, words: &[String]) -> Option<String> {
+    let spec = forward_spec(words);
+    if let Some(via) = spec.via {
+        return Some(via);
+    }
+    host(request, words).filter(|h| spec.target.as_deref() != Some(h.as_str()))
 }
 
 const NOT_NAMES: &[&str] = &[
@@ -780,6 +921,18 @@ mod tests {
         assert_eq!(forwarded_port(&w("forward local port 8080 to port 80 on myserver"), 0).as_deref(), Some("8080"));
         assert_eq!(forwarded_port(&w("forward local port 8080 to port 80 on myserver"), 1).as_deref(), Some("80"));
         assert_eq!(forwarded_port(&w("tunnel port 5432"), 1).as_deref(), Some("5432"));
+        let spec = forward_spec(&w("local port forward 8080 to db01:5432 via jump"));
+        assert_eq!((spec.local.as_deref(), spec.target.as_deref()), (Some("8080"), Some("db01")));
+        assert_eq!((spec.remote.as_deref(), spec.via.as_deref()), (Some("5432"), Some("jump")));
+        let spec = forward_spec(&w("forward local 5433 to the database 5432 on prod"));
+        assert_eq!((spec.local.as_deref(), spec.target.as_deref()), (Some("5433"), None));
+        assert_eq!((spec.remote.as_deref(), spec.via.as_deref()), (Some("5432"), Some("prod")));
+        let spec = forward_spec(&w("forward local port 3307 to db.internal 3306 via bastion"));
+        assert_eq!((spec.target.as_deref(), spec.remote.as_deref()), (Some("db.internal"), Some("3306")));
+        assert_eq!(log_priority(&w("show journalctl errors since yesterday")).as_deref(), Some("err"));
+        assert_eq!(log_priority(&w("show the journal")), None);
+        assert_eq!(read("dns_server", "dig A record for api.example.com at 8.8.8.8").as_deref(), Some("@8.8.8.8"));
+        assert_eq!(read("domain", "what is at example.com"), Some("example.com".to_string()));
         assert_eq!(json_body("post {\"a\": 1} to https://x.io").as_deref(), Some("{\"a\": 1}"));
         assert_eq!(user_name(&w("delete the user bob and his home folder")).as_deref(), Some("bob"));
         assert_eq!(user_name(&w("lock bob's account")).as_deref(), Some("bob"));

@@ -483,6 +483,14 @@ pub fn modifier_phrases(request: &str) -> Vec<(String, String)> {
             out.push((format!("{word} than {n}{unit}"), n.clone()));
             continue;
         }
+        // "last 200 lines": the count has to show up in the line.
+        if matches!(word.as_str(), "last" | "first" | "top" | "bottom")
+            && let Some(n) = rest.first().filter(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+            && rest.get(1).is_some_and(|u| matches!(u.as_str(), "line" | "lines"))
+        {
+            out.push((format!("{word} {n} lines"), n.clone()));
+            continue;
+        }
         let value = match word.as_str() {
             "excluding" | "except" | "exclude" | "without" => rest.first().cloned(),
             "since" | "until" => {

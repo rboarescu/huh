@@ -2588,6 +2588,7 @@ enum SlotRole {
     TarExclude,
     TarMember,
     ShellName,
+    ContainerShell,
     SinceTime,
     UserName,
     SourcePath,
@@ -2641,6 +2642,7 @@ fn infer_slot_role(cmd_name: &str, slot_id: &str, kind: SlotKind) -> SlotRole {
     match (cmd_name, slot_id) {
         ("tar", "member") => SlotRole::TarMember,
         ("useradd", "shell") => SlotRole::ShellName,
+        ("docker exec", "shell") => SlotRole::ContainerShell,
         ("useradd" | "pkill" | "docker exec", "user" | "owner") => SlotRole::UserName,
         ("docker logs", "lines") => SlotRole::LineCount,
         (_, "exclude") => SlotRole::TarExclude,
@@ -2662,7 +2664,7 @@ fn infer_slot_role(cmd_name: &str, slot_id: &str, kind: SlotKind) -> SlotRole {
         ("ssh", "user") => SlotRole::SshUser,
         (_, "port") => SlotRole::PortNumber,
         ("ping", "count") => SlotRole::PingCount,
-        ("tar" | "unzip", "outdir") => SlotRole::TarOutDir,
+        ("tar" | "unzip" | "curl", "outdir") => SlotRole::TarOutDir,
         ("journalctl", "since") => SlotRole::SinceTime,
         ("add user to group", "user") => SlotRole::UserName,
         ("cut", "field") => SlotRole::FieldNumber,
@@ -3003,6 +3005,26 @@ fn is_stray_value(command: &Command, slot: &Slot, value: &str, candidates: &Cand
         || lower == command.program()
         || lower == first_program_word
         || (slot.kind == SlotKind::Path && is_upper_env_name(bare))
+}
+
+/// Programs that are also ordinary topic words ("docker", "git"): they are a name to act on only
+/// when the request points at them ("is docker running", "enable docker at boot").
+fn is_product_target(lower: &str, prev: &str, next: &str) -> bool {
+    matches!(lower, "docker" | "git" | "tmux" | "ollama" | "tailscale" | "virsh")
+        && (matches!(
+            prev,
+            "is" | "are"
+                | "enable"
+                | "disable"
+                | "start"
+                | "stop"
+                | "restart"
+                | "reload"
+                | "status"
+                | "named"
+                | "called"
+                | "kill"
+        ) || matches!(next, "running" | "service" | "daemon" | "process" | "processes" | "at" | "on" | "is" | "up"))
 }
 
 fn is_digits(s: &str) -> bool {
@@ -3567,6 +3589,8 @@ fn label_kind(word: &str) -> Option<&'static str> {
 /// Whether `word` can be the thing a label names (not a filler, verb or another label).
 fn can_be_labelled(word: &str) -> bool {
     const SKIP: &[&str] = &[
+        "exec",
+        "execute",
         "since",
         "until",
         "after",
@@ -3780,7 +3804,12 @@ impl TypedValues {
         };
         let lower = cand.to_lowercase();
         if facts.knows(slot_type, cand) {
-            return if is_non_value_english_word(&lower) || is_digits(cand) { score } else { score.max(8.8) };
+            let pointed_at = is_product_target(&lower, &token.prev_word, &token.next_word);
+            return if (is_non_value_english_word(&lower) && !pointed_at) || is_digits(cand) {
+                score
+            } else {
+                score.max(8.8)
+            };
         }
         // The name of a login shell is not a user, a service or a group.
         if slot_type != "shell" && facts.knows("shell", cand) {
@@ -3994,6 +4023,17 @@ fn score_by_role(
 
     let lower = cand.to_lowercase();
     let is_multi_phrase = cand.contains(' ');
+    // "all files" and "every folder" quantify things; they are not the name of one.
+    if kind == SlotKind::Path
+        && is_multi_phrase
+        && !is_from_files
+        && lower.split_whitespace().next().is_some_and(|w| matches!(w, "all" | "every" | "each" | "any" | "the" | "my"))
+        && lower.split_whitespace().skip(1).all(|w| {
+            matches!(w, "files" | "file" | "folders" | "folder" | "directories" | "directory" | "things" | "items" | "stuff")
+        })
+    {
+        return 0.0;
+    }
     let quoted = rt_opt.is_some_and(|r| r.quoted);
     let pos = rt_opt
         .map(|r| r.word_pos)
@@ -4026,7 +4066,7 @@ fn score_by_role(
     if !quoted && !is_path && !is_digits(cand) && !explicitly_labeled && !known_package && is_non_value_english_word(&lower)
         && !is_multi_phrase
             && !is_upper_env_name(cand)
-            && !(matches!(role, SlotRole::ServiceUnit | SlotRole::ProgramName) && prev == "for")
+            && !(matches!(role, SlotRole::ServiceUnit | SlotRole::ProgramName) && (prev == "for" || is_product_target(&lower, prev, next)))
             // "delete .log files in logs": a folder named like a thing.
             && !(role == SlotRole::FindWhere && matches!(lower.as_str(), "logs" | "log") && matches!(prev, "in" | "under" | "inside" | "within"))
         {
@@ -4036,7 +4076,9 @@ fn score_by_role(
     match role {
         SlotRole::SshUser | SlotRole::UserName => {
             let cue = matches!(prev, "as" | "user" | "username" | "login" | "account")
-                || (role == SlotRole::UserName && matches!(prev, "called" | "named" | "by" | "owner"))
+                || (role == SlotRole::UserName && matches!(prev, "by" | "owner"))
+                // "named" and "called" name a user only where a user is being made.
+                || (role == SlotRole::UserName && matches!(prev, "called" | "named") && cmd_name != "pkill")
                 || (role == SlotRole::UserName && prev == "add" && next != "group");
             if cue && !is_path && !is_digits(cand) && !is_non_value_english_word(&lower) { 9.0 } else { 0.0 }
         }
@@ -4050,6 +4092,10 @@ fn score_by_role(
             if matches!(prev, "to" | "into" | "in") && (is_path || is_named_dir_or_file) && !is_digits(cand) { 9.0 } else { 0.0 }
         }
         SlotRole::ShellName => 0.0,
+        SlotRole::ContainerShell => {
+            // The shell program to start inside a container; the container's own list, not this machine's.
+            if matches!(lower.as_str(), "bash" | "zsh" | "fish" | "ash" | "dash" | "ksh" | "csh" | "tcsh" | "sh") { 9.0 } else { 0.0 }
+        }
         SlotRole::TarMember => {
             let archive = lower.ends_with(".tar.gz") || lower.ends_with(".tgz") || lower.ends_with(".tar") || lower.ends_with(".zip");
             if !archive && is_path && !is_digits(cand) && (matches!(next, "from" | "out" | "inside" | "in") || matches!(prev, "only" | "just" | "member" | "extract" | "unpack")) {
@@ -4253,6 +4299,7 @@ fn score_by_role(
             }
             if matches!(next, "service" | "log" | "logs" | "unit" | "daemon")
                 || (cmd_name != "search service log" && matches!(prev, "service" | "for" | "unit"))
+                || is_product_target(&lower, prev, next)
             {
                 return 9.0;
             }
@@ -4295,8 +4342,11 @@ fn score_by_role(
         SlotRole::ProgramName => {
             if quoted {
                 8.5
-            } else if (matches!(prev, "for" | "is" | "about") || matches!(next, "installed" | "command" | "processes"))
-                && !is_non_value_english_word(&lower)
+            } else if matches!(prev, "called" | "named") && !is_digits(cand) {
+                9.5
+            } else if is_product_target(&lower, prev, next)
+                || ((matches!(prev, "for" | "is" | "about") || matches!(next, "installed" | "command" | "processes"))
+                    && !is_non_value_english_word(&lower))
             {
                 9.0
             } else if !is_non_value_english_word(&lower) && !is_digits(cand) {
@@ -4434,6 +4484,14 @@ fn score_by_role(
                 && !is_multi_phrase
             {
                 7.0
+            } else if matches!(prev, "on" | "for")
+                && !is_non_value_english_word(&lower)
+                && !is_digits(cand)
+                && !is_multi_phrase
+                && (cand.contains(['_', '-']) || matches!(cmd_name, "chmod" | "chown" | "stat" | "file"))
+            {
+                // "chmod 600 on id_rsa": the file the change is for.
+                6.5
             } else if cand.chars().next().is_some_and(|c| c.is_uppercase()) && !is_non_value_english_word(&lower) && !is_multi_phrase {
                 6.0
             } else {
@@ -4702,6 +4760,23 @@ mod tests {
         assert!(misses.is_empty(), "{} misses: {misses:#?}", misses.len());
     }
 
+    /// Round-3 slot filling (evals/slots3.toml): named values, several values per sentence, roles.
+    #[test]
+    fn slot_filling_round_three_cases_all_pass() {
+        let all = load_catalog();
+        let platform = vec!["arch".to_string(), "omarchy".to_string()];
+        let matcher = LocalMatcher::new(&catalog::usable(all, &platform, false));
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals/slots3.toml");
+        let report = eval::score_for(&matcher, &file, &platform).unwrap();
+        let misses: Vec<&String> = report.lines.iter().filter(|line| line.starts_with("MISS")).collect();
+        for line in &misses {
+            println!("{line}");
+        }
+        println!("slots3: {} of {} exact lines", report.exact.hit, report.exact.total);
+        assert!(report.exact.total >= 50, "slots3.toml should hold the round-3 cases");
+        assert!(misses.is_empty(), "{} misses", misses.len());
+    }
+
     /// Safety evals (evals/safety.toml): every case must pass, including the WARNING expectations.
     #[test]
     fn safety_evals_all_pass() {
@@ -4740,7 +4815,7 @@ mod tests {
         let arch = vec!["arch".to_string(), "omarchy".to_string()];
         let matcher = LocalMatcher::new(&catalog::usable(load_catalog(), &arch, false));
         let mut text = String::new();
-        for name in ["cases", "heldout", "safety", "slots", "slots2", "intent", "mislead"] {
+        for name in ["cases", "heldout", "safety", "slots", "slots2", "slots3", "intent", "mislead"] {
             let file = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("evals/{name}.toml"));
             for line in eval::score_for(&matcher, &file, &arch).unwrap().lines {
                 text.push_str(&format!("{name}: {line}\n"));

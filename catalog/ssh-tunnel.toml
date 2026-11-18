@@ -1,6 +1,6 @@
 name = "ssh tunnel"
 description = "Forward a local port to a port on a remote computer through an ssh connection"
-template = "ssh -N -L {local_port}:localhost:{remote_port} {host}"
+template = "ssh -N -L {local_port}:{target}:{remote_port} {host}"
 kind = "action"
 keywords = ["ssh port forwarding", "ssh tunnel", "forward local port", "local port forward", "tunnel a port over ssh", "forward port through ssh", "ssh -L"]
 
@@ -17,7 +17,14 @@ what = "the port on the remote computer to reach"
 extract = "remote_port"
 
 [[slots]]
+id = "target"
+kind = "text"
+what = "the computer, as seen from the one you log in to, that the port leads to (localhost for the ssh host itself)"
+default = "localhost"
+extract = "forward_target"
+
+[[slots]]
 id = "host"
 kind = "text"
 what = "the computer to tunnel through"
-extract = "host"
+extract = "tunnel_host"
