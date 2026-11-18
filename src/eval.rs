@@ -204,6 +204,10 @@ fn make_files(files: &[String], index: usize) -> Result<Option<PathBuf>> {
     for spec in files {
         let (name, mode) = spec.rsplit_once(':').with_context(|| format!("bad file spec {spec}"))?;
         let mode = u32::from_str_radix(mode, 8).with_context(|| format!("bad mode in {spec}"))?;
+        if let Some((link, target)) = name.split_once("->") {
+            std::os::unix::fs::symlink(target, dir.join(link))?;
+            continue;
+        }
         let path = dir.join(name.trim_end_matches('/'));
         if name.ends_with('/') {
             std::fs::create_dir_all(&path)?;
@@ -327,6 +331,7 @@ mod tests {
             "evals/errors-real.toml",
             "evals/errors-measured.toml",
             "evals/errors-round3.toml",
+            "evals/errors-round4.toml",
         ] {
             let (cause, fix) = score_errors(Path::new(file), false).unwrap();
             assert_eq!(cause.percent(), 100, "{file}: causes {cause}");

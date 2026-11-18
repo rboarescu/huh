@@ -1,0 +1,592 @@
+# Round 4: false alarms (normal output called a failure) and fresh misses. Outputs were produced in
+# Debian 12 / Fedora / Arch containers (normal user, core dumps disabled), except where a container
+# cannot produce them (self-signed TLS, GPG, ERESOLVE, test logs, nginx, man pages, crashes), which
+# are pasted text. Guiding rule: normal output is not a failure; a confident wrong cause or fix is
+# worse than saying huh does not recognise the output.
+
+# --- 1. Normal output that merely contains error-like words (piped, no exit code) -------------
+
+[[case]]
+command = ""
+output = "make: Nothing to be done for 'all'."
+mention = ["does not look like an error|does not recognise|nothing to do|up to date"]
+fix = "nothing"
+forbid = ["failed with an error", "failed with"]
+
+[[case]]
+command = ""
+output = '''
+Weekly report
+The error rate dropped to 0.2% this week.
+Failed attempts are counted separately and reviewed on Monday.
+'''
+mention = ["does not look like an error|does not recognise|not an error"]
+fix = "nothing"
+forbid = ["failed with an error", "failed with"]
+
+[[case]]
+command = ""
+output = '''
+Troubleshooting tips
+Permission denied is a common message when a script is not executable.
+Check the mode with ls -l first.
+'''
+mention = ["does not look like an error|does not recognise|not an error"]
+fix = "nothing"
+forbid = ["failed with an error", "chmod +x"]
+
+[[case]]
+command = ""
+output = '''
+a1b2c3d Fix error handling in the parser
+9f8e7d6 Add retry on timeout
+5c4b3a2 Update README
+'''
+mention = ["does not look like an error|does not recognise|not an error"]
+fix = "nothing"
+forbid = ["failed with an error"]
+
+[[case]]
+command = ""
+output = '''
+src/io.py:41:    except FileNotFoundError:
+src/io.py:58:    except FileNotFoundError as err:
+src/cfg.py:12:    except PermissionError:
+'''
+mention = ["does not look like an error|does not recognise|not an error"]
+fix = "nothing"
+forbid = ["failed with an error", "no such file"]
+
+[[case]]
+command = ""
+output = '''
+ERRORS
+       On failure the program exits with status 1 and prints a message to standard error.
+       If the file cannot be opened, open(2) fails and errno is set to ENOENT.
+       Exit status 2 means a usage error.
+'''
+mention = ["does not look like an error|does not recognise|not an error"]
+fix = "nothing"
+forbid = ["failed with an error"]
+
+[[case]]
+command = ""
+output = '''
+## 1.4.2
+- Fixed a crash that showed "No such file or directory" when the config was missing
+- Fixed the message "Connection refused" being shown twice
+## 1.4.1
+- Initial release
+'''
+mention = ["does not look like an error|does not recognise|not an error"]
+fix = "nothing"
+forbid = ["failed with an error", "missing file", "does not exist"]
+
+[[case]]
+command = ""
+output = '''
+2026-11-02 10:01:11 WARN connection refused, retrying in 2s
+2026-11-02 10:01:13 WARN connection refused, retrying in 4s
+2026-11-02 10:01:17 INFO connected to db (3 attempts)
+2026-11-02 10:01:17 INFO ready
+'''
+mention = ["does not look like an error|does not recognise|not an error"]
+fix = "nothing"
+forbid = ["failed with an error"]
+
+[[case]]
+command = ""
+output = '''
+Reading a stack trace
+Python prints a Traceback with the most recent call last.
+Start from the bottom line, which names the exception.
+'''
+mention = ["does not look like an error|does not recognise|not an error"]
+fix = "nothing"
+forbid = ["failed with an error"]
+
+[[case]]
+command = "cat /var/log/nginx/error.log"
+output = '''
+2026/11/02 10:05:11 [error] 812#812: *4 open() "/usr/share/nginx/html/favicon.ico" failed (2: No such file or directory), client: 10.0.0.5, server: _, request: "GET /favicon.ico HTTP/1.1"
+'''
+mention = ["nginx", "favicon"]
+fix = "nothing"
+forbid = ["cat: ", "cannot open", "does not exist"]
+
+# --- 2. Fresh misses --------------------------------------------------------------------------
+
+[[case]]
+command = "git stash pop"
+exit = 1
+output = '''
+Auto-merging f
+CONFLICT (content): Merge conflict in f
+On branch main
+Unmerged paths:
+  (use "git restore --staged <file>..." to unstage)
+  (use "git add <file>..." to mark resolution)
+	both modified:   f
+
+no changes added to commit (use "git add" and/or "git commit -a")
+The stash entry is kept in case you need it again.
+'''
+mention = ["conflict", "stash", "kept", "git stash drop"]
+fix = "git status|git diff"
+forbid = ["not an error", "result of"]
+
+[[case]]
+command = "git stash pop"
+output = '''
+Auto-merging f
+CONFLICT (content): Merge conflict in f
+The stash entry is kept in case you need it again.
+'''
+mention = ["conflict", "stash", "kept", "git stash drop"]
+fix = "git status|git diff"
+forbid = ["not an error", "result of"]
+
+[[case]]
+command = "git cherry-pick c1"
+exit = 1
+output = '''
+The previous cherry-pick is now empty, possibly due to conflict resolution.
+If you wish to commit it anyway, use:
+
+    git commit --allow-empty
+
+Otherwise, please use 'git cherry-pick --skip'
+On branch main
+You are currently cherry-picking commit 3f0f3f7.
+  (all conflicts fixed: run "git cherry-pick --continue")
+  (use "git cherry-pick --skip" to skip this patch)
+  (use "git cherry-pick --abort" to cancel the cherry-pick operation)
+
+nothing to commit, working tree clean
+'''
+mention = ["empty", "--skip", "--allow-empty"]
+fix = "git cherry-pick --skip"
+forbid = ["not an error", "result of"]
+
+[[case]]
+command = "git cherry-pick c1"
+output = '''
+The previous cherry-pick is now empty, possibly due to conflict resolution.
+If you wish to commit it anyway, use:
+
+    git commit --allow-empty
+
+Otherwise, please use 'git cherry-pick --skip'
+'''
+mention = ["empty", "--skip", "--allow-empty"]
+fix = "git cherry-pick --skip"
+forbid = ["not an error", "result of"]
+
+[[case]]
+command = "node server.js"
+exit = 1
+output = '''
+node:events:495
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::8099
+    at Server.setupListenHandle [as _listen2] (node:net:1814:16)
+    at listenInCluster (node:net:1862:12)
+    at Server.listen (node:net:1950:7)
+    at Object.<anonymous> (/app/server.js:5:8)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1841:8) {
+  code: 'EADDRINUSE',
+  errno: -98,
+  syscall: 'listen',
+  address: '::',
+  port: 8099
+}
+
+Node.js v18.20.4
+'''
+mention = ["8099", "in use"]
+fix = "8099"
+forbid = ["495"]
+
+[[case]]
+command = "sudo apt update"
+exit = 127
+output = "bash: sudo: command not found"
+mention = ["sudo", "not installed|not found", "root|administrator"]
+fix = "su -c"
+forbid = ["Try: sudo apt install sudo"]
+
+[[case]]
+command = "pacman -Qi x"
+exit = 1
+output = '''
+warning: database file for 'core' does not exist (use '-Sy' to download)
+warning: database file for 'extra' does not exist (use '-Sy' to download)
+error: package 'x' was not found
+'''
+mention = ["package 'x'|package x", "not found|not installed"]
+fix = "pacman -Ss x|pacman -Si x|nothing"
+forbid = ["database file"]
+
+[[case]]
+command = "python3 random.py"
+exit = 1
+output = '''
+Traceback (most recent call last):
+  File "/tmp/w/p/random.py", line 1, in <module>
+    import random
+  File "/tmp/w/p/random.py", line 2, in <module>
+    print(random.randint(1,2))
+          ^^^^^^^^^^^^^^
+AttributeError: partially initialized module 'random' has no attribute 'randint' (most likely due to a circular import)
+'''
+mention = ["random.py", "shadow", "rename"]
+fix = "mv |nothing"
+forbid = ["pip install", "typo"]
+
+[[case]]
+command = "python3 random.py"
+exit = 1
+output = '''
+Traceback (most recent call last):
+  File "/tmp/w/p/random.py", line 1, in <module>
+    from random import nothere
+  File "/tmp/w/p/random.py", line 1, in <module>
+    from random import nothere
+ImportError: cannot import name 'nothere' from partially initialized module 'random' (most likely due to a circular import) (/tmp/w/p/random.py)
+'''
+mention = ["random.py", "shadow", "rename"]
+fix = "mv |nothing"
+forbid = ["pip install"]
+
+[[case]]
+command = "tar -xf a.tar -C $TMP/d"
+exit = 2
+output = '''
+tar: f: Cannot open: Permission denied
+tar: Exiting with failure status due to previous errors
+'''
+files = ["d/:555"]
+mention = ["/d/f|d/", "write|writable|create"]
+fix = "chmod|sudo|nothing"
+forbid = ["cannot read", "chmod +x"]
+
+[[case]]
+command = "node -e 'JSON.parse(\"{bad\")'"
+exit = 1
+output = '''
+undefined:1
+{bad
+ ^
+
+SyntaxError: Unexpected token b in JSON at position 1
+    at JSON.parse (<anonymous>)
+    at [eval]:1:6
+    at runScriptInThisContext (node:internal/vm:143:10)
+
+Node.js v18.20.4
+'''
+mention = ["JSON", "not valid|invalid|data"]
+fix = "nothing|jq"
+forbid = ["typo in the syntax"]
+
+[[case]]
+command = "cp my file.txt dest"
+exit = 1
+output = "cp: target 'dest': No such file or directory"
+mention = ["space", "quote"]
+fix = "cp \"my file.txt\" dest|cp 'my file.txt' dest|nothing"
+forbid = ["closest match"]
+
+[[case]]
+command = "cat $TMP/link"
+exit = 1
+output = "cat: $TMP/link: No such file or directory"
+files = ["link->nowhere:777"]
+mention = ["link", "symlink|symbolic", "missing|does not exist|dangling|points"]
+fix = "ls -l"
+forbid = ["does not exist, closest"]
+
+# --- 3. Honest misses -------------------------------------------------------------------------
+
+[[case]]
+command = "dnf install nano"
+exit = 1
+output = 'The requested operation requires superuser privileges. Please log in as a user with elevated rights, or use the "--assumeno" or "--downloadonly" options to run the command without modifying the system state.'
+mention = ["administrator|root|superuser"]
+fix = "sudo dnf install nano"
+
+[[case]]
+command = "dnf remove nano"
+exit = 1
+output = "Error: This command has to be run with superuser privileges (under the root user on most systems)."
+mention = ["administrator|root|superuser"]
+fix = "sudo dnf remove nano"
+
+[[case]]
+command = "makepkg -si"
+exit = 1
+output = "==> ERROR: Running makepkg as root is not allowed as it can cause permanent, catastrophic damage to your system."
+mention = ["root", "normal user|regular user|not as root"]
+fix = "nothing"
+forbid = ["sudo makepkg"]
+
+[[case]]
+command = "git merge other"
+exit = 1
+output = '''
+Auto-merging f
+CONFLICT (content): Merge conflict in f
+Automatic merge failed; fix conflicts and then commit the result.
+'''
+mention = ["conflict", "f", "git add"]
+fix = "git status|git diff|git merge --abort"
+forbid = ["not an error"]
+
+[[case]]
+command = "curl https://self-signed.example.org/"
+exit = 60
+output = '''
+curl: (60) SSL certificate problem: self-signed certificate
+More details here: https://curl.se/docs/sslcerts.html
+
+curl failed to verify the legitimacy of the server and therefore could not
+establish a secure connection to it. To learn more about this situation and
+how to fix it, please visit the web page mentioned above.
+'''
+mention = ["self-signed", "certificate"]
+fix = "nothing|curl -k"
+forbid = ["not installed"]
+
+[[case]]
+command = "git add x.log"
+exit = 1
+output = '''
+The following paths are ignored by one of your .gitignore files:
+x.log
+hint: Use -f if you really want to add them.
+hint: Turn this message off by running
+hint: "git config advice.addIgnoredFile false"
+'''
+mention = ["ignore", "-f", "only if"]
+fix = "git check-ignore|git add -f x.log|nothing"
+
+[[case]]
+command = "echo a/b | sed 's/\\(a/x/'"
+exit = 1
+output = "sed: -e expression #1, char 8: Unmatched ( or \\("
+mention = ["unmatched|unbalanced|parenthes", "escape|\\("]
+fix = "nothing"
+forbid = ["typo in the syntax"]
+
+[[case]]
+command = "echo \"it's\" | xargs echo"
+exit = 1
+output = "xargs: unmatched single quote; by default quotes are special to xargs unless you use the -0 option"
+mention = ["quote", "-0"]
+fix = "xargs -0|xargs -d|nothing"
+
+[[case]]
+command = "zip z.zip"
+exit = 12
+output = '''
+
+zip error: Nothing to do! (z.zip)
+'''
+mention = ["no files|nothing|name the files|add"]
+fix = "nothing"
+
+[[case]]
+command = "journalctl -n 3"
+exit = 1
+output = '''
+No journal files were found.
+-- No entries --
+'''
+mention = ["journal", "systemd-journal|administrator|root"]
+fix = "sudo journalctl|usermod -aG systemd-journal|nothing"
+
+[[case]]
+command = "make test"
+exit = 2
+output = '''
+test_case_59 ... ok
+test_case_60 ... ok
+FAIL: test_case_61
+test_case_62 ... ok
+test_case_63 ... ok
+99 passed, 1 failed
+make: *** [Makefile:12: test] Error 1
+'''
+mention = ["test_case_61"]
+fix = "nothing"
+
+[[case]]
+command = "rpm -qi x"
+exit = 1
+output = "package x is not installed"
+mention = ["not installed", "package x|x"]
+fix = "rpm -qa|dnf install x|nothing"
+
+[[case]]
+command = "npm test"
+exit = 1
+output = '''
+
+> app@1.0.0 test
+> jest
+
+FAIL src/sum.test.js
+  sum
+    x adds numbers (4 ms)
+
+  Expected: 3
+  Received: 2
+
+Tests:       1 failed, 3 passed, 4 total
+npm ERR! Test failed.  See above for more details.
+'''
+mention = ["test", "sum.test.js"]
+fix = "nothing|npx jest"
+
+[[case]]
+command = "./run-worker"
+exit = 135
+output = "Bus error"
+mention = ["bus error", "crash|memory|alignment|SIGBUS"]
+fix = "nothing"
+
+# --- 4. Nothing-useful cases that deserve real advice -----------------------------------------
+
+[[case]]
+command = "git pull"
+exit = 1
+output = '''
+hint: You have divergent branches and need to specify how to reconcile them.
+hint: You can do so by running one of the following commands sometime before
+hint: your next pull:
+hint:
+hint:   git config pull.rebase false  # merge
+hint:   git config pull.rebase true   # rebase
+hint:   git config pull.ff only       # fast-forward only
+hint:
+hint: You can replace "git config" with "git config --global" to set a default
+hint: preference for all repositories.
+fatal: Need to specify how to reconcile divergent branches.
+'''
+mention = ["diverge", "--rebase", "--no-rebase"]
+fix = "git pull --rebase|git pull --no-rebase"
+
+[[case]]
+command = "git add f"
+exit = 128
+output = '''
+fatal: Unable to create '/tmp/w/r1/.git/index.lock': File exists.
+
+Another git process seems to be running in this repository, e.g.
+an editor opened by 'git commit'. Please make sure all processes
+are terminated then try again. If it still fails, a git process
+may have crashed in this repository earlier:
+remove the file manually to continue.
+'''
+mention = ["index.lock", "no git process|not running|only", "pgrep"]
+fix = "pgrep -a git"
+
+[[case]]
+command = "git status"
+exit = 128
+output = '''
+fatal: detected dubious ownership in repository at '/srv/app'
+To add an exception for this directory, call:
+
+	git config --global --add safe.directory /srv/app
+'''
+mention = ["dubious ownership", "safe.directory"]
+fix = "git config --global --add safe.directory /srv/app"
+
+[[case]]
+command = "echo a/b | sed 's/a/x/y/'"
+exit = 1
+output = "sed: -e expression #1, char 7: unknown option to `s'"
+mention = ["/", "delimiter|another character|different"]
+fix = "nothing|sed 's|"
+forbid = ["typo in the syntax"]
+
+[[case]]
+command = "find . -name *.txt"
+exit = 1
+output = '''
+find: paths must precede expression: `b.txt'
+find: possible unquoted pattern after predicate `-name'?
+'''
+mention = ["quote", "*.txt"]
+fix = "find . -name '*.txt'|find . -name \"*.txt\""
+
+[[case]]
+command = "ssh-add -l"
+exit = 2
+output = "Could not open a connection to your authentication agent."
+mention = ["agent", "not running|not started|start"]
+fix = "eval \"$(ssh-agent)\"|ssh-agent"
+
+[[case]]
+command = "[ $x == 1 ]"
+exit = 2
+output = "bash: line 1: [: ==: unary operator expected"
+mention = ["quote", "empty|unset"]
+fix = "nothing"
+
+[[case]]
+command = "echo $((x+1))"
+exit = 1
+output = 'bash: line 1: 08: value too great for base (error token is "08")'
+mention = ["octal", "10#"]
+fix = "nothing"
+
+[[case]]
+command = "sudo dnf install nosuchpkg"
+exit = 1
+output = '''
+Last metadata expiration check: 0:10:00 ago.
+No match for argument: nosuchpkg
+Error: Unable to find a match: nosuchpkg
+'''
+mention = ["nosuchpkg", "no package|not found|no match|spelling|name"]
+fix = "dnf search nosuchpkg|nothing"
+
+[[case]]
+command = "sudo dnf install ./foo.rpm"
+exit = 1
+output = '''
+Error: GPG check FAILED
+'''
+mention = ["gpg", "signature|key"]
+fix = "nothing|rpm --import"
+
+[[case]]
+command = "curl https://example.org/"
+exit = 35
+output = "curl: (35) OpenSSL SSL_connect: SSL_ERROR_SYSCALL in connection to example.org:443"
+mention = ["tls|ssl|handshake", "example.org"]
+fix = "nothing|curl -v"
+
+[[case]]
+command = "npm install"
+exit = 1
+output = '''
+npm ERR! code ERESOLVE
+npm ERR! ERESOLVE could not resolve
+npm ERR!
+npm ERR! While resolving: react-dom@17.0.2
+npm ERR! Found: react@18.2.0
+npm ERR! Could not resolve dependency:
+npm ERR! peer react@"17.0.2" from react-dom@17.0.2
+npm ERR!
+npm ERR! Fix the upstream dependency conflict, or retry
+npm ERR! this command with --force or --legacy-peer-deps
+npm ERR! to accept an incorrect (and potentially broken) dependency resolution.
+'''
+mention = ["peer", "--legacy-peer-deps"]
+fix = "npm install --legacy-peer-deps"

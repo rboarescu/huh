@@ -194,6 +194,14 @@ fn diagnose(last: &Last) -> String {
         }
         None => last,
     };
+    let tar_resolved;
+    let last = match resolve_tar_directory(last) {
+        Some(resolved) => {
+            tar_resolved = resolved;
+            &tar_resolved
+        }
+        None => last,
+    };
     if last.exit == Some(130) {
         return format_answer(
             &format!(
@@ -208,15 +216,19 @@ fn diagnose(last: &Last) -> String {
         return diagnose_exit_zero(last);
     }
 
+    if let Some(ans) = diagnose_round4(last) {
+        return ans;
+    }
     if let Some(ans) = diagnose_round3(last) {
         return ans;
     }
     if let Some(ans) = diagnose_measured(last) {
         return ans;
     }
+
     // Without an exit code, only output with the shape of an error message is treated as a
     // failure; a sentence that merely contains "error" or "failed" is not one.
-    if last.exit.is_none() && !last.output.trim().is_empty() && !last.output.lines().any(error_shaped) {
+    if last.exit.is_none() && !last.output.trim().is_empty() && !has_error_shaped_line(&last.output) {
         return diagnose_unrecognised(last);
     }
 
@@ -1282,7 +1294,18 @@ fn error_summary(output: &str) -> Option<String> {
             return Some(last.trim().to_string());
         }
     }
-    let first = lines.iter().map(|l| l.trim()).find(|l| is_error_line(l));
+    let explicit = |l: &str| {
+        let low = l.to_lowercase();
+        low.starts_with("error") || low.starts_with("fatal") || low.starts_with("==> error") || low.starts_with("e: ")
+    };
+    let first = lines
+        .iter()
+        .map(|l| l.trim())
+        .find(|l| explicit(l) && is_error_line(l))
+        .or_else(|| {
+            lines.iter().map(|l| l.trim()).find(|l| is_error_line(l) && !l.to_lowercase().starts_with("warning"))
+        })
+        .or_else(|| lines.iter().map(|l| l.trim()).find(|l| is_error_line(l)));
     // npm prints `npm error code EJSONPARSE` first and says what is wrong on a later line.
     if let Some(first) = first
         && first.starts_with("npm error code ")
@@ -1311,7 +1334,9 @@ fn quote_line(line: &str) -> String {
 fn describe_output(output: &str) -> &'static str {
     let lower = output.to_lowercase();
     let has = |words: &[&str]| words.iter().any(|w| lower.contains(w));
-    if has(&["nothing to commit", "working tree clean", "on branch "]) {
+    if has(&["make: nothing to be done", "is up to date."]) && lower.starts_with("make:") {
+        "make saying there is nothing to rebuild (the targets are already up to date)"
+    } else if has(&["nothing to commit", "working tree clean", "on branch "]) {
         "the result of `git status`"
     } else if has(&["set up to track", "everything up-to-date", "everything up to date"])
         || (lower.contains("\nto ") && lower.contains(" -> "))
@@ -2319,17 +2344,87 @@ fn sudo_form(command: &str, path: &str) -> String {
     format!("sudo {command}")
 }
 
-/// Does this line have the shape of an error message, as opposed to a sentence that merely
-/// contains a word like "error" or "failed"? An error line starts with a known opener
-/// (`error:`, `fatal:`, `npm ERR!`, `Traceback`, ...), names the program (`cat: x: reason`), or
-/// ends in a well-known reason (`Permission denied`, `command not found`).
-fn error_shaped(line: &str) -> bool {
-    let t = line.trim();
-    if t.is_empty() || is_long_listing_line(t) || is_table_row(t) || is_prose(t) {
+/// How much a line looks like an error message.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Shape {
+    No,
+    /// A known reason (`No such file or directory`) somewhere in the line: could be prose.
+    Weak,
+    /// A severity marker or program prefix at the start (`error:`, `cat: x: reason`).
+    Strong,
+}
+
+/// A log line from another program: a timestamp or a `[level]` tag at the start.
+fn is_log_line(line: &str) -> bool {
+    let t = line.trim_start_matches('[').trim();
+    let b: Vec<char> = t.chars().take(24).collect();
+    let digits = |from: usize, n: usize| b.len() >= from + n && b[from..from + n].iter().all(char::is_ascii_digit);
+    let date = digits(0, 4) && matches!(b.get(4), Some('-' | '/')) && digits(5, 2);
+    let clock = (0..b.len().saturating_sub(7))
+        .any(|i| digits(i, 2) && b[i + 2] == ':' && digits(i + 3, 2) && b[i + 5] == ':' && digits(i + 6, 2));
+    let lower = line.trim().to_lowercase();
+    let level = ["[error]", "[warn]", "[warning]", "[info]", "[crit]", "[notice]", "[debug]"]
+        .iter()
+        .any(|l| lower.starts_with(l));
+    date || clock || level
+}
+
+/// A line of source code or a grep hit in source code (`src/io.py:41:    except OSError:`).
+fn is_code_line(line: &str) -> bool {
+    let mut t = line.trim();
+    // `path:12:` or `path:12:5:` in front of the code.
+    let mut parts = t.splitn(3, ':');
+    if let (Some(path), Some(num), Some(rest)) = (parts.next(), parts.next(), parts.next())
+        && !path.contains(char::is_whitespace)
+        && !num.is_empty()
+        && num.chars().all(|c| c.is_ascii_digit())
+    {
+        t = rest.trim();
+    }
+    ["except", "catch", "} catch", "raise ", "throw ", "if err", "return err", "err != nil", "//", "def ", "fn "]
+        .iter()
+        .any(|k| t.starts_with(k))
+}
+
+/// `git log --oneline` and similar: an abbreviated commit id, then the subject.
+fn is_commit_line(line: &str) -> bool {
+    let Some((id, rest)) = line.trim().split_once(' ') else { return false };
+    (7..=40).contains(&id.len())
+        && id.chars().all(|c| c.is_ascii_hexdigit())
+        && id.chars().any(|c| c.is_ascii_digit())
+        && !rest.trim().is_empty()
+}
+
+/// Words that say an operation went fine.
+fn is_success_line(line: &str) -> bool {
+    let lower = line.to_lowercase();
+    if ["fail", "error", "not ", "refused", "denied", "cannot", "unable"].iter().any(|w| lower.contains(w)) {
         return false;
     }
+    lower
+        .split(|c: char| !c.is_alphanumeric())
+        .any(|w| matches!(w, "connected" | "done" | "ok" | "passed" | "success" | "successful" | "succeeded" | "ready"))
+}
+
+/// The shape of one line, ignoring the lines around it.
+fn line_shape(line: &str) -> Shape {
+    let t = line.trim();
+    if t.is_empty() || is_long_listing_line(t) || is_table_row(t) || is_prose(t) {
+        return Shape::No;
+    }
     let lower = t.to_lowercase();
-    const OPENERS: &[&str] = &[
+    // Success messages that start with a tool name.
+    if ["make: nothing to be done", "make: entering directory", "make: leaving directory"]
+        .iter()
+        .any(|s| lower.starts_with(s))
+        || (lower.starts_with("make: '") && lower.ends_with("is up to date."))
+    {
+        return Shape::No;
+    }
+    if is_code_line(t) || is_commit_line(t) || is_log_line(t) {
+        return Shape::No;
+    }
+    const STRONG: &[&str] = &[
         "error:",
         "error[",
         "error response",
@@ -2338,7 +2433,28 @@ fn error_shaped(line: &str) -> bool {
         "npm error",
         "e: ",
         "fatal",
-        "traceback",
+        "traceback (most recent call last)",
+        "panic",
+        "thread '",
+        "exception in thread",
+        "job for ",
+        "make:",
+        "make[",
+        "***",
+        "-bash:",
+        "bash:",
+        "sh:",
+        "zsh:",
+        "fish:",
+        "==> error",
+        "conflict (",
+        "automatic merge failed",
+        "the previous cherry-pick is now empty",
+        "the following paths are ignored",
+        "segmentation fault",
+        "bus error",
+    ];
+    const WEAK_OPENERS: &[&str] = &[
         "failed ",
         "failed:",
         "cannot ",
@@ -2348,27 +2464,14 @@ fn error_shaped(line: &str) -> bool {
         "unable to ",
         "permission denied",
         "no such ",
-        "segmentation fault",
         "killed",
         "aborted",
-        "panic",
-        "thread '",
-        "job for ",
-        "make:",
-        "make[",
         "warning: unable",
-        "***",
-        "-bash:",
-        "bash:",
-        "sh:",
-        "zsh:",
-        "fish:",
     ];
     const CONTAINS: &[&str] = &[
         ": command not found",
         "no such file or directory",
         "permission denied",
-        "segmentation fault",
         "out of memory",
         "not in gzip format",
         "address already in use",
@@ -2409,15 +2512,17 @@ fn error_shaped(line: &str) -> bool {
         "not supported",
         "must ",
     ];
-    if OPENERS.iter().any(|o| lower.starts_with(o)) || CONTAINS.iter().any(|c| lower.contains(c)) {
-        return true;
+    if STRONG.iter().any(|o| lower.starts_with(o))
+        || (t.starts_with("ERROR") && !t[5..].starts_with(char::is_alphabetic))
+    {
+        return Shape::Strong;
     }
     // `ReferenceError: x is not defined`, `json.decoder.JSONDecodeError: ...`
     if let Some((head, _)) = t.split_once(": ")
         && (head.ends_with("Error") || head.ends_with("Exception"))
         && !head.contains(char::is_whitespace)
     {
-        return true;
+        return Shape::Strong;
     }
     // `program: something: reason`: a lowercase program name with no spaces, then a reason.
     if let Some((head, rest)) = t.split_once(": ") {
@@ -2425,10 +2530,49 @@ fn error_shaped(line: &str) -> bool {
             && head.chars().all(|c| c.is_ascii_alphanumeric() || "-_./+".contains(c));
         let rest_lower = rest.to_lowercase();
         if head_ok && (is_error_line(rest) || REASONS.iter().any(|r| rest_lower.contains(r))) {
-            return true;
+            return Shape::Strong;
         }
     }
-    false
+    let words = t.split_whitespace().count();
+    // A sentence ending in a period, a list item or a heading is documentation, not a message.
+    if t.starts_with(['-', '*', '#', '•']) || (t.ends_with('.') && words >= 5 && !t.contains(": ")) {
+        return Shape::No;
+    }
+    if WEAK_OPENERS.iter().any(|o| lower.starts_with(o)) {
+        return Shape::Weak;
+    }
+    for keyword in CONTAINS {
+        if let Some(at) = lower.find(keyword) {
+            // Several words in front of the reason, and no `prefix:` in front of them: prose.
+            let before = &lower[..at];
+            if before.split_whitespace().count() >= 5 && !before.contains(": ") {
+                return Shape::No;
+            }
+            return Shape::Weak;
+        }
+    }
+    Shape::No
+}
+
+/// Does the output hold a line shaped like an error that nothing later contradicts? A weak
+/// line followed by a success line ("connected", "done") was a hiccup.
+fn has_error_shaped_line(output: &str) -> bool {
+    let lines: Vec<&str> = output.lines().collect();
+    lines.iter().enumerate().any(|(i, line)| match line_shape(line) {
+        Shape::No => false,
+        Shape::Strong => true,
+        Shape::Weak => !lines[i + 1..].iter().any(|later| is_success_line(later)),
+    })
+}
+
+/// The first line of an output that is a log line from another program reporting an error.
+fn foreign_log_error(output: &str) -> Option<&str> {
+    output.lines().map(str::trim).find(|l| {
+        is_log_line(l) && {
+            let lower = l.to_lowercase();
+            lower.contains("error") || lower.contains("failed") || lower.contains("crit")
+        }
+    })
 }
 
 /// Output without an exit code and without any line shaped like an error.
@@ -2436,6 +2580,17 @@ fn diagnose_unrecognised(last: &Last) -> String {
     let tail = " If the command did go wrong, run `huh why` right after it, or pipe in the lines that show the error.";
     if describe_output(&last.output) != "ordinary program output" {
         return diagnose_not_an_error(last);
+    }
+    if let Some(line) = foreign_log_error(&last.output) {
+        let program =
+            if line.to_lowercase().contains("[error]") && last.command.contains("nginx") { " (nginx)" } else { "" };
+        return format_answer(
+            &format!(
+                "This is a log line{program} written by another program, not an error from your command: {}. It shows what that program logged earlier; if the command itself failed, run `huh why` right after it.",
+                quote_line(line)
+            ),
+            "nothing",
+        );
     }
     if let Some(line) = last.output.lines().map(str::trim).find(|l| is_error_line(l)) {
         return format_answer(
@@ -3400,6 +3555,15 @@ fn extract_quoted(text: &str, quotes: &[char]) -> Option<String> {
 }
 
 fn extract_port(last: &Last) -> Option<String> {
+    // 0. Node: `listen EADDRINUSE: address already in use :::8099` (other lines have `node:events:495`)
+    if let Some(line) = last.output.lines().find(|l| l.contains("EADDRINUSE") || l.contains("already in use"))
+        && let Some(tail) = line.rsplit(':').next()
+    {
+        let digits: String = tail.trim().chars().take_while(char::is_ascii_digit).collect();
+        if !digits.is_empty() {
+            return Some(digits);
+        }
+    }
     // 1. Check output for `:<port>` or `0.0.0.0:<port>/tcp`
     for tok in last.output.split_whitespace() {
         if let Some((_, after)) = tok.rsplit_once(':') {
@@ -4213,6 +4377,406 @@ fn common_package_command(program: &str) -> Option<String> {
         _ => return None,
     };
     Some(crate::platform::fill(&crate::platform::fact(&platforms, "pkg_install")?, package))
+}
+
+// ---------------------------------------------------------------------------
+// Round 4: git states that are not "errors", Python name clashes, and honest misses
+// ---------------------------------------------------------------------------
+
+/// The words of a command that are not options, after the program name.
+fn plain_args(command: &str) -> Vec<&str> {
+    command.split_whitespace().skip(1).filter(|w| !w.starts_with('-')).collect()
+}
+
+/// Is `path` a symlink whose target is missing?
+fn is_dangling_symlink(path: &str) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) && !Path::new(path).exists()
+}
+
+/// `tar -xf a.tar -C d` names its members relative to `d`: puts `d/` in front of the relative
+/// paths of the `tar: member: reason` lines so they are checked where tar looked.
+fn resolve_tar_directory(last: &Last) -> Option<Last> {
+    let tokens: Vec<&str> = last.command.split_whitespace().collect();
+    if tokens.first() != Some(&"tar") {
+        return None;
+    }
+    let dir = tokens.iter().enumerate().find_map(|(i, t)| {
+        if let Some(d) = t.strip_prefix("--directory=") {
+            Some(d)
+        } else if *t == "-C" || *t == "--directory" {
+            tokens.get(i + 1).copied()
+        } else {
+            t.strip_prefix("-C").filter(|d| !d.is_empty())
+        }
+    })?;
+    let dir = dir.trim_matches(['\'', '"']).trim_end_matches('/');
+    let mut changed = false;
+    let output: Vec<String> = last
+        .output
+        .lines()
+        .map(|line| match line.strip_prefix("tar: ").and_then(|r| r.split_once(": ")) {
+            Some((member, reason))
+                if !member.starts_with('/')
+                    && !member.contains(char::is_whitespace)
+                    && (reason.starts_with("Cannot ") || reason.starts_with("Could not")) =>
+            {
+                changed = true;
+                format!("tar: {dir}/{member}: {reason}")
+            }
+            _ => line.to_string(),
+        })
+        .collect();
+    changed.then(|| Last { command: last.command.clone(), exit: last.exit, output: output.join("\n") })
+}
+
+fn diagnose_round4(last: &Last) -> Option<String> {
+    let out = last.output.as_str();
+    let lower = out.to_lowercase();
+    let command = last.command.trim();
+    let first = command.split_whitespace().next().unwrap_or("");
+
+    // --- git states that read like "nothing" but need an action ---
+    if lower.contains("the stash entry is kept") || (command.contains("stash") && lower.contains("conflict (")) {
+        let files: Vec<String> = out
+            .lines()
+            .filter_map(|l| {
+                l.trim().strip_prefix("CONFLICT (").and_then(|r| r.split_once("in ")).map(|(_, f)| f.trim().to_string())
+            })
+            .collect();
+        let files =
+            if files.is_empty() { "the conflicting files".to_string() } else { format!("`{}`", files.join("`, `")) };
+        return Some(format_answer(
+            &format!(
+                "`git stash pop` applied your stash, but it conflicted with changes already in the working tree, so the pop stopped halfway and the stash entry is kept (nothing is lost). Open {files}, resolve the `<<<<<<<` / `=======` / `>>>>>>>` markers, then `git add` the files and run `git stash drop` to remove the kept entry."
+            ),
+            "git status",
+        ));
+    }
+    if lower.contains("cherry-pick is now empty") {
+        return Some(format_answer(
+            "The cherry-pick produced no change: the commit's changes are already in your branch (or conflict resolution cancelled them out), so there is nothing to commit. Skip the commit with `git cherry-pick --skip`, or keep it as an empty commit with `git commit --allow-empty`; `git cherry-pick --abort` cancels the whole operation.",
+            "git cherry-pick --skip",
+        ));
+    }
+    if lower.contains("need to specify how to reconcile divergent branches") {
+        return Some(format_answer(
+            "Your branch and the remote branch each have commits the other lacks (they diverged), and git no longer guesses how to combine them. `git pull --rebase` replays your commits on top of the remote ones (a straight history); `git pull --no-rebase` merges the two (adds a merge commit). Run `git config pull.rebase true` (or `false`) once to make the choice permanent.",
+            "git pull --rebase",
+        ));
+    }
+    if lower.contains("index.lock") && lower.contains("file exists") {
+        let lock =
+            out.lines().find_map(|l| quoted_after(l, "Unable to create")).unwrap_or_else(|| ".git/index.lock".into());
+        return Some(format_answer(
+            &format!(
+                "Git left a lock file (`{lock}`) that stops other git commands. It is normally removed when the git command that made it ends, so another git process (an editor opened by `git commit`, an IDE, a second terminal) may still be running. Remove the file only if no git process is running: check first, and only then delete it."
+            ),
+            "pgrep -a git",
+        ));
+    }
+    if lower.contains("dubious ownership") {
+        let fix = out.lines().map(str::trim).find(|l| l.starts_with("git config") && l.contains("safe.directory"));
+        let explanation = "Git refuses to work in a repository owned by another user (its \"dubious ownership\" check, a safety check against running hooks planted by someone else). If you trust this folder, tell git so with the command printed in its output.";
+        return Some(format_answer(explanation, fix.unwrap_or("nothing")));
+    }
+    if lower.contains("the following paths are ignored by one of your .gitignore files") {
+        let paths: Vec<&str> = out
+            .lines()
+            .map(str::trim)
+            .skip_while(|l| !l.starts_with("The following paths are ignored"))
+            .skip(1)
+            .take_while(|l| !l.starts_with("hint:") && !l.is_empty())
+            .collect();
+        let shown = paths.join(" ");
+        return Some(format_answer(
+            &format!(
+                "`git add` skipped `{shown}` because a .gitignore rule ignores it: that is on purpose for build output, logs and secrets. Add it anyway with `git add -f {shown}` only if you really want it tracked; otherwise leave it out. To see which rule matches, use `git check-ignore -v`."
+            ),
+            &format!("git check-ignore -v {shown}"),
+        ));
+    }
+
+    // --- Python: a local file named like a module shadows it ---
+    if let Some(at) = lower.find("partially initialized module '")
+        && (lower.contains("circular import"))
+    {
+        let module = out[at + "partially initialized module '".len()..].split('\'').next().unwrap_or("").to_string();
+        let file = format!("{module}.py");
+        let frame = python_frames(out)
+            .into_iter()
+            .map(|(path, _, _)| path)
+            .find(|p| Path::new(p).file_name().is_some_and(|n| n.to_string_lossy() == file));
+        let place = frame.as_deref().unwrap_or(&file);
+        let local = std::env::current_dir()
+            .ok()
+            .is_some_and(|d| frame.as_ref().is_none_or(|f| Path::new(f).parent() == Some(d.as_path())));
+        let shown = if local { file.clone() } else { place.to_string() };
+        let renamed = shown.replace(".py", "_local.py");
+        if frame.is_some() || Path::new(&file).exists() {
+            return Some(format_answer(
+                &format!(
+                    "A file of yours named `{shown}` shadows Python's own `{module}` module: `import {module}` loaded your file instead, which is half-loaded at that point, hence `partially initialized module` and the \"circular import\" hint. Rename `{shown}` (and delete the `__pycache__` folder beside it), then run the script again."
+                ),
+                &format!("mv {shown} {renamed}"),
+            ));
+        }
+        return Some(format_answer(
+            &format!(
+                "Module `{module}` imports itself through a cycle (A imports B, B imports A), so one of them is used before it has finished loading (`partially initialized module`). Move the shared code into a third module, or import inside the function that needs it. If you have a file of your own named `{file}`, rename it: it shadows the standard module."
+            ),
+            "nothing",
+        ));
+    }
+    if lower.contains("cannot import name") && lower.contains("circular import") {
+        return Some(format_answer(
+            "Python could not import that name because the module is only half-loaded: two modules import each other, or a file of yours has the same name as an installed module and shadows it. Rename such a file, or move the shared code into a third module.",
+            "nothing",
+        ));
+    }
+
+    // --- Node ---
+    if lower.contains("eaddrinuse")
+        && let Some(port) = out.lines().find(|l| l.contains("EADDRINUSE")).and_then(|l| {
+            let tail = l.rsplit(':').next()?.trim();
+            let digits: String = tail.chars().take_while(char::is_ascii_digit).collect();
+            (!digits.is_empty()).then_some(digits)
+        })
+    {
+        return Some(format_answer(
+            &format!(
+                "Port {port} is already in use (`EADDRINUSE`): another process (often an earlier copy of this server) is listening on it. Find it, stop it, or start this program on another port."
+            ),
+            &format!("ss -tulpn 'sport = :{port}'"),
+        ));
+    }
+    if lower.contains("syntaxerror")
+        && (lower.contains("json.parse")
+            || lower.contains("in json at position")
+            || lower.contains("is not valid json"))
+    {
+        return Some(format_answer(
+            "`JSON.parse` stopped with a SyntaxError: the text it was given is not valid JSON. The problem is in the data (a missing or extra quote, comma or bracket, single quotes instead of double, an empty string, or an HTML error page instead of JSON), not in the code. Print the string before parsing it to see what it holds.",
+            "nothing",
+        ));
+    }
+
+    // --- shell and tool usage ---
+    if (lower.contains("sudo: command not found") || lower.contains("sudo: not found"))
+        && (first == "sudo" || command.contains("sudo "))
+    {
+        let install = common_package_command("sudo")
+            .map(|c| c.strip_prefix("sudo ").unwrap_or(&c).to_string())
+            .unwrap_or_else(|| "apt install sudo".to_string());
+        return Some(format_answer(
+            "`sudo` is not installed here (common in minimal containers and fresh Debian installs), and installing it needs administrator rights itself: do not put `sudo` in front of the install. Log in as root (`su -`) and install it, ask an administrator, or run the command as root directly.",
+            &format!("su -c '{install}'"),
+        ));
+    }
+    if lower.contains("superuser privileges") && !command.starts_with("sudo ") && !command.is_empty() {
+        return Some(format_answer(
+            "This command changes the system and needs administrator (root) rights. Run it with `sudo`.",
+            &format!("sudo {command}"),
+        ));
+    }
+    if lower.contains("running makepkg as root is not allowed") {
+        return Some(format_answer(
+            "`makepkg` refuses to run as root: a build script run as root could damage the whole system. Run it as a normal user (it asks for the root password itself when it installs with `-i`).",
+            "nothing",
+        ));
+    }
+    if lower.contains("sed:") && lower.contains("unknown option to `s'") {
+        return Some(format_answer(
+            "`sed` split the `s` command at an extra `/`: the pattern or the replacement contains a `/` (a path or URL), which ends it early. Use another delimiter for the whole command, for example `s|a|b|` or `s#a#b#`, or escape each slash as `\\/`.",
+            "nothing",
+        ));
+    }
+    if lower.contains("sed:") && lower.contains("unmatched ( or \\(") {
+        return Some(format_answer(
+            "`sed` found an opening parenthesis without its closing one. In a basic regular expression a group is written `\\( ... \\)` and a bare `(` is a literal character; with `sed -E` it is the other way around. Match every `\\(` with a `\\)` (or escape a literal parenthesis).",
+            "nothing",
+        ));
+    }
+    if lower.contains("xargs: unmatched") && lower.contains("quote") {
+        let fixed = if command.contains("xargs ") {
+            command.replacen("xargs ", "xargs -d '\\n' ", 1)
+        } else {
+            "nothing".to_string()
+        };
+        return Some(format_answer(
+            "`xargs` treats quotes and backslashes in its input as quoting, so a single `'` or `\"` in a file name or line breaks it. Tell it to take each line literally with `-d '\\n'` (GNU xargs), or use `find ... -print0 | xargs -0` so names are separated by NUL bytes.",
+            &fixed,
+        ));
+    }
+    if lower.contains("zip error: nothing to do") {
+        return Some(format_answer(
+            "`zip` was given an archive name but no files to put in it (or every file was excluded): `zip archive.zip file1 file2`, and add `-r` for folders.",
+            "nothing",
+        ));
+    }
+    if lower.contains("find: paths must precede expression") || lower.contains("find: possible unquoted pattern") {
+        let mut fixed = false;
+        let words: Vec<String> = command
+            .split_whitespace()
+            .scan(false, |after_test, w| {
+                let quote = *after_test && w.contains(['*', '?', '[']) && !w.starts_with(['\'', '"']);
+                *after_test = matches!(w, "-name" | "-iname" | "-path" | "-ipath" | "-regex" | "-wholename");
+                fixed |= quote;
+                Some(if quote { format!("'{w}'") } else { w.to_string() })
+            })
+            .collect();
+        return Some(format_answer(
+            "The shell expanded the unquoted pattern (`*.txt`) into the matching file names in the current folder before `find` ran, so `find` got extra words after `-name`. Quote the pattern so `find` sees it unchanged.",
+            &if fixed { words.join(" ") } else { "nothing".to_string() },
+        ));
+    }
+    if lower.contains("could not open a connection to your authentication agent") {
+        return Some(format_answer(
+            "`ssh-add` needs the `ssh-agent` program running in this shell, and none is (the `SSH_AUTH_SOCK` variable is not set). Start an agent for this shell, then add the key again.",
+            "eval \"$(ssh-agent)\"",
+        ));
+    }
+    if lower.contains("unary operator expected") || (lower.contains("[: ") && lower.contains("unexpected operator")) {
+        return Some(format_answer(
+            "A `[ ... ]` test lost an operand: the variable on the left of the operator is empty or unset, so the shell saw `[ == 1 ]`. Put double quotes around the variable (`[ \"$x\" == 1 ]`) or use `[[ $x == 1 ]]` in bash, and check why the variable is empty.",
+            "nothing",
+        ));
+    }
+    if lower.contains("value too great for base") {
+        let token = quoted_after(out, "error token is \"")
+            .or_else(|| out.split("error token is \"").nth(1).map(|r| r.split('"').next().unwrap_or("").to_string()))
+            .unwrap_or_default();
+        return Some(format_answer(
+            &format!(
+                "Bash reads a number with a leading zero (`{token}`) as octal, where 8 and 9 are not digits. Force base 10 with `10#`: `$((10#$x))`, or strip the zeros first (`${{x#0}}`)."
+            ),
+            "nothing",
+        ));
+    }
+    if lower.contains("no journal files were found") {
+        let try_cmd = if command.starts_with("journalctl") { format!("sudo {command}") } else { "nothing".to_string() };
+        return Some(format_answer(
+            "`journalctl` found no journal it may read: as a normal user you only see your own logs and only if the system keeps a persistent journal. Run it with `sudo`, or add yourself to the `systemd-journal` group (then log in again). In a container there is no journal at all.",
+            &try_cmd,
+        ));
+    }
+    if lower.contains("unable to find a match") || lower.contains("no match for argument") {
+        let name = out
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("Error: Unable to find a match:"))
+            .map(|n| n.split_whitespace().next().unwrap_or("").to_string())
+            .or_else(|| {
+                out.lines().find_map(|l| l.trim().strip_prefix("No match for argument:")).map(|n| n.trim().to_string())
+            })
+            .unwrap_or_default();
+        return Some(format_answer(
+            &format!(
+                "dnf has no package called `{name}` in the repositories that are enabled: the name is misspelled, it has another name on this distribution, or its repository (EPEL, RPM Fusion, a vendor repo) is not enabled. Search by part of the name."
+            ),
+            &format!("dnf search {name}"),
+        ));
+    }
+    if lower.contains("gpg check failed") {
+        return Some(format_answer(
+            "dnf could not verify the package's signature: the signing key is not imported, the file is damaged or was not signed by that key. Import the vendor's public key (`sudo rpm --import <key-url>`) and try again; use `--nogpgcheck` only for a package you built or fully trust.",
+            "nothing",
+        ));
+    }
+    if lower.contains("curl: (35)") {
+        let url = last.command.split_whitespace().find(|w| w.contains("://")).unwrap_or("<url>");
+        return Some(format_answer(
+            "curl could not complete the TLS handshake (`(35)`): the server dropped the connection while setting up HTTPS. Typical causes are a port that does not speak TLS (plain HTTP on it), a proxy or firewall in between, a very old or very new TLS version on one side, or a wrong clock. `curl -v` shows how far the handshake got.",
+            &format!("curl -v {url}"),
+        ));
+    }
+    if lower.contains("eresolve") && (lower.contains("--legacy-peer-deps") || lower.contains("--force")) {
+        let try_cmd = if command.starts_with("npm ") && !command.contains("--legacy-peer-deps") {
+            format!("{command} --legacy-peer-deps")
+        } else {
+            "npm install --legacy-peer-deps".to_string()
+        };
+        return Some(format_answer(
+            "npm found two packages whose version requirements cannot both be met (a peer dependency conflict, `ERESOLVE`). `--legacy-peer-deps` installs anyway, the way npm 6 did; it ignores the conflict, so the program may break at runtime. The clean fix is to upgrade or downgrade the package named in the message so the versions agree.",
+            &try_cmd,
+        ));
+    }
+    if lower.contains("npm err! test failed") || lower.contains("npm error test failed") {
+        let names: Vec<&str> = out.lines().map(str::trim).filter_map(|l| l.strip_prefix("FAIL ")).collect();
+        if !names.is_empty() {
+            return Some(format_answer(
+                &format!(
+                    "`npm test` ran the test suite and it failed: {} failed. The details (expected and received values) are in the test output above npm's own lines; `npm ERR! Test failed` is only npm reporting the exit status.",
+                    names.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(", ")
+                ),
+                "nothing",
+            ));
+        }
+    }
+    if let Some(name) = out.lines().map(str::trim).find_map(|l| l.strip_prefix("FAIL: ").map(|r| r.trim().to_string()))
+        && !name.is_empty()
+        && !name.contains(' ')
+    {
+        let summary =
+            out.lines().map(str::trim).rev().find(|l| l.contains("passed") && l.contains("failed")).unwrap_or("");
+        let more = if summary.is_empty() { String::new() } else { format!(" (`{summary}`)") };
+        return Some(format_answer(
+            &format!(
+                "A test failed: `{name}`{more}. The other tests passed; make's `Error 1` only reports that one command failed. Look at the output printed by `{name}` for what it expected."
+            ),
+            "nothing",
+        ));
+    }
+    if lower.starts_with("package ") && lower.contains(" is not installed") && first == "rpm" {
+        let name = out.split_whitespace().nth(1).unwrap_or("it");
+        return Some(format_answer(
+            &format!(
+                "The rpm database has no package called `{name}`: it is not installed, or it is installed under another name. List installed packages that match part of the name."
+            ),
+            &format!("rpm -qa | grep -i {name}"),
+        ));
+    }
+    if lower.trim() == "bus error" || lower.contains("\nbus error") || last.exit == Some(135) {
+        return Some(format_answer(
+            "The program was killed by `SIGBUS` (`Bus error`, exit code 135): it touched memory the system could not give it. Usual causes are a memory-mapped file that was truncated or sits on a disk that filled up or was unplugged, or a misaligned access in native code. It is a bug or an environment problem in the program, not a mistake in the command line; check free disk space and whether the files it maps still exist.",
+            "nothing",
+        ));
+    }
+
+    // --- cp / mv with a space in a name ---
+    if matches!(first, "cp" | "mv")
+        && let Some(target) = out.lines().find_map(|l| quoted_after(l, "target "))
+        && lower.contains("no such file or directory")
+    {
+        let args = plain_args(command);
+        if args.len() >= 3 && args.last() == Some(&target.as_str()) {
+            let sources = args[..args.len() - 1].join(" ");
+            let many = args.len() > 3;
+            let explanation = format!(
+                "`{first}` was given {} words, so the shell split the name at the space: it treated `{}` as separate files and `{target}` as the destination, and `{target}` does not exist.{} Quote a name that contains a space.",
+                args.len(),
+                args[..args.len() - 1].join("`, `"),
+                if many { " (If you really meant several files, create the destination folder first.)" } else { "" }
+            );
+            let try_cmd = if many { "nothing".to_string() } else { format!("{first} \"{sources}\" {target}") };
+            return Some(format_answer(&explanation, &try_cmd));
+        }
+    }
+
+    // --- a symlink whose target is gone ---
+    if lower.contains("no such file or directory") {
+        for failure in file_failures(out) {
+            if failure.problem == FileProblem::Missing && is_dangling_symlink(&failure.path) {
+                let target = std::fs::read_link(&failure.path).map(|t| t.display().to_string()).unwrap_or_default();
+                return Some(format_answer(
+                    &format!(
+                        "`{}` exists, but it is a symbolic link pointing to `{target}`, which does not exist (a dangling link), so opening it fails with \"No such file or directory\". Recreate the target, or point the link somewhere valid with `ln -sfn`.",
+                        failure.path
+                    ),
+                    &format!("ls -l {}", failure.path),
+                ));
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
