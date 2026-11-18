@@ -39,7 +39,7 @@ fn flat(text: &str, max: usize) -> String {
     }
 }
 
-fn hanging(out: &mut String, indent: usize, first: &str, text: &str) {
+pub(crate) fn hanging(out: &mut String, indent: usize, first: &str, text: &str) {
     let lead = first.chars().count();
     let lines = wrap(text, WIDTH.saturating_sub(indent + lead));
     for (n, line) in lines.iter().enumerate() {
@@ -75,7 +75,7 @@ fn conn_line(kind: ConnKind) -> &'static str {
     }
 }
 
-fn rows(out: &mut String, rows: &[Row], indent: usize) {
+pub(crate) fn rows(out: &mut String, rows: &[Row], indent: usize) {
     if rows.is_empty() {
         return;
     }

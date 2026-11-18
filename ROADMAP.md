@@ -135,27 +135,25 @@ New personas wrote their own requests (they could not read the evals), against t
 
 Fixed right after the measurement: destructive lines on targets the user never named (`rm -r ~` for "delete user bob and home directory", `find . -type f -delete` for "clean up old packages"), and "explain X" / "what is X" now point to `huh explain`. npm global-install EACCES no longer leads to `sudo npm`.
 
-## Planned: tutor mode (`huh tutor`), after the "Next" fixes below
+## Tutor mode (`huh tutor`): steps 1-3 done 2026-11-18, noise levels and the Omarchy keybinding next
 
 Keep it simple (Radu, 2026-11-18): the point is to explain output fields and flags to people who rarely use the terminal, rustlings-style hints, not a full tutorial system. huh's goal overall is to point the user the right way and let them decide and read the manual.
 
-Idea (2026-11-18, from a real session: `huh "unmount drive"` gave `lsblk`, then `lsblk | huh` only said "not an error", and `lsblk | huh explain` read the output as a 9-command script; that last bug is fixed): a side pane that follows the terminal and explains each command and its output as it happens, like a tutor sitting next to you. Like everything in huh, it only reads and explains; it never runs anything.
-
 ```
- terminal ──(already recorded today: script → huh record-sink, markers, exit code)──▶ private log
-                                                                                        │
-                                              huh tutor (new) watches it, read-only ◀───┘
-                                                ├─ command finished → huh explain the line
-                                                ├─ exit ≠ 0         → huh why on its output
-                                                └─ exit 0           → explain the output (new)
+ terminal ──(already recorded: script → huh record-sink, markers, exit code)──▶ private log
+                                                                                    │
+                                          huh tutor watches it, read-only ◀─────────┘
+                                            ├─ command finished → huh explain the line (condensed)
+                                            ├─ exit ≠ 0         → huh why on its output
+                                            └─ exit 0           → explain the output fields
 ```
 
-1. **MVP**: `huh tutor` in a second pane (Ghostty or tmux split) follows the recording of the terminal next to it; prints the explanation of each finished command and the diagnosis of each failure. Mostly existing pieces.
-2. **Explain before Enter**: a key (e.g. Alt+e, like Alt+h today) sends the typed line to the tutor pane before it runs: the most useful moment for a beginner or a command pasted from an AI.
-3. **Output explanations**: a hand-written notebook of output formats for the ~30 most common programs (`lsblk`, `ls -l`, `df`, `du`, `free`, `ps`, `git status`/`log`, `ip`, `ss`, `docker ps`, …), so `lsblk | huh` can say what the columns mean. With eval cases, like the command knowledge.
-4. **Noise levels** (everything / only new commands, with an opt-in local history / only failures and warnings), then an Omarchy keybinding that opens the tutor as a side window attached to the focused terminal.
+1. ~~**MVP**~~ done 2026-11-18: `huh tutor` (`src/tutor.rs`) polls the newest recording (not its own pane's) or `--tty`, prints header, condensed explanation, diagnosis or output fields; `--quiet`; full-screen programs are named only; says how to enable recording when there is none.
+2. ~~**Explain before Enter**~~ done 2026-11-18: `Alt+e` in `shell-init --hooks` prints `huh explain` for the prompt line below it, without running it. (It prints in the terminal itself; sending it to the tutor pane is not done.)
+3. ~~**Output explanations**~~ done 2026-11-18: `src/outputs.txt` holds 28 commands (header or shape detection, one sentence per field, at most two notes); `cmd | huh` and `cmd | huh explain` use it before error detection, only when no line looks like an error. `evals/outputs.toml`: 29 outputs (one or more per command) and 20 that must not be recognised.
+4. **Noise levels** (everything / only new commands, with an opt-in local history / only failures and warnings), then an Omarchy keybinding that opens the tutor as a side window attached to the focused terminal. **Next.**
 
-Known limits: stdout and stderr arrive mixed in the terminal, so the tutor goes by exit code and error-looking lines; full-screen programs (vim, htop, less) are only named, not explained; bash only until the zsh/fish hooks exist.
+Known limits: stdout and stderr arrive mixed in the terminal, so the tutor goes by exit code and error-looking lines; full-screen programs (vim, htop, less) are only named, not explained; when several commands finish within 300 ms only the last is shown; bash only until the zsh/fish hooks exist; ping and one `git status` sample in the evals are typed from the standard format, not captured.
 
 ### Next (from that measurement): all done 2026-11-18
 

@@ -270,6 +270,26 @@ eval "$(huh shell-init --hooks)"    # last line
 - **Terminal recording**: `huh shell-init` runs the shell inside util-linux `script`, streaming output through `huh record-sink` to a private 1 MB ring buffer in `$XDG_RUNTIME_DIR/huh/<pid>.log` (`0600` permissions, memory-backed, gone at logout).
 - **Skipping & opt-out**: `huh ...` commands are skipped in hooks so asking about a failure does not overwrite it. Disable recording for a shell with `HUH_NO_RECORD=1`.
 
+## Tutor mode
+
+For people who use the terminal now and then. Two parts, both read-only (huh runs nothing):
+
+- **`cmd | huh`** (or `cmd | huh explain`): when the piped text is the normal output of a common command, huh says what its columns and fields mean. It covers `ls -l`, `df`, `du`, `lsblk`, `stat`, `findmnt`, `free`, `ps aux`/`ps -ef`, `top`, `ip addr`/`ip -br addr`, `ss`, `ping`, `git status`/`log`/`branch -vv`, `systemctl status`, `journalctl`, `docker ps`, `uname -a`, `uptime`, `who`, `last`, `id`, `sensors` and `nmcli dev`. Recognition is by header line or shape; text with an error-shaped line, or anything it is unsure about, is left to the error doctor as before. The table is `src/outputs.txt`.
+- **`huh tutor`**: needs the [terminal recording](#terminal-recording-and-prompt-completion). Run it in a second pane (a Ghostty or tmux split) next to a recorded terminal. For each command that finishes there it prints the command line with its exit code, a few lines on what the command and its first flags do, then the diagnosis if it failed (as `huh why`), or the field explanations if the output is recognised. Full-screen programs (`vim`, `htop`) get one line. It follows the newest recording other than its own pane's, or `--tty /dev/pts/N`; `--quiet` explains each program only once per run; Ctrl+C stops it. Without a recording it says how to set one up.
+- **`Alt+e`** (with `huh shell-init --hooks`): shows `huh explain` for the line you are typing, below the prompt, without running it.
+
+```
+$ lsblk | huh
+This looks like the output of `lsblk`: disks and partitions.
+  NAME         device name; ├─ and └─ show partitions or layers inside the disk
+               above
+  ...
+  crypt        an encrypted volume that has been unlocked; its contents appear
+               under the mount points
+  [SWAP]       used as swap space (overflow memory), not as a folder
+* to unmount something, use a path from MOUNTPOINTS, not from NAME.
+```
+
 ## Platforms, missing programs, and catalog
 
 `src/platform.rs` is the one place that knows what system this is and how it installs software. It feeds the
@@ -379,6 +399,8 @@ nmcli = { mylinux = "nm-cli" }         # package name where it differs (omit a f
 | `src/render.rs` | 80-column output of the explanation |
 | `evals/explain.toml` | 70+ real-world command lines with expected text and warnings (run by `cargo test`) |
 | `src/session.rs` | Terminal recording (`script` + `record-sink`), shell hooks, readline binding |
+| `src/outputs.rs`, `src/outputs.txt` | Output explanations (`lsblk`, `df`, `git status` ...) for `cmd \| huh`; cases in `evals/outputs.toml` (run by `cargo test`) |
+| `src/tutor.rs` | `huh tutor`: follows the recording and explains each command and its output |
 | `src/eval.rs` | Evaluation runners (`eval` and `eval-errors`) |
 | `src/mode.rs` | Normal/expert mode and its config loader |
 | `src/tools.rs` | `huh tools`: PATH scan and man page descriptions |

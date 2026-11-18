@@ -1,0 +1,524 @@
+# Real outputs captured on an Arch laptop or in the huh repository (names, addresses and MACs
+# replaced; ping and the second git status are typed from the standard format). expect = the
+# entry that must be recognised and fields = keys it must explain; expect = "none" outputs must
+# NOT be recognised. Run by cargo test (src/outputs.rs).
+
+[[case]]
+expect = "ls -l"
+fields = ["permissions", "links", "owner", "group", "size", "date", "name"]
+output = '''
+total 1076
+drwxr-xr-x 1 root root     12 Oct  8 11:57 alsa
+drwxr-xr-x 1 root root    138 Oct 19 01:15 apparmor.d
+-rw-r--r-- 1 root root      1 Oct 12  2025 arch-release
+-rw-r--r-- 1 root root      0 Apr  9  2026 arptables.conf
+drwxr-xr-x 1 root root      0 Oct  8 11:56 audisp
+drwxr-xr-x 1 root root     86 Oct  8 11:56 audit
+drwxr-xr-x 1 root root    142 Oct 24 21:08 avahi
+'''
+
+[[case]]
+expect = "df"
+fields = ["Filesystem", "Size", "Used", "Avail", "Use%", "Mounted on"]
+output = '''
+Filesystem                                     Size  Used Avail Use% Mounted on
+dev                                            7.7G     0  7.7G   0% /dev
+run                                            7.7G  2.3M  7.7G   1% /run
+efivarfs                                       246K   59K  183K  25% /sys/firmware/efi/efivars
+/dev/mapper/root                               475G  184G  291G  39% /
+tmpfs                                          7.7G   61M  7.7G   1% /dev/shm
+none                                           1.0M     0  1.0M   0% /run/credentials/systemd-journald.service
+none                                           1.0M     0  1.0M   0% /run/credentials/systemd-resolved.service
+'''
+
+[[case]]
+expect = "du"
+fields = ["size", "path"]
+output = '''
+8.0K	/usr/share/accounts
+864K	/usr/share/aclocal
+180K	/usr/share/aclocal-1.19
+28K	/usr/share/akonadi
+'''
+
+[[case]]
+expect = "lsblk"
+fields = ["NAME", "MAJ:MIN", "RM", "SIZE", "RO", "TYPE", "MOUNTPOINTS", "disk", "part", "crypt", "[SWAP]"]
+output = '''
+NAME        MAJ:MIN RM   SIZE RO TYPE  MOUNTPOINTS
+zram0       252:0    0  15.3G  0 disk  [SWAP]
+nvme0n1     259:0    0 476.9G  0 disk
+├─nvme0n1p1 259:1    0     2G  0 part  /boot
+└─nvme0n1p2 259:2    0 474.9G  0 part
+  └─root    253:0    0 474.9G  0 crypt /var/log
+                                       /home
+                                       /var/cache/pacman/pkg
+                                       /
+'''
+
+[[case]]
+expect = "stat"
+fields = ["File", "Size", "Inode", "Modify", "Birth"]
+output = '''
+  File: /etc/hostname
+  Size: 7         	Blocks: 8          IO Block: 4096   regular file
+Device: 0,32	Inode: 46984       Links: 1
+Access: (0644/-rw-r--r--)  Uid: (    0/    root)   Gid: (    0/    root)
+Access: 2026-11-18 08:13:07.500253821 +0200
+Modify: 2026-10-08 11:56:31.640246206 +0300
+Change: 2026-10-08 11:56:31.640246206 +0300
+ Birth: 2026-10-08 11:56:31.640155177 +0300
+'''
+
+[[case]]
+expect = "findmnt"
+fields = ["TARGET", "SOURCE", "FSTYPE", "OPTIONS"]
+output = '''
+TARGET                                        SOURCE                                        FSTYPE                                             OPTIONS
+/                                             /dev/mapper/root[/@]                          btrfs                                              rw,relatime,compress=zstd:3,ssd,discard=async,space_cache=v2,subvolid=256,subvol=/@
+├─/proc                                       proc                                          proc                                               rw,nosuid,nodev,noexec,relatime
+│ └─/proc/sys/fs/binfmt_misc                  systemd-1                                     autofs                                             rw,relatime,fd=43,pgrp=1,timeout=0,minproto=5,maxproto=5,direct,pipe_ino=420
+│   └─/proc/sys/fs/binfmt_misc                binfmt_misc                                   binfmt_misc                                        rw,nosuid,nodev,noexec,relatime
+├─/sys                                        sys                                           sysfs                                              rw,nosuid,nodev,noexec,relatime
+'''
+
+[[case]]
+expect = "free"
+fields = ["Mem", "Swap", "total", "used", "free", "shared", "buff/cache", "available"]
+output = '''
+               total        used        free      shared  buff/cache   available
+Mem:            15Gi       9.3Gi       3.0Gi       683Mi       4.6Gi       6.1Gi
+Swap:           30Gi       6.7Gi        23Gi
+'''
+
+[[case]]
+expect = "ps aux"
+fields = ["USER", "PID", "%CPU", "%MEM", "VSZ", "RSS", "TTY", "STAT", "START", "TIME", "COMMAND"]
+output = '''
+USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root           1  0.0  0.0  22612 12516 ?        Ss   Nov14   0:13 /sbin/init splash
+root           2  0.0  0.0      0     0 ?        S    Nov14   0:00 [kthreadd]
+root           3  0.0  0.0      0     0 ?        S    Nov14   0:00 [pool_workqueue_release]
+root           4  0.0  0.0      0     0 ?        I<   Nov14   0:00 [kworker/R-rcu_gp]
+root           5  0.0  0.0      0     0 ?        I<   Nov14   0:00 [kworker/R-sync_wq]
+'''
+
+[[case]]
+expect = "ps -ef"
+fields = ["UID", "PID", "PPID", "C", "STIME", "TTY", "TIME", "CMD"]
+output = '''
+UID          PID    PPID  C STIME TTY          TIME CMD
+root           1       0  0 Nov14 ?        00:00:13 /sbin/init splash
+root           2       0  0 Nov14 ?        00:00:00 [kthreadd]
+root           3       2  0 Nov14 ?        00:00:00 [pool_workqueue_release]
+root           4       2  0 Nov14 ?        00:00:00 [kworker/R-rcu_gp]
+'''
+
+[[case]]
+expect = "top"
+fields = ["load average", "Tasks", "%Cpu(s)"]
+output = '''
+top - 17:52:42 up 4 days, 21 min,  1 user,  load average: 2.19, 2.03, 2.09
+Tasks: 358 total, 1 running, 351 sleep, 0 d-sleep, 0 stopped, 6 zombie
+%Cpu(s):  0.6 us,  0.6 sy,  0.0 ni, 97.6 id,  0.0 wa,  0.6 hi,  0.6 si,  0.0 st
+MiB Mem :  15700.1 total,   3108.3 free,   9486.6 used,   4752.7 buff/cache
+MiB Swap:  31403.9 total,  24544.0 free,   6859.9 used.   6213.5 avail Mem
+
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+1554554 user      20   0 1423536  94568  37480 S   4.9   0.6   6:40.48 ghostty
+      1 root      20   0   22612  12516   8224 S   0.0   0.1   0:13.91 systemd
+      2 root      20   0       0      0      0 S   0.0   0.0   0:00.27 kthreadd
+      3 root      20   0       0      0      0 S   0.0   0.0   0:00.00 pool_wo+
+      4 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+'''
+
+[[case]]
+expect = "ip addr"
+fields = ["<FLAGS>", "mtu", "inet", "link/ether"]
+output = '''
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback aa:bb:cc:dd:ee:ff brd aa:bb:cc:dd:ee:ff
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host noprefixroute
+       valid_lft forever preferred_lft forever
+2: enp0s31f6: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc fq state DOWN group default qlen 1000
+    link/ether aa:bb:cc:dd:ee:ff brd aa:bb:cc:dd:ee:ff
+    altname enxaabbccddeeff
+3: wlp9s0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether aa:bb:cc:dd:ee:ff brd aa:bb:cc:dd:ee:ff
+    altname wlxaabbccddeeff
+    inet 192.168.1.20/24 brd 192.168.1.20 scope global dynamic noprefixroute wlp9s0
+       valid_lft 1616sec preferred_lft 1616sec
+'''
+
+[[case]]
+expect = "ip -br addr"
+fields = ["name", "UP", "DOWN", "UNKNOWN", "addresses"]
+output = '''
+lo               UNKNOWN        127.0.0.1/8 ::1/128
+enp0s31f6        DOWN
+wlp9s0           UP             192.168.1.20/24 fe80::1/64
+docker0          DOWN           172.17.0.1/16 fe80::1/64
+tailscale0       UNKNOWN        100.64.0.5/32 fd7a::1/128 fe80::1/64
+wwan0            UNKNOWN        10.0.0.9/29
+'''
+
+[[case]]
+expect = "ss"
+fields = ["Netid", "State", "Recv-Q", "Send-Q", "Local Address:Port", "Process"]
+output = '''
+Netid State  Recv-Q Send-Q                          Local Address:Port  Peer Address:PortProcess
+udp   UNCONN 0      0                                 224.0.0.251:5353       0.0.0.0:*    users:(("chrome",pid=5489,fd=90))
+udp   UNCONN 0      0                                 224.0.0.251:5353       0.0.0.0:*    users:(("chrome",pid=5489,fd=86))
+udp   UNCONN 0      0                                 224.0.0.251:5353       0.0.0.0:*    users:(("chrome",pid=5489,fd=74))
+'''
+
+[[case]]
+expect = "ping"
+fields = ["transmitted", "received", "packet loss", "rtt min/avg/max"]
+output = '''
+PING example.org (192.0.2.10) 56(84) bytes of data.
+64 bytes from 192.0.2.10: icmp_seq=1 ttl=57 time=11.2 ms
+64 bytes from 192.0.2.10: icmp_seq=2 ttl=57 time=10.9 ms
+64 bytes from 192.0.2.10: icmp_seq=3 ttl=57 time=12.4 ms
+
+--- example.org ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2003ms
+rtt min/avg/max/mdev = 10.912/11.510/12.401/0.640 ms
+'''
+
+[[case]]
+expect = "git status"
+fields = ["On branch", "Changes not staged for commit", "Untracked files"]
+output = '''
+On branch worktree-agent-aaf106736c7ec7414
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   src/doctor.rs
+	modified:   src/render.rs
+	modified:   src/session.rs
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	src/outputs.rs
+	src/outputs.txt
+
+no changes added to commit (use "git add" and/or "git commit -a")
+'''
+
+[[case]]
+expect = "git status"
+fields = ["On branch", "up to date with", "Changes to be committed"]
+output = '''
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes to be committed:
+  (use "git restore --staged <file>..." to unstage)
+	modified:   src/lib.rs
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+	modified:   README.md
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	notes.txt
+'''
+
+[[case]]
+expect = "git log --oneline"
+fields = ["hash", "message"]
+output = '''
+35cde6b Merge hints instead of bare No suggestion
+6ac3c8a Merge safety hardening: risk categories in every warning
+cd2c1a1 Record the safety hardening audit and mark items 1-3 done
+cb6b4e2 Name the kind of danger in every warning, and close the shell-safety gaps
+'''
+
+[[case]]
+expect = "git log"
+fields = ["commit", "Author", "Date"]
+output = '''
+commit 35cde6bbc53dfcfd7dc4a5b0f2ee51fd1473377c
+Merge: 6ac3c8a 28a20c7
+Author: A User <user.boarescu@gmail.com>
+Date:   Wed Nov 18 17:48:41 2026 +0200
+
+    Merge hints instead of bare No suggestion
+
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_012xaYbCwMTbBY43JYAGcT5N
+'''
+
+[[case]]
+expect = "git branch -vv"
+fields = ["*", "name", "hash"]
+output = '''
++ master                           35cde6b (/home/user/project) [origin/master] Merge hints instead of bare No suggestion
+* worktree-agent-aaf106736c7ec7414 35cde6b Merge hints instead of bare No suggestion
++ worktree-agent-a55123f1d209b11aa cd2c1a1 (/home/user/project) Record the safety hardening audit and mark items 1-3 done
++ worktree-agent-a60d7ae29b36419f5 28a20c7 (/home/user/project) Point to the closest tool with a hint instead of a bare No suggestion
+'''
+
+[[case]]
+expect = "systemctl status"
+fields = ["Loaded", "Active", "Main PID", "Tasks", "Memory"]
+output = '''
+● systemd-resolved.service - Network Name Resolution
+     Loaded: loaded (/usr/lib/systemd/system/systemd-resolved.service; enabled; preset: enabled)
+     Active: active (running) since Sat 2026-11-14 17:32:03 EET; 4 days ago
+ Invocation: d8141dc249374415803154e3fe00389d
+TriggeredBy: ● systemd-resolved-monitor.socket
+             ● systemd-resolved-varlink.socket
+       Docs: man:systemd-resolved.service(8)
+             man:org.freedesktop.resolve1(5)
+             https://systemd.io/WRITING_NETWORK_CONFIGURATION_MANAGERS
+             https://systemd.io/WRITING_RESOLVER_CLIENTS
+   Main PID: 602 (systemd-resolve)
+     Status: "Processing requests..."
+      Tasks: 1 (limit: 18786)
+     Memory: 6.9M (peak: 11.3M, swap: 1.3M, swap peak: 1.4M)
+'''
+
+[[case]]
+expect = "journalctl"
+fields = ["date time", "host", "unit[pid]", "message"]
+output = '''
+Nov 18 17:51:34 myhost kernel: input: Lenovo Bluetooth Mouse as /devices/virtual/misc/uhid/0005:17EF:60EF.0023/input/input125
+Nov 18 17:51:34 myhost kernel: hid-generic 0005:17EF:60EF.0023: input,hidraw0: BLUETOOTH HID v0.15 Mouse [Lenovo Bluetooth Mouse] on aa:bb:cc:dd:ee:ff
+Nov 18 17:51:34 myhost systemd-logind[834]: Watching system buttons on /dev/input/event16 (Lenovo Bluetooth Mouse Keyboard)
+'''
+
+[[case]]
+expect = "docker ps"
+fields = ["CONTAINER ID", "IMAGE", "STATUS", "PORTS", "NAMES"]
+output = '''
+CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES
+'''
+
+[[case]]
+expect = "docker ps"
+fields = ["STATUS", "PORTS"]
+output = '''
+CONTAINER ID   IMAGE          COMMAND                  CREATED        STATUS        PORTS                    NAMES
+3f2a1b9c8d7e   nginx:latest   "/docker-entrypoint.…"   2 hours ago    Up 2 hours    0.0.0.0:8080->80/tcp     web
+a1b2c3d4e5f6   postgres:16    "docker-entrypoint.s…"   3 days ago     Up 3 days     5432/tcp                 db
+'''
+
+[[case]]
+expect = "uname -a"
+fields = ["Linux", "release"]
+output = '''
+Linux myhost 7.2.15-1-omarchy #1 SMP PREEMPT_DYNAMIC Mon, 02 Nov 2026 10:32:17 +0000 x86_64 GNU/Linux
+'''
+
+[[case]]
+expect = "uptime"
+fields = ["up", "load average"]
+output = '''
+ 17:52:42 up 4 days, 21 min,  1 user,  load average: 2.19, 2.03, 2.09
+'''
+
+[[case]]
+expect = "who"
+fields = ["user", "terminal"]
+output = '''
+user     tty1         2026-11-14 17:32
+'''
+
+[[case]]
+expect = "last"
+fields = ["user", "still logged in"]
+output = '''
+user     pts/3        wayland-1        Tue Nov 17 10:26 - 10:26  (00:00)
+user     tty1                          Sat Nov 14 17:32   still logged in
+reboot   system boot  7.2.15-1-omarchy Sat Nov 14 17:32   still running
+user     pts/0        wayland-1        Tue Nov 10 10:00 - 10:00  (00:00)
+user     pts/0        wayland-1        Tue Nov 10 09:58 - 09:58  (00:00)
+
+wtmp begins Thu Oct  8 12:00:15 2026
+'''
+
+[[case]]
+expect = "id"
+fields = ["uid", "gid", "groups"]
+output = '''
+uid=1000(user) gid=1000(user) groups=1000(user),957(ollama),966(docker),984(uucp),992(input),998(wheel)
+'''
+
+[[case]]
+expect = "sensors"
+fields = ["Adapter", "fan"]
+output = '''
+ucsi_source_psy_USBC000:002-isa-0000
+Adapter: ISA adapter
+in0:           5.00 V  (min =  +5.00 V, max = +20.00 V)
+curr1:         3.00 A  (max =  +3.25 A)
+
+iwlwifi_1-virtual-0
+Adapter: Virtual device
+temp1:        +58.0°C
+
+thinkpad-isa-0000
+Adapter: ISA adapter
+fan1:        3892 RPM
+CPU:          +59.0°C
+GPU:              N/A
+'''
+
+[[case]]
+expect = "nmcli dev"
+fields = ["DEVICE", "TYPE", "STATE", "CONNECTION"]
+output = '''
+DEVICE             TYPE      STATE                   CONNECTION
+wlp9s0             wifi      connected               HomeWifi
+wwan0mbim0         gsm       connected               MobileData
+tailscale0         tun       connected (externally)  tailscale0
+docker0            bridge    connected (externally)  docker0
+lo                 loopback  connected (externally)  lo
+aa:bb:cc:dd:ee:ff  bt        disconnected            --
+p2p-dev-wlp9s0     wifi-p2p  disconnected            --
+enp0s31f6          ethernet  unavailable             --
+'''
+
+# --- Must NOT be recognised: errors, plain text and other programs' tables ---
+
+[[case]]
+expect = "none"
+output = '''
+ls: cannot access '/nope': No such file or directory
+'''
+
+[[case]]
+expect = "none"
+output = '''
+cat: /etc/shadow: Permission denied
+'''
+
+[[case]]
+expect = "none"
+output = '''
+Dear team, the meeting moved to Thursday. Please bring the load average
+numbers from last week and the disk report.
+'''
+
+[[case]]
+expect = "none"
+output = '''
+#!/bin/bash
+set -e
+df -h
+lsblk
+echo done
+'''
+
+[[case]]
+expect = "none"
+output = '''
+REPOSITORY   TAG       IMAGE ID       CREATED       SIZE
+alpine       latest    0123456789ab   2 weeks ago   7.8MB
+'''
+
+[[case]]
+expect = "none"
+output = '''
+linux 6.17.5.arch1-1
+bash 5.3.3-1
+git 2.51.0-1
+'''
+
+[[case]]
+expect = "none"
+output = '''
+UNIT                 LOAD   ACTIVE SUB     DESCRIPTION
+sshd.service         loaded active running OpenSSH Daemon
+cups.service         loaded active running CUPS Scheduler
+'''
+
+[[case]]
+expect = "none"
+output = '''
+df: /nope: No such file or directory
+'''
+
+[[case]]
+expect = "none"
+output = '''
+lsblk: /dev/foo: not a block device
+'''
+
+[[case]]
+expect = "none"
+output = '''
+name,size,used
+root,475G,184G
+home,900G,12G
+'''
+
+[[case]]
+expect = "none"
+output = '''
+    PID TTY          TIME CMD
+   4242 pts/0    00:00:00 bash
+   4301 pts/0    00:00:00 ps
+'''
+
+[[case]]
+expect = "none"
+output = '''
+-rw-r--r-- 1 user user    0 Nov 18 10:00 a.txt
+ls: cannot open directory './private': Permission denied
+'''
+
+[[case]]
+expect = "none"
+output = '''
+fatal: not a git repository (or any of the parent directories): .git
+'''
+
+[[case]]
+expect = "none"
+output = '''
+Usage: ip [ OPTIONS ] OBJECT { COMMAND | help }
+       ip [ -force ] -batch filename
+'''
+
+[[case]]
+expect = "none"
+output = '''
+ping: example.invalid: Name or service not known
+'''
+
+[[case]]
+expect = "none"
+output = '''
+NAME      STATUS    AGE
+web-1     Running   3d
+db-1      Running   3d
+'''
+
+[[case]]
+expect = "none"
+output = '''
+Documents
+Downloads
+Music
+notes.txt
+'''
+
+[[case]]
+expect = "none"
+output = '''
+Nov 18 10:00:01 myhost kernel: ACPI Error: AE_NOT_FOUND, While resolving a named reference package element
+Nov 18 10:00:02 myhost kernel: ACPI Error: Aborting method \_SB.PCI0 due to previous error
+'''
+
+[[case]]
+expect = "none"
+output = '''
+Filesystem      Size  Used Avail Use% Mounted on
+df: /mnt/gone: No such file or directory
+'''

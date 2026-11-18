@@ -2581,7 +2581,7 @@ fn line_shape(line: &str) -> Shape {
 
 /// Does the output hold a line shaped like an error that nothing later contradicts? A weak
 /// line followed by a success line ("connected", "done") was a hiccup.
-fn has_error_shaped_line(output: &str) -> bool {
+pub(crate) fn has_error_shaped_line(output: &str) -> bool {
     let lines: Vec<&str> = output.lines().collect();
     lines.iter().enumerate().any(|(i, line)| match line_shape(line) {
         Shape::No => false,
