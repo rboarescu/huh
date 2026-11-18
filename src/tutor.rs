@@ -72,6 +72,20 @@ impl Follower {
 
 /// `<dir>/<pid>.log` files of recordings still running, newest first. The caller's own
 /// recording is left out: that is the pane `huh tutor` runs in.
+/// When the terminal last finished a command: its status file is written then (and when it
+/// starts). The log itself changes all the time under a full-screen program, so it only counts
+/// when there is no status file.
+fn last_activity(log: &Path) -> Option<SystemTime> {
+    let status = log.with_extension("status");
+    std::fs::metadata(&status).or_else(|_| std::fs::metadata(log)).ok()?.modified().ok()
+}
+
+/// The terminal a recording belongs to (`/dev/pts/3`): the recorder's standard input.
+fn tty_of(log: &Path) -> Option<String> {
+    let pid = log.file_stem()?;
+    std::fs::read_link(Path::new("/proc").join(pid).join("fd/0")).ok().map(|t| t.display().to_string())
+}
+
 fn recordings(dir: &Path, own: Option<&Path>, check_alive: bool) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
     let mut found: Vec<(SystemTime, PathBuf)> = entries
@@ -79,7 +93,7 @@ fn recordings(dir: &Path, own: Option<&Path>, check_alive: bool) -> Vec<PathBuf>
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "log") && Some(p.as_path()) != own)
         .filter(|p| !check_alive || p.file_stem().is_some_and(|pid| Path::new("/proc").join(pid).is_dir()))
-        .filter_map(|p| Some((std::fs::metadata(&p).ok()?.modified().ok()?, p)))
+        .filter_map(|p| Some((last_activity(&p)?, p)))
         .collect();
     found.sort_by_key(|a| std::cmp::Reverse(a.0));
     found.into_iter().map(|(_, p)| p).collect()
@@ -112,6 +126,8 @@ fn recording_of_tty(dir: &Path, tty: &str) -> Option<PathBuf> {
 fn locate(tty: Option<&str>) -> Option<PathBuf> {
     let dir = recording_dir()?;
     match tty {
+        // `--tty 8` is short for `--tty /dev/pts/8`.
+        Some(tty) if tty.chars().all(|c| c.is_ascii_digit()) => recording_of_tty(&dir, &format!("/dev/pts/{tty}")),
         Some(tty) => recording_of_tty(&dir, tty),
         None => {
             let own = std::env::var_os("HUH_SESSION_LOG").map(PathBuf::from);
@@ -215,7 +231,27 @@ pub fn run(catalog: &[Command], quiet: bool, tty: Option<&str>) -> Result<()> {
     use std::io::Write;
     let Some(log) = locate(tty) else { bail!("{}", how_to_record()) };
     catch_ctrl_c();
-    println!("huh tutor: following the terminal recorded in {} (Ctrl+C stops). It only reads.\n", log.display());
+    let tty_name = tty_of(&log).unwrap_or_else(|| log.display().to_string());
+    println!(
+        "huh tutor: following {tty_name}, the terminal that finished a command most recently (Ctrl+C stops). It only reads."
+    );
+    if tty.is_none() {
+        let own = std::env::var_os("HUH_SESSION_LOG").map(PathBuf::from);
+        let others: Vec<String> = recording_dir()
+            .map(|dir| recordings(&dir, own.as_deref(), true))
+            .unwrap_or_default()
+            .iter()
+            .filter(|p| **p != log)
+            .filter_map(|p| tty_of(p))
+            .collect();
+        if !others.is_empty() {
+            println!(
+                "Other recorded terminals: {}. To follow one, run `tty` in it, then `huh tutor --tty <number>`.",
+                others.join(", ")
+            );
+        }
+    }
+    println!();
     let mut follower = Follower::new(&log);
     let mut explained = quiet.then(HashSet::new);
     while !STOP.load(Ordering::Relaxed) {
@@ -337,6 +373,22 @@ mod tests {
         let second = block(&catalog(), &again, Some(&mut seen));
         assert!(first.contains("Print the given text"));
         assert_eq!(second, "$ echo two  (exit 0)\n\n");
+    }
+
+    #[test]
+    fn a_finished_command_counts_more_than_a_busy_log() {
+        let (dir, busy) = recording("activity");
+        let quiet = dir.join("2.log");
+        std::fs::write(&busy, "x").unwrap();
+        std::fs::write(busy.with_extension("status"), "0\nvim\n").unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        std::fs::write(&quiet, "y").unwrap();
+        std::fs::write(quiet.with_extension("status"), "0\nls\n").unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        // A full-screen program keeps writing to the busy log, but no command finishes there.
+        std::fs::write(&busy, "x more output").unwrap();
+        assert_eq!(recordings(&dir, None, false).first(), Some(&quiet));
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
