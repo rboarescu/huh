@@ -1,5 +1,18 @@
 # huh: roadmap and status
 
+## Measured: frozen held-out set after "never mislead" (2026-11-18)
+
+The round-3 requests and error outputs are kept outside the repo as a frozen set (`~/.local/share/huh-dev/heldout/`: `run.py` replays them, `compare.py` lists changed answers, a judge rates only the changes). Caveat: about 40 of its failures were quoted to the fixing agents, so it is not fully unseen.
+
+Of 598 answers, 148 changed. The judge's ratings (bad→good / good→bad): beginner 29 / 0, sysadmin 3 / 0, errors 43 / 3. The three regressions and one new invented cause (a pacman signature error called a "double free") were then fixed: make now explains the recipe's own error first, curl errors glued to the progress meter are split off, and memory-error wording needs glibc's own messages. A re-run changed exactly those four answers.
+
+Applied to round 3's scores, that is roughly beginner 77% → ~94%, sysadmin 63% → ~66%, `huh why` useful fix ~51% → ~70%. These numbers come from two different judges, so treat them as estimates; a fresh round is the real check.
+
+Still wrong (from the judge):
+- Sysadmin catalog gaps and multi-value requests: cherry-pick, `git diff a b`, `lsof -p`, `mount <dev> <dir>`, ssh `-L` specs, `pkill <name>` (the name goes into the user slot), and removing every `node_modules` folder.
+- Named values left as placeholders: "is docker running" → `pgrep -a <name>`, "enable docker at boot" → `<service>`.
+- Beginner gaps: bluetooth pair, current theme, screen resolution, "show usb drives".
+
 ## Measured: round 3, after intent, typed slots and the honest error doctor (2026-11-18)
 
 Fresh personas again (no access to evals or source; requesters ran only huh, the error tester only inside Docker). Transcripts: `~/.local/share/huh-dev/measure-2026-11-18-round3/`.

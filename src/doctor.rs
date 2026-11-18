@@ -185,6 +185,15 @@ pub fn suggested(answer: &str) -> Option<&str> {
 // ---------------------------------------------------------------------------
 
 fn diagnose(last: &Last) -> String {
+    // curl's progress meter ends without a newline, so its error lands mid-line ("…0curl: (6) …").
+    let unglued;
+    let last = match unglue_curl(&last.output) {
+        Some(output) => {
+            unglued = Last { command: last.command.clone(), exit: last.exit, output };
+            &unglued
+        }
+        None => last,
+    };
     if last.exit == Some(130) {
         return format_answer(
             &format!(
@@ -255,6 +264,21 @@ fn diagnose(last: &Last) -> String {
 
 /// The explanation, then a `Try:` line with the command to run. "nothing" means there is no
 /// command to suggest, and then there is no `Try:` line either.
+/// Puts a `curl: (N)` error that follows a progress meter on a line of its own.
+fn unglue_curl(output: &str) -> Option<String> {
+    let glued = output.lines().any(|l| l.find("curl: (").is_some_and(|at| at > 0));
+    glued.then(|| {
+        output
+            .lines()
+            .map(|l| match l.find("curl: (") {
+                Some(at) if at > 0 => format!("{}\n{}", &l[..at], &l[at..]),
+                _ => l.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    })
+}
+
 /// `npm install -g` into a system folder fails with EACCES. The common advice, `sudo npm
 /// install -g`, runs every package's install scripts as root and leaves root-owned files in
 /// the npm cache, so point at a per-user prefix instead.
@@ -3891,6 +3915,20 @@ fn diagnose_tests_and_builds(last: &Last) -> Option<String> {
         let place = place
             .and_then(|loc| loc.rsplit_once(':'))
             .map_or(String::new(), |(file, line)| format!(" (`{file}` line {line})"));
+        // The recipe command printed its own error above the make line: explain that first.
+        let recipe_output: Vec<&str> = lines[..at].iter().copied().filter(|l| !l.starts_with("make")).collect();
+        if !recipe_output.is_empty() {
+            let inner = diagnose(&Last { command: String::new(), exit: None, output: recipe_output.join("\n") });
+            let generic =
+                inner.starts_with("huh does not recognise") || inner.starts_with("The command failed with an error");
+            if !generic {
+                let note = format!(" This stopped make in the recipe for the target `{target}`{place}.");
+                return Some(match inner.split_once("\nTry: ") {
+                    Some((text, try_cmd)) => format!("{text}{note}\nTry: {try_cmd}"),
+                    None => format!("{inner}{note}"),
+                });
+            }
+        }
         let above = lines[..at].iter().rev().find(|l| !l.is_empty() && !l.starts_with("make"));
         let said = above.map_or(String::new(), |l| format!(" The output just above it is {}.", quote_line(l)));
         let status = make_line.rsplit("Error ").next().unwrap_or("").trim();
@@ -4012,9 +4050,30 @@ fn diagnose_system_errors(last: &Last) -> Option<String> {
             "nothing",
         ));
     }
-    let memory_error = ["double free", "free(): invalid", "corrupted", "munmap_chunk", "malloc(): "]
-        .iter()
-        .find(|m| lower.contains(*m));
+    if lower.contains("invalid or corrupted package (pgp signature)")
+        || (lower.contains("signature from") && (lower.contains("unknown trust") || lower.contains("is invalid")))
+    {
+        let line = first_line_with(out, "signature").unwrap_or("signature");
+        return Some(format_answer(
+            &format!(
+                "pacman could not verify a package's signature (`{line}`). This usually means the keyring of packager keys is out of date. Update the keyring first, then the system; do not turn signature checking off."
+            ),
+            "sudo pacman -Sy archlinux-keyring && sudo pacman -Syu",
+        ));
+    }
+    // glibc's own heap messages only: the word "corrupted" alone is used by many programs.
+    let memory_error = [
+        "double free",
+        "free(): invalid",
+        "corrupted size vs",
+        "corrupted double-linked list",
+        "corrupted top size",
+        "munmap_chunk",
+        "malloc(): ",
+        "malloc_consolidate",
+    ]
+    .iter()
+    .find(|m| lower.contains(*m));
     if let Some(m) = memory_error {
         let line = first_line_with(out, m).unwrap_or(m);
         return Some(format_answer(

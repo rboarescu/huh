@@ -757,3 +757,39 @@ output = "Error: Get \"http://localhost:8080/api/v1/namespaces/default\": dial t
 mention = ["refused", "8080"]
 fix = "ss -ltn|nothing"
 forbid = ["install"]
+
+[[case]]
+command = "sudo pacman -Syu"
+exit = 1
+output = """error: archlinux-keyring: signature from "Foo <foo@arch>" is unknown trust
+:: File /var/cache/pacman/pkg/x.pkg.tar.zst is corrupted (invalid or corrupted package (PGP signature))."""
+mention = ["signature", "keyring"]
+fix = "archlinux-keyring"
+forbid = ["memory", "double free", "SigLevel"]
+
+[[case]]
+command = "make"
+exit = 2
+output = """gcc nofile.c -o x
+cc1: fatal error: nofile.c: No such file or directory
+compilation terminated.
+make: *** [Makefile:2: all] Error 1"""
+mention = ["nofile.c", "make"]
+fix = "ls|nofile.c"
+
+[[case]]
+command = "make run"
+exit = 2
+output = """Segmentation fault
+make: *** [Makefile:12: run] Error 139"""
+mention = ["Segmentation fault|segfault|crashed", "make"]
+fix = "coredumpctl|gdb|valgrind"
+
+[[case]]
+command = "curl http://no-such-host-xyz.invalid/"
+output = """  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0curl: (6) Could not resolve host: no-such-host-xyz.invalid"""
+mention = ["no-such-host-xyz.invalid"]
+fix = "getent hosts no-such-host-xyz.invalid|ping"
+forbid = ["does not recognise"]
