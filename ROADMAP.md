@@ -81,6 +81,19 @@ Known limits: stdout and stderr arrive mixed in the terminal, so the tutor goes 
 
 The next step is a fresh measurement round (error tests inside a container) against the targets: beginner ≥ 85%, sysadmin ≥ 65%, `huh why` useful fix ≥ 65%, ≤ 5 misleading, 0 non-errors called errors, 0 dangerous suggestions without a WARNING.
 
+## Completed: sysadmin round (catalog and ranking) (2026-11-18)
+
+Findings: fresh testers asked sysadmin questions the catalog lacked, or got a wrong-but-confident entry (`git commit -m` for cherry-pick, `cp` for `host:path`, `kill` without `-9`, `cut` for whitespace columns).
+
+- **Evals**: `evals/sysadmin.toml` (120 cases: the reported failures plus about 50 variants of my own, exact lines and WARNINGs). 67 of the first 78 cases failed on the old code; `cargo test` requires 100%.
+- **New entries (29)**: `git cherry-pick`, `git diff refs`, `git stash push`, `git show`, `git revert`, `lsof`, `ps top`, `grep ip addresses`, `du per folder`, `ls permissions`, `find delete dirs`, `journalctl vacuum time`/`size`, `docker cp`/`docker cp from`, `docker compose restart`, `ssh remote tunnel` (`-R`), `ssh-keygen`, `mount`, `passwd user`, `fsck`, `crontab list`/`list user`/`edit`, `sed replace`, `ip addr add`/`del`, `nohup`, `awk column`.
+- **Existing entries changed**: `git switch` (`base` slot), `git push` (`remote`/`branch` slots, `--force` became `--force-with-lease`), `rsync` (`--delete` flag with warning), `scp` (`user` slot: "as deploy"), `chmod` (sticky bit option), `ssh tunnel` (host reader).
+- **Ranking** (`matcher.rs`): one predicate per request shape (`asks_squash`, `names_two_refs`, `asks_open_files`, `asks_delete_named_dirs`, `journal_vacuum_kind`, `asks_schedule`, ...) feeding both `command_intent_bonus` and `passes_domain_coherence`, so the new entry gains and the entries it competes with step aside. `SPECIFIC_ENTRIES` take no part in the ranking when the request does not fit them (their keywords were lifting them above `program version`). A `host:path` token now counts as remote (`has_remote_scp`), so `cp` never answers it. `uptime` answers "been up"; `free` answers "human readable"; `docker logs` answers "docker logs --tail".
+- **Readers** (`src/readers.rs`): slots may declare `extract = "sys_..."`; the matcher leaves them empty and `refine` fills them after matching (git refs, stash message, push remote and branch, pid, docker cp paths, substitutions, sizes, ssh host, "as user"). `cron_line` writes the line shown under `crontab -e` ("every day at 3am" becomes `0 3 * * * /path/to/backup.sh`).
+- **Assembly**: slot formats `{plus1}` ("top 10" is `head -n 11`) and `{abs}` ("older than 7 days" is `7d`); `find ... -exec rm` with a `-name` is no longer treated as acting on the whole folder.
+- **Expectation changed**: `evals/safety.toml` "force push" now expects `git push --force-with-lease` (was `--force`); same warning.
+- **Not handled**: schedules beyond "every N minutes/hours/day/week/month/weekday at H" (no ranges or lists); `sed` values with spaces are joined from the words between "replace" and "with"; "copy ... into container" needs a path in the request; `mount` without a mount point stays `udisksctl`.
+
 ## Completed: never mislead (requests) (2026-11-18)
 
 Governing principle: a wrong answer is worse than "No suggestion". Findings: the "Dangerous" and "State questions" bullets of the round-3 measurement.

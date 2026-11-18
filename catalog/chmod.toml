@@ -31,6 +31,11 @@ value = "a-w"
 description = "Nobody should be able to change it"
 
 [[slots.options]]
+name = "sticky_bit"
+value = "+t"
+description = "Set the sticky bit: in a shared folder only a file's owner may delete or rename it"
+
+[[slots.options]]
 name = "readable_by_everyone"
 value = "644"
 description = "The owner can change it and everyone else can read it"

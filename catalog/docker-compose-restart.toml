@@ -1,0 +1,12 @@
+name = "docker compose restart"
+description = "Restart one service, or all services, of a Docker Compose project"
+template = "docker compose restart {service}"
+kind = "action"
+keywords = ["restart compose service", "restart a service in docker compose", "compose restart web", "bounce a compose service"]
+
+[[slots]]
+id = "service"
+kind = "text"
+what = "the compose service to restart"
+default = ""
+extract = "sys_compose_service"

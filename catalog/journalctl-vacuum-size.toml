@@ -1,0 +1,14 @@
+name = "journalctl vacuum size"
+description = "Shrink the system log (journal) to a maximum size to free disk space"
+template = "sudo journalctl --vacuum-size={size}"
+kind = "action"
+destructive = true
+warning = "the oldest journal entries beyond this size are deleted and cannot be recovered."
+keywords = ["limit journal size", "shrink the journal", "journal max size", "trim journal by size", "cap system log size", "journal vacuum size"]
+
+[[slots]]
+id = "size"
+kind = "text"
+what = "the largest size the journal may keep, such as 500M"
+default = "500M"
+extract = "sys_size"

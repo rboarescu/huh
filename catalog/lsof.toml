@@ -1,0 +1,20 @@
+name = "lsof"
+description = "List the files a program (process ID) has open, or which programs have a file open"
+template = "lsof {pid} {path}"
+kind = "query"
+keywords = ["open files", "files opened by process", "list open files", "who has this file open", "what is using this file", "which process has file open", "lsof"]
+
+[[slots]]
+id = "pid"
+kind = "text"
+what = "the process ID number whose open files to list"
+default = ""
+format = "-p {}"
+extract = "sys_pid"
+
+[[slots]]
+id = "path"
+kind = "path"
+what = "the file that some program has open"
+default = ""
+extract = "sys_path"

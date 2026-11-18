@@ -1,0 +1,12 @@
+name = "ls permissions"
+description = "List the files in a folder with their permissions, owner and size"
+template = "ls -l {target}"
+kind = "query"
+keywords = ["list files with permissions", "show file permissions", "who can read these files", "permissions of the files in a folder", "file modes in a folder"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the folder to list"
+default = ""
+extract = "sys_folder"

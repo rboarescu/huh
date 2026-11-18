@@ -1,0 +1,11 @@
+name = "du per folder"
+description = "Show the disk space of each folder directly inside a folder, smallest to largest"
+template = "du -h --max-depth=1 {target} | sort -h"
+kind = "query"
+keywords = ["disk usage of each folder", "size of every directory", "space per subfolder", "size of each subdirectory", "which folder is biggest inside", "folder sizes breakdown"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the folder whose subfolders to measure"
+default = "."

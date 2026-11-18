@@ -23,6 +23,40 @@ const FIELD_WEIGHTS: [f64; FIELD_COUNT] = [
 const FIELD_B: [f64; FIELD_COUNT] = [0.5, 0.6, 0.5, 0.5, 0.5, 0.4];
 const BM25_K1: f64 = 1.2;
 
+/// Entries that fit one specific wording (see `passes_domain_coherence`): they take no part in the
+/// ranking when the request does not fit them.
+const SPECIFIC_ENTRIES: &[&str] = &[
+    "git cherry-pick",
+    "git diff refs",
+    "git stash push",
+    "git show",
+    "git revert",
+    "lsof",
+    "ps top",
+    "grep ip addresses",
+    "du per folder",
+    "find delete dirs",
+    "journalctl vacuum time",
+    "journalctl vacuum size",
+    "docker cp",
+    "docker cp from",
+    "ssh remote tunnel",
+    "ssh-keygen",
+    "mount",
+    "passwd user",
+    "fsck",
+    "crontab list",
+    "crontab list user",
+    "crontab edit",
+    "sed replace",
+    "ip addr add",
+    "ip addr del",
+    "nohup",
+    "docker compose restart",
+    "awk column",
+    "ls permissions",
+];
+
 const STOPWORDS: &[&str] = &[
     "a", "an", "the", "i", "me", "my", "we", "you", "your", "it", "its", "this", "that", "these", "those", "is", "are",
     "was", "were", "be", "been", "being", "do", "does", "did", "can", "could", "would", "should", "will", "shall",
@@ -175,7 +209,16 @@ impl LocalMatcher {
                 let intent_bonus =
                     command_intent_bonus(&entry.command, entry.name_lower.as_str(), &entry.name_words, &q_ctx);
                 let tie_break = if entry.installed { 0.12 } else { 0.0 };
-                (&entry.command, bm25 + intent_bonus + tie_break + intent_adjust(entry, &q_ctx))
+                // The sysadmin entries answer one specific wording each; their keywords must not lift
+                // them above the general command when the request is about something else.
+                let gate = if SPECIFIC_ENTRIES.contains(&entry.command.name.as_str())
+                    && !passes_domain_coherence(&entry.command, &q_ctx)
+                {
+                    -50.0
+                } else {
+                    0.0
+                };
+                (&entry.command, bm25 + intent_bonus + tie_break + intent_adjust(entry, &q_ctx) + gate)
             })
             .collect();
         // An instruction is not answered with a bare query when an action fits as well.
@@ -627,7 +670,19 @@ impl<'a> QueryContext<'a> {
     }
 
     fn has_remote_scp(&self) -> bool {
-        self.raw_tokens.iter().any(|t| t.text.contains('@') && t.text.contains(':'))
+        self.raw_tokens.iter().any(|t| {
+            (t.text.contains('@') && t.text.contains(':'))
+                // backup-host:/data, 10.0.0.7:/srv/backups: a host and a path on it.
+                || t.text.split_once(':').is_some_and(|(host, path)| {
+                    host.len() > 1
+                        && !host.contains('/')
+                        && !host.eq_ignore_ascii_case("http")
+                        && !host.eq_ignore_ascii_case("https")
+                        && host.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+                        && (path.starts_with('/') || path.starts_with('~'))
+                        && !path.starts_with("//")
+                })
+        })
     }
 
     fn has_url(&self) -> bool {
@@ -1584,7 +1639,61 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
     let git_words = q.has_any(&["git", "repo", "repository", "branch", "commit", "commits", "staged"]);
     let docker_words = q.has_any(&["container", "containers", "image", "images", "compose"]);
 
+    let compose = q.has_word("compose") || q.raw.contains("compose");
+    let journal_vacuum = journal_vacuum_kind(q);
+    let account_named = names_other_account(q);
+    let interface_change = changes_interface_address(q);
+    let shows_permissions = lists_permissions(q);
+
     match name_lower {
+        // Sysadmin requests: the commands the generic words alone get wrong.
+        "git cherry-pick" if q.has_any(&["cherry-pick", "cherry pick", "cherrypick"]) => bonus += 16.0,
+        "git cherry-pick"
+            if has_commit_hash(q)
+                && q.has_word("commit")
+                && q.has_any(&["apply", "copy", "bring", "port", "take", "pick"])
+                && q.has_any(&["branch", "onto", "here", "current"]) =>
+        {
+            bonus += 14.0
+        }
+        "git show" if has_commit_hash(q) && q.has_word("commit") && q.has_any(&["show", "display", "see", "view", "inspect", "what"]) => bonus += 14.0,
+        "git revert" if q.has_exact_word("revert") && (q.has_word("commit") || has_commit_hash(q)) => bonus += 14.0,
+        "git diff refs" if names_two_refs(q) => bonus += 16.0,
+        "git stash push" if stash_with_message(q) => bonus += 16.0,
+        "git rebase" if asks_squash(q) => bonus += 14.0,
+        "git reset" if undoes_a_commit(q) => bonus += 14.0,
+        "lsof" if asks_open_files(q) => bonus += 16.0,
+        "uptime" if (q.has_phrase("how long") && q.has_exact_word("up")) || q.has_any(&["been up", "system up", "server up", "machine up"]) => bonus += 10.0,
+        "free" if q.has_any(&["memory", "ram"]) && q.has_any(&["human readable", "human-readable", "megabytes", "gigabytes", "in mb", "in gb"]) && !asks_process_ranking(q) => bonus += 12.0,
+        "ps top" if asks_process_ranking(q) => bonus += 16.0,
+        "grep ip addresses" if asks_ip_in_file(q) => bonus += 16.0,
+        "du per folder" if asks_per_folder_sizes(q) => bonus += 16.0,
+        "find delete dirs" if asks_delete_named_dirs(q) => bonus += 16.0,
+        "journalctl vacuum time" if journal_vacuum == Some(true) => bonus += 17.0,
+        "journalctl vacuum size" if journal_vacuum == Some(false) => bonus += 17.0,
+        "docker cp" if copies_with_container(q) && !copies_out_of_container(q) => bonus += 17.0,
+        "docker cp from" if copies_with_container(q) && copies_out_of_container(q) => bonus += 17.0,
+        "ssh remote tunnel" if asks_reverse_tunnel(q) => bonus += 16.0,
+        "ssh tunnel" if asks_reverse_tunnel(q) => bonus += 0.0,
+        "ssh-keygen" if generates_ssh_key(q) => bonus += 16.0,
+        "ssh-copy-id" if generates_ssh_key(q) => bonus += 0.0,
+        "mount" if mounts_device_on_folder(q) => bonus += 16.0,
+        "passwd user" if q.has_any(&["password", "passwd"]) && account_named && !q.has_any(&["wifi", "ssh", "key", "file", "zip", "archive", "pdf", "database"]) => bonus += 15.0,
+        "passwd" if account_named => bonus += 0.0,
+        "fsck" if asks_fsck(q) => bonus += 16.0,
+        "crontab list user" if lists_cron(q) && account_named => bonus += 16.0,
+        "crontab list" if lists_cron(q) && !account_named => bonus += 16.0,
+        "crontab edit" if asks_schedule(q) => bonus += 16.0,
+        "sed replace" if asks_replace_in_file(q) => bonus += 16.0,
+        "ip addr add" if interface_change == Some(true) => bonus += 16.0,
+        "ip addr del" if interface_change == Some(false) => bonus += 16.0,
+        "nohup" if asks_nohup(q) => bonus += 16.0,
+        "docker compose restart" if compose && q.has_any(&["restart", "reload", "bounce"]) => bonus += 16.0,
+        "awk column" if asks_awk_column(q) => bonus += 14.0,
+        "cut" if asks_awk_column(q) => bonus += 0.0,
+        "chmod" if shows_permissions => bonus += 0.0,
+        "ls permissions" if shows_permissions => bonus += 16.0,
+        "ls" if shows_permissions => bonus += 0.0,
         "reboot" if q.is_power_request(true) && !asks_cancel => bonus += 8.0,
         "shutdown" if q.is_power_request(false) && !asks_cancel => bonus += 8.0,
         "shutdown cancel" if asks_cancel => bonus += 14.0,
@@ -1663,8 +1772,8 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "journalctl" if q.has_any(&["log", "logs", "log lines", "journald", "journal"])
             && !q.has_log_file()
             && !q.has_any(&["search", "look for", "for failed", "in lines", "log in", "log into", "logged in", "log out", "log me out", "logout", "logged out"])
-            && !(q.has_word("container") && !q.has_any(&["journald", "journal", "systemd"])) => bonus += 8.5,
-        "docker logs" if q.has_any(&["log", "logs"]) && q.has_word("container") && !q.has_any(&["journald", "journal", "systemd"]) => bonus += 8.5,
+            && !((q.has_word("container") || q.has_phrase("docker logs")) && !q.has_any(&["journald", "journal", "systemd"])) => bonus += 8.5,
+        "docker logs" if q.has_any(&["log", "logs"]) && (q.has_word("container") || q.has_phrase("docker logs")) && !q.has_any(&["journald", "journal", "systemd"]) => bonus += 10.5,
         "head" if q.has_any(&["first", "beginning", "top"]) && q.has_any(&["line", "lines", "of"]) => bonus += 7.5,
         "tail" if (q.has_any(&["last", "keep watching", "as new lines", "growing", "follow"]) || q.has_log_file())
             && !q.has_any(&["service", "sshd", "system log", "container", "journald", "journal", "docker", "grep", "search", "which line", "every line", "in lines"]) => bonus += 6.5,
@@ -1679,7 +1788,7 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "sort" if q.has_any(&["sort", "order", "alphabetical", "alphabetically", "numerical", "numerically", "biggest to smallest"]) && !q.has_any(&["duplicate", "repeated", "how often", "most space"]) => bonus += 8.0,
         "cut" if q.has_any(&["column", "columns", "field", "fields", "delimiter"]) => bonus += 8.5,
         "diff" if q.has_any(&["different", "difference", "diff", "compare"]) => bonus += 7.5,
-        "tar" if (q.raw.contains(".tar") || q.raw.contains(".tgz") || q.has_word("tarball")) && !q.has_remote_scp() => bonus += 9.0,
+        "tar" if (q.raw.contains(".tar") || q.raw.contains("tar.gz") || q.raw.contains(".tgz") || q.has_word("tarball")) && !q.has_remote_scp() => bonus += 9.0,
         "unzip" if q.raw.contains(".zip") && !has_url && !q.has_remote_scp() && q.has_any(&["extract", "unpack", "unzip", "decompress", "open"]) => bonus += 9.5,
         "zip" if !has_url && !q.has_remote_scp() && q.has_any(&["zip up", "into", "pack", "compress", "create", "make"]) && (q.raw.contains(".zip") || q.has_word("zip")) => bonus += 9.5,
         "unrar" if q.raw.contains(".rar") => bonus += 9.5,
@@ -1695,7 +1804,7 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "sha256sum" if q.has_any(&["checksum", "sha256", "hash", "verify", "intact"]) => bonus += 9.0,
         "xdg-open" if q.has_any(&["open", "viewer", "default app"]) && !q.has_any(&["port", "shell", "web app", "webapp", "nobody", "change", "terminal", "every time"]) => bonus += 6.0,
         "zbarimg" if q.has_any(&["qr", "barcode"]) => bonus += 9.5,
-        "chmod" if (q.has_any(&["executable", "runnable", "as a program", "permission", "permissions", "chmod", "nobody but me", "protect", "read only", "modified"])
+        "chmod" if (q.has_any(&["sticky", "executable", "runnable", "as a program", "permission", "permissions", "chmod", "nobody but me", "protect", "read only", "modified"])
             || (q.has_any(&["stop", "prevent"]) && q.has_word("editing")) || crate::extract::extract("chmod_mode", q.raw).is_some())
             && !q.has_any(&["rust", "docker", "container", "ollama", "frozen", "dotfiles"])
             && !(q.has_any(&["show", "list", "which", "what"]) && crate::extract::extract("file_age", q.raw).is_some()) => bonus += 9.0,
@@ -1871,6 +1980,428 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
 // Details: Fit Check
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Sysadmin requests: predicates shared by the bonus table and the coherence table
+// ---------------------------------------------------------------------------
+
+/// A git commit hash as people type it: 7 to 40 hex digits with at least one digit and one letter.
+fn is_commit_hash(s: &str) -> bool {
+    (7..=40).contains(&s.len())
+        && s.chars().all(|c| c.is_ascii_hexdigit())
+        && s.chars().any(|c| c.is_ascii_digit())
+        && s.chars().any(|c| c.is_ascii_lowercase() || c.is_ascii_uppercase())
+}
+
+fn has_commit_hash(q: &QueryContext<'_>) -> bool {
+    q.raw_tokens.iter().any(|t| is_commit_hash(&t.text))
+}
+
+/// "stash my work with the message wip-auth": a stash that gets a name.
+fn stash_with_message(q: &QueryContext<'_>) -> bool {
+    q.has_any(&["stash", "stashes", "stashed"])
+        && q.has_any(&["message", "msg", "named", "called", "label", "labelled", "labeled", "description", "comment"])
+        && !q.has_any(&["pop", "apply", "list", "drop"])
+}
+
+/// A branch, tag or commit name as opposed to a file.
+fn looks_like_git_ref(s: &str) -> bool {
+    let lower = s.to_lowercase();
+    if matches!(
+        lower.as_str(),
+        "main"
+            | "master"
+            | "develop"
+            | "dev"
+            | "trunk"
+            | "head"
+            | "staging"
+            | "prod"
+            | "production"
+            | "release"
+            | "stable"
+    ) || lower.starts_with("origin/")
+        || lower.starts_with("head~")
+        || lower.starts_with("head^")
+        || lower.starts_with("release")
+        || lower.starts_with("feature/")
+        || lower.starts_with("hotfix")
+    {
+        return true;
+    }
+    // A version tag: v1.0, v2.3.1.
+    let mut chars = lower.chars();
+    (chars.next() == Some('v') && chars.next().is_some_and(|c| c.is_ascii_digit())) || is_commit_hash(s)
+}
+
+/// "diff between main and develop": two git names, not two files.
+fn names_two_refs(q: &QueryContext<'_>) -> bool {
+    // "show commits between a and b" lists commits (git log), it does not diff.
+    if q.has_any(&["commits", "log", "history"])
+        && !q.has_any(&["diff", "difference", "compare", "changes", "changed", "differ"])
+    {
+        return false;
+    }
+    let git_words = q.has_any(&["git", "branch", "branches", "commit", "commits", "tag", "tags", "repo", "repository"]);
+    crate::readers::ref_pair(q.raw).is_some_and(|(a, b)| {
+        let plain = |s: &str| !looks_like_regular_file(s) || looks_like_git_ref(s);
+        (looks_like_git_ref(&a) && looks_like_git_ref(&b)) || (git_words && plain(&a) && plain(&b))
+    })
+}
+
+/// "list open files of pid 1234", "what process has app.log open".
+fn asks_open_files(q: &QueryContext<'_>) -> bool {
+    q.has_any(&["open files", "open file", "files open", "files opened", "lsof"])
+        || (q.has_exact_word("open")
+            && q.has_any(&["process", "processes", "program", "programs", "who", "what"])
+            && q.has_any(&["has", "have", "using", "uses", "holding", "holds"])
+            && q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text) || t.text.contains('/')))
+}
+
+/// "top 10 processes by memory": a fixed list of the heaviest programs, not a live monitor.
+fn asks_process_ranking(q: &QueryContext<'_>) -> bool {
+    q.has_any(&["process", "processes", "program", "programs"])
+        && q.has_any(&["memory", "cpu", "ram", "processor"])
+        && (crate::extract::extract("count", q.raw).is_some()
+            || q.has_any(&["by memory", "by cpu", "by ram", "by memory usage", "by cpu usage"]))
+        && q.has_any(&["top", "most", "biggest", "highest", "heaviest", "hungry", "hogs", "largest"])
+        && !q.has_any(&["live", "watch", "monitor", "real time", "interactive"])
+}
+
+/// "unique ip addresses in app.log": addresses pulled out of a file.
+fn asks_ip_in_file(q: &QueryContext<'_>) -> bool {
+    q.has_any(&["ip addresses", "ip address", "ips", "ip adresses"])
+        && q.has_any(&["in", "from", "inside", "of"])
+        && q.has_any(&["show", "list", "extract", "find", "unique", "distinct", "get", "pull", "all", "print"])
+        && q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text))
+}
+
+/// "size of each folder in /var": one line per subfolder.
+fn asks_per_folder_sizes(q: &QueryContext<'_>) -> bool {
+    q.has_any(&["each", "every", "per"])
+        && q.has_any(&[
+            "folder",
+            "folders",
+            "directory",
+            "directories",
+            "subfolder",
+            "subfolders",
+            "subdirectory",
+            "subdirectories",
+            "dir",
+            "dirs",
+        ])
+        && q.has_any(&["size", "sizes", "space", "usage", "disk", "big", "bigger", "large", "much", "takes"])
+        && !q.has_any(&["delete", "remove", "clean"])
+}
+
+/// A folder name that people delete everywhere at once.
+fn is_throwaway_dir_name(lower: &str) -> bool {
+    matches!(
+        lower,
+        "node_modules"
+            | "__pycache__"
+            | "pycache"
+            | ".cache"
+            | "build"
+            | "dist"
+            | "target"
+            | ".venv"
+            | "venv"
+            | ".pytest_cache"
+            | ".gradle"
+            | "vendor"
+            | ".next"
+            | ".tox"
+    )
+}
+
+/// "remove node_modules folders recursively": delete every folder of one name below here.
+fn asks_delete_named_dirs(q: &QueryContext<'_>) -> bool {
+    q.has_any(&["delete", "remove", "clean", "clean up", "purge", "erase", "get rid of", "wipe"])
+        && (q.has_any(&["folders", "directories", "dirs", "folder", "directory"])
+            || q.raw_tokens.iter().any(|t| matches!(t.lower.as_str(), "node_modules" | "__pycache__" | "pycache")))
+        && q.has_any(&[
+            "recursively",
+            "everywhere",
+            "all",
+            "every",
+            "anywhere",
+            "below",
+            "under",
+            "nested",
+            "inside all",
+        ])
+        && q.raw_tokens.iter().any(|t| is_throwaway_dir_name(&t.lower))
+        && (["folders", "directories", "dirs"].iter().any(|w| q.has_exact_word(w))
+            || q.raw_tokens.iter().any(|t| matches!(t.lower.as_str(), "node_modules" | "__pycache__" | "pycache"))
+            || q.has_any(&["all", "every", "everywhere", "anywhere"]))
+        && !q.has_any(&["empty"])
+}
+
+/// The journal-trimming request: `Some(true)` by age, `Some(false)` by size.
+fn journal_vacuum_kind(q: &QueryContext<'_>) -> Option<bool> {
+    if !(q.has_any(&["journal", "journalctl", "system log", "system logs", "systemd log", "systemd logs"])
+        && q.has_any(&[
+            "vacuum", "clear", "clean", "delete", "remove", "purge", "trim", "shrink", "limit", "cap", "rotate",
+            "free", "prune", "reduce", "keep",
+        ]))
+    {
+        return None;
+    }
+    let by_size = q.raw_tokens.iter().any(|t| is_size_spec(&t.text))
+        || q.has_any(&["size", "megabytes", "gigabytes", "mb", "gb", "bigger", "larger", "max"]);
+    let by_age = crate::extract::extract("file_age", q.raw).is_some_and(|age| age.starts_with('+'))
+        || q.has_any(&["older", "days", "weeks", "months"]);
+    match (by_age, by_size) {
+        (true, false) => Some(true),
+        (false, true) => Some(false),
+        (true, true) => Some(!q.raw_tokens.iter().any(|t| is_size_spec(&t.text))),
+        (false, false) => Some(true),
+    }
+}
+
+/// "copy x out of container web": the file leaves the container.
+fn copies_out_of_container(q: &QueryContext<'_>) -> bool {
+    q.has_any(&["from container", "from the container", "out of container", "out of the container", "from docker"])
+}
+
+/// "copy app.log into container web01": a file crossing into or out of a container.
+fn copies_with_container(q: &QueryContext<'_>) -> bool {
+    q.has_any(&["container", "containers"])
+        && !crate::readers::cp_paths(q.raw).is_empty()
+        && q.has_any(&["copy", "cp", "put", "upload", "send", "push", "get", "download", "fetch", "grab", "pull"])
+        && !q.has_any(&[
+            "image", "images", "logs", "log", "restart", "stop", "start", "remove", "shell", "exec", "terminal",
+        ])
+}
+
+/// "ssh reverse tunnel": the remote end listens and leads back here (`ssh -R`).
+fn asks_reverse_tunnel(q: &QueryContext<'_>) -> bool {
+    q.has_any(&[
+        "reverse tunnel",
+        "reverse ssh",
+        "reverse port",
+        "remote forward",
+        "remote port forward",
+        "remote forwarding",
+        "expose my local",
+        "expose local",
+        "forward remote port",
+        "forward a remote port",
+        "ssh -r",
+    ])
+}
+
+/// "generate ed25519 ssh key": a new key pair, not installing one on a server.
+fn generates_ssh_key(q: &QueryContext<'_>) -> bool {
+    q.has_any(&["generate", "create", "new", "make", "keygen", "ssh-keygen"])
+        && q.has_any(&["ssh key", "ssh keys", "key pair", "keypair", "ed25519", "ssh keypair", "rsa key", "ssh-keygen"])
+        && !q.has_any(&["copy", "install", "send", "authorize", "authorise", "push", "server"])
+}
+
+/// A mount point in the request: an absolute path that is not a device.
+fn has_mount_point(q: &QueryContext<'_>) -> bool {
+    q.raw_tokens.iter().any(|t| t.text.starts_with('/') && !t.text.starts_with("/dev/") && t.text.len() > 1)
+}
+
+/// "mount /dev/sdb1 on /mnt/data": a device and where to put it.
+fn mounts_device_on_folder(q: &QueryContext<'_>) -> bool {
+    q.has_exact_word("mount")
+        && crate::extract::extract("device", q.raw).is_some()
+        && has_mount_point(q)
+        && !q.has_any(&["unmount", "umount"])
+}
+
+/// "password for bob": another account than the person's own.
+fn names_other_account(q: &QueryContext<'_>) -> bool {
+    const SELF: &[&str] =
+        &["my", "me", "myself", "the", "this", "that", "a", "an", "wifi", "wi-fi", "ssh", "root", "your"];
+    q.raw_tokens.iter().any(|t| {
+        matches!(t.lower.as_str(), "for" | "of") && {
+            let next = t.next_word.trim_matches(|c: char| !c.is_alphanumeric());
+            !next.is_empty()
+                && !SELF.contains(&next)
+                && next.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        }
+    }) || crate::extract::extract("user_name", q.raw).is_some()
+}
+
+fn mentions_cron(q: &QueryContext<'_>) -> bool {
+    q.has_any(&["cron", "crontab", "cron jobs", "cron job", "scheduled jobs", "scheduled tasks"])
+}
+
+/// "show cron jobs": a look at the schedule, not a change.
+fn lists_cron(q: &QueryContext<'_>) -> bool {
+    mentions_cron(q)
+        && q.has_any(&["show", "list", "display", "see", "view", "what", "which", "print", "check", "my"])
+        && !q.has_any(&["add", "create", "edit", "schedule", "remove", "delete"])
+}
+
+/// "run backup.sh every day at 3am": a timetable for a command.
+fn asks_schedule(q: &QueryContext<'_>) -> bool {
+    if lists_cron(q) {
+        return false;
+    }
+    let every_unit = q.words.windows(2).any(|w| {
+        w[0] == "every"
+            && matches!(
+                w[1].trim_end_matches('s'),
+                "day"
+                    | "hour"
+                    | "minute"
+                    | "night"
+                    | "morning"
+                    | "evening"
+                    | "week"
+                    | "month"
+                    | "monday"
+                    | "tuesday"
+                    | "wednesday"
+                    | "thursday"
+                    | "friday"
+                    | "saturday"
+                    | "sunday"
+                    | "weekday"
+                    | "weekend"
+                    | "sec"
+                    | "min"
+            )
+    }) || q.words.windows(3).any(|w| {
+        w[0] == "every"
+            && is_digits(&w[1])
+            && matches!(w[2].trim_end_matches('s'), "minute" | "hour" | "day" | "min" | "week")
+    });
+    let named_period =
+        ["nightly", "hourly", "daily", "weekly", "monthly", "schedule"].iter().any(|w| q.has_exact_word(w))
+            || q.has_any(&["on a schedule", "cron job"]);
+    (every_unit || named_period)
+        && !q.has_any(&[
+            "remind",
+            "reminder",
+            "shutdown",
+            "reboot",
+            "shut down",
+            "power off",
+            "poweroff",
+            "backup folder",
+            "show",
+            "list",
+        ])
+        && !(q.has_exact_word("schedule") && q.has_any(&["timetable", "calendar", "meeting"]))
+}
+
+/// "replace foo with bar in nginx.conf": a substitution inside a file.
+fn asks_replace_in_file(q: &QueryContext<'_>) -> bool {
+    q.has_any(&["replace", "substitute", "swap"])
+        && q.has_exact_word("with")
+        && q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text))
+        && !q.has_any(&["package", "packages", "pacman", "battery", "disk", "drive"])
+}
+
+/// "add ip 10.0.0.5/24 to eth0" (`Some(true)`) or "remove ip ... from eth0" (`Some(false)`).
+fn changes_interface_address(q: &QueryContext<'_>) -> Option<bool> {
+    let address = q.raw_tokens.iter().any(|t| {
+        let ip = t.text.split('/').next().unwrap_or_default();
+        looks_like_ip(ip)
+    });
+    let interface = q.raw_tokens.iter().any(|t| crate::readers::is_interface_name(&t.text))
+        || q.has_any(&["interface", "nic", "network card"]);
+    if !(address && interface) {
+        return None;
+    }
+    if q.has_any(&["remove", "delete", "drop", "unassign", "detach", "del"]) {
+        Some(false)
+    } else if q.has_any(&["add", "assign", "give", "set", "attach", "put"]) {
+        Some(true)
+    } else {
+        None
+    }
+}
+
+/// "print second column of access.log": whitespace-separated columns (awk), not a delimited file (cut).
+fn asks_awk_column(q: &QueryContext<'_>) -> bool {
+    q.has_any(&["column", "columns", "field", "fields"])
+        && q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text))
+        && !q.has_any(&["delimiter", "comma", "separated", "colon", "semicolon", "tab", "pipe", "csv", "tsv"])
+        && !q.raw_tokens.iter().any(|t| {
+            t.lower.ends_with(".csv")
+                || t.lower.ends_with(".tsv")
+                || t.lower == "/etc/passwd"
+                || t.lower == "/etc/group"
+        })
+}
+
+/// "check filesystem on /dev/sdc1".
+fn asks_fsck(q: &QueryContext<'_>) -> bool {
+    (q.has_any(&["fsck", "filesystem", "file system"])
+        && q.has_any(&["check", "repair", "fix", "scan", "errors", "fsck", "verify"]))
+        && crate::extract::extract("device", q.raw).is_some()
+}
+
+/// "make it run in the background with nohup".
+fn asks_nohup(q: &QueryContext<'_>) -> bool {
+    q.has_word("nohup")
+        || (q.has_any(&["background"])
+            && q.has_any(&["keep running", "after logout", "after i log out", "survive", "even after", "detached"]))
+}
+
+/// "list files with permissions", "show file permissions in /etc": a look at the modes, not a change.
+fn lists_permissions(q: &QueryContext<'_>) -> bool {
+    q.has_any(&["permission", "permissions"])
+        && q.has_any(&["list", "show", "display", "see", "view", "with", "what"])
+        && !q.has_any(&[
+            "change",
+            "set",
+            "make",
+            "give",
+            "grant",
+            "fix",
+            "restrict",
+            "remove",
+            "add",
+            "only",
+            "everyone",
+            "nobody",
+            "readable",
+            "writable",
+            "executable",
+            "chmod",
+            "sticky",
+            "protect",
+            "revoke",
+            "allow",
+            "deny",
+        ])
+        && crate::extract::extract("chmod_mode", q.raw).is_none()
+        && !q.has_any(&["hidden", "dotfiles", "dotfile", "recent", "recently", "newest", "sorted", "sort"])
+        && !q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text))
+}
+
+/// "squash the last 3 commits".
+fn asks_squash(q: &QueryContext<'_>) -> bool {
+    q.has_any(&["squash", "squashing", "squashed"])
+        || (q.has_any(&["combine", "merge", "fold", "collapse", "join"])
+            && q.has_any(&["commits"])
+            && q.has_any(&["last", "recent", "previous"]))
+}
+
+/// "undo git commit", "undo my last commit": take the commit back.
+fn undoes_a_commit(q: &QueryContext<'_>) -> bool {
+    q.has_any(&[
+        "undo",
+        "uncommit",
+        "take back",
+        "revert my last",
+        "undo my",
+        "undo the",
+        "undo a",
+        "undo git",
+        "undo last",
+    ]) && q.has_any(&["commit", "commits"])
+        && !has_commit_hash(q)
+        && !q.has_any(&["push", "pushed"])
+}
+
 fn is_off_topic_unmodeled(_cmd: &Command, q: &QueryContext<'_>) -> bool {
     let pure_offtopic = [
         "weather",
@@ -1960,7 +2491,63 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
 
     // New-style entries first: the words that say the request is about their subject at all.
     let percent = crate::extract::extract("percent", q.raw).is_some();
+    // Sysadmin requests: each new entry says what its request is, and the entries it competes with step aside.
+    let named_account = names_other_account(q);
+    let compose = q.has_word("compose") || q.raw.contains("compose");
     match name {
+        "git cherry-pick" => return has(&["cherry-pick", "cherry pick", "cherrypick"]) || (has_commit_hash(q) && q.has_word("commit")),
+        "git diff refs" => return names_two_refs(q),
+        "diff" if names_two_refs(q) => return false,
+        "git show" => return has_commit_hash(q) && q.has_word("commit"),
+        "git revert" => return q.has_exact_word("revert") && (q.has_word("commit") || has_commit_hash(q)),
+        "git stash push" => return stash_with_message(q),
+        "git stash" if stash_with_message(q) => return false,
+        "git rebase" if asks_squash(q) => return true,
+        "git reset" if undoes_a_commit(q) => return true,
+        "lsof" => return asks_open_files(q),
+        "xdg-open" | "ls" | "tail" | "cat" if asks_open_files(q) => return false,
+        "ps top" => return asks_process_ranking(q),
+        "top" | "ps" if asks_process_ranking(q) => return false,
+        "grep ip addresses" => return asks_ip_in_file(q),
+        "ip" | "tail" | "grep" if asks_ip_in_file(q) => return false,
+        "du per folder" => return asks_per_folder_sizes(q),
+        "du" | "largest items" if asks_per_folder_sizes(q) => return false,
+        "find delete dirs" => return asks_delete_named_dirs(q),
+        "rm" | "find delete" | "find" if asks_delete_named_dirs(q) => return false,
+        "journalctl vacuum time" => return journal_vacuum_kind(q) == Some(true),
+        "journalctl vacuum size" => return journal_vacuum_kind(q) == Some(false),
+        "journalctl" | "search service log" | "rm" | "find delete" | "tail" if journal_vacuum_kind(q).is_some() => return false,
+        "docker cp" => return copies_with_container(q) && !copies_out_of_container(q),
+        "docker cp from" => return copies_with_container(q) && copies_out_of_container(q),
+        "cp" | "mv" | "scp" | "rsync" if copies_with_container(q) => return false,
+        "cp" | "mv" if q.has_remote_scp() => return false,
+        "ssh remote tunnel" => return asks_reverse_tunnel(q),
+        "ssh tunnel" if asks_reverse_tunnel(q) => return false,
+        "ssh-keygen" => return generates_ssh_key(q),
+        "ssh-copy-id" | "ssh" if generates_ssh_key(q) => return false,
+        "mount" => return mounts_device_on_folder(q),
+        "udisksctl mount" | "findmnt" if mounts_device_on_folder(q) => return false,
+        "passwd user" => return has(&["password", "passwd"]) && named_account && !has(&["wifi", "ssh", "key", "file", "zip", "archive", "pdf", "database"]),
+        "passwd" if named_account && !has(&["wifi", "ssh", "key", "file", "zip", "archive", "pdf", "database"]) => return false,
+        "fsck" => return asks_fsck(q),
+        "smartctl" | "lsblk" | "findmnt" if asks_fsck(q) => return false,
+        "crontab list" => return lists_cron(q) && !named_account,
+        "crontab list user" => return lists_cron(q) && named_account,
+        "crontab edit" => return asks_schedule(q),
+        "run script" | "omarchy reminder" | "systemctl" | "ls" if asks_schedule(q) && mentions_cron(q) => return false,
+        "sed replace" => return asks_replace_in_file(q),
+        "nano" | "cp" | "mv" | "sort" if asks_replace_in_file(q) => return false,
+        "ip addr add" => return changes_interface_address(q) == Some(true),
+        "ip addr del" => return changes_interface_address(q) == Some(false),
+        "rm" | "ip" | "ip route" | "ip neigh" if changes_interface_address(q).is_some() => return false,
+        "nohup" => return asks_nohup(q),
+        "docker compose restart" => return compose && has(&["restart", "reload", "bounce"]),
+        "docker restart" | "systemctl" if compose && has(&["restart", "reload", "bounce"]) => return false,
+        "awk column" => return asks_awk_column(q),
+        "cut" if asks_awk_column(q) => return false,
+        "chmod" if lists_permissions(q) => return false,
+        "ls permissions" => return lists_permissions(q),
+        "ls" | "stat" if lists_permissions(q) => return false,
         "wifi current" => return has(&["wifi", "wireless", "ssid"]) && !has(&["nearby", "available", "scan", "list", "password"]),
         "package installed" => return q.has_exact_word("installed") && !has(&["packages", "everything", "all"]),
         "package list" => return q.has_exact_word("installed") && has(&["packages", "programs", "software", "apps", "everything", "all", "list", "what is installed"]),
@@ -2115,7 +2702,7 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         "battery status" => has(&["battery", "charge", "upower"]),
         "reload shell config" => has(&["reload", "source", "re-read", "apply changes"]) && has(&["bashrc", "zshrc", "shell", "config", "profile", "startup"]),
         "pacman install file" => q.raw.contains(".pkg.tar.zst") || (has(&["downloaded", "package file"]) && has(&["install"])),
-        "tar" => q.raw.contains(".tar") || q.raw.contains(".tgz") || has(&["tar", "tarball"])
+        "tar" => q.raw.contains(".tar") || q.raw.contains("tar.gz") || q.raw.contains(".tgz") || has(&["tar", "tarball"])
             || (has(&["archive"]) && !has(&["archive folder", "archive directory"])),
         "zip" => q.raw.contains(".zip") || has(&["zip"]),
         "unzip" => q.raw.contains(".zip") || has(&["unzip"]),
@@ -2125,7 +2712,7 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         "lscpu" => has(&["cpu", "processor", "core", "cores"]) && !has(&["eating", "right now", "most", "using the most", "hot", "temperature", "temp", "temps", "overheating"]),
         "tail" => !has(&["journald", "journal", "systemd"]) && !(has(&["docker", "service"]) && !q.has_log_file()),
         "docker logs" => !has(&["journald", "journal", "systemd"]),
-        "journalctl" | "search service log" => !q.has_log_file() && !has(&["log in", "log into", "logged in", "in lines"]),
+        "journalctl" | "search service log" => !q.has_log_file() && !has(&["log in", "log into", "logged in", "in lines"]) && !(q.has_phrase("docker logs") && !has(&["journald", "journal", "systemd"])),
         "ip route get" => q.raw_tokens.iter().any(|t| looks_like_ip(&t.text) || looks_like_domain_host(&t.text))
             || has(&["to reach", "reach an", "route to", "interface used"]),
         "cd" => has(&["cd", "go to", "change directory", "change into", "enter folder"]),
@@ -2148,7 +2735,7 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         "man" => has(&["man", "manual", "how do i use"]),
         "which" => has(&["which", "where is", "where", "installed", "location"]),
         "sha256sum" => has(&["checksum", "sha256", "sha256sum", "hash", "verify", "intact"]),
-        "chmod" => (has(&["chmod", "executable", "runnable", "as a program", "permission", "permissions", "read only", "nobody but me", "protect", "modified"])
+        "chmod" => (has(&["chmod", "sticky", "executable", "runnable", "as a program", "permission", "permissions", "read only", "nobody but me", "protect", "modified"])
             || (has(&["stop", "prevent"]) && has(&["editing"])) || crate::extract::extract("chmod_mode", q.raw).is_some())
             && !has(&["dotfiles"])
             && !(has(&["show", "list", "which", "what"]) && crate::extract::extract("file_age", q.raw).is_some()),
@@ -2156,7 +2743,7 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         "ln" => has(&["ln", "symlink", "symbolic link", "points to"]) || (has(&["shortcut"]) && !has(&["alias"]) && !q.raw.contains('"')),
         "date" => has(&["date", "today", "what day", "time"]) && !q.has_exact_word("dates") && !has(&["up to date"]),
         "cal" => has(&["cal", "calendar"]),
-        "uptime" => has(&["uptime", "been on", "running since"]) || (has(&["how long"]) && has(&["reboot", "boot", "on", "running"])),
+        "uptime" => has(&["uptime", "been on", "running since", "been up"]) || (has(&["how long"]) && has(&["reboot", "boot", "on", "running", "up"])),
         "hostname" => has(&["hostname", "machine called", "computer called", "computer's name"]),
         "whoami" => has(&["whoami", "which user", "logged in", "username", "who am i"]),
         "passwd" => has(&["passwd", "password"]) && !has(&["passwordless"]),
@@ -2270,7 +2857,7 @@ fn score_flag(cmd_name: &str, flag: &Flag, terms: &HashMap<String, f64>, q: &Que
         ("git diff", "staged") => Some(has(&["staged", "--staged", "cached", "about to commit"])),
         ("docker rm", "force") => Some(has(&["force", "forcefully", "-f", "even if", "still running", "running container", "kill"])),
         ("userdel", "home") => Some(has(&["home", "home folder", "home directory", "homedir", "files too", "everything of"])),
-        ("git rebase", "interactive") => Some(has(&["interactive", "interactively", "squash", "reorder", "edit", "-i", "fixup", "reword"])),
+        ("git rebase", "interactive") => Some(has(&["interactive", "interactively", "squash", "combine", "fold", "collapse", "reorder", "edit", "-i", "fixup", "reword"])),
         ("ls", "long") => Some(has(&["long", "detail", "details", "size", "sizes", "owner", "owns", "owned by", "permission", "permissions", "date", "dates", "-l"])),
         ("ls", "all") => Some(has(&["hidden", "dotfile", "dotfiles", "including hidden", "-a", "-la", "-al"])),
         ("ls", "by_time") => Some(has(&["recent", "recently", "newest", "latest", "last modified", "-t"])),
@@ -2353,7 +2940,9 @@ fn score_flag(cmd_name: &str, flag: &Flag, terms: &HashMap<String, f64>, q: &Que
             "from boot",
             "-b",
         ])),
-        ("git stash", "untracked") => Some(has(&["untracked", "new files", "not tracked", "-u"])),
+        ("git stash" | "git stash push", "untracked") => Some(has(&["untracked", "new files", "not tracked", "-u"])),
+        ("rsync", "delete") => Some(has(&["delete", "deleting", "deleted", "--delete", "remove extra", "exact mirror", "exactly mirror", "extra files"]) && !has(&["do not delete", "without deleting", "dont delete"])),
+        ("grep ip addresses", "unique") => Some(has(&["unique", "distinct", "once", "deduplicated", "dedupe", "no duplicates", "without duplicates"])),
         ("sort", "unique") => Some(has(&["dedupe", "dedup", "unique", "duplicate", "duplicates", "distinct", "-u"])),
         ("curl", "resume") => Some(has(&["resume", "continue", "partial", "unfinished", "interrupted", "-c"])),
         ("kill" | "pkill", "force") => Some(has(&[
@@ -2362,6 +2951,10 @@ fn score_flag(cmd_name: &str, flag: &Flag, terms: &HashMap<String, f64>, q: &Que
             "hung",
             "stuck",
             "refuses to stop",
+            "forcefully",
+            "forcibly",
+            "forced",
+            "force kill",
             "unresponsive",
             "not responding",
             "-9",
@@ -2454,6 +3047,7 @@ fn score_choice_slot(cmd_name: &str, slot: &Slot, entry: &IndexedCommand, q: &Qu
         let mut s = 0.0f64;
 
         s += match (cmd_name, slot_id, opt_name.as_str()) {
+            ("chmod", "mode", "sticky_bit") => if has(&["sticky", "sticky bit"]) || q.raw.split_whitespace().any(|w| w == "+t") { 9.0 } else { 0.0 },
             ("chmod", "mode", "make_executable") => if has(&["executable", "runnable", "execute", "as a program", "+x"]) { 6.0 } else { 0.0 },
             ("chmod", "mode", "private_to_owner") => if has(&["private", "only me", "nobody else", "nobody but me", "only the owner", "600"]) { 6.5 } else { 0.0 },
             ("chmod", "mode", "read_only") => if has(&["read only", "protect", "modified", "nobody should be able to change", "a-w"]) || (has(&["stop", "prevent"]) && has(&["editing"])) { 6.5 } else { 0.0 },
@@ -2538,7 +3132,7 @@ fn score_choice_slot(cmd_name: &str, slot: &Slot, entry: &IndexedCommand, q: &Qu
             ("dig", "type", "nameservers") => if has(&["ns", "nameserver", "nameservers", "name server", "name servers"]) { 6.5 } else { 0.0 },
 
             ("tar", "action", "list_contents") => if has(&["without extracting", "without unpacking", "what is inside", "what is in", "what's in", "inside", "list", "contents", "peek", "-t"]) { 7.5 } else { 0.0 },
-            ("tar", "action", "create") => if has(&["pack", "create", "compress", "tar up", "bundle", "into", "-c"]) && !has(&["unpack", "extract", "without"]) { 6.5 } else { 0.0 },
+            ("tar", "action", "create") => if (has(&["pack", "create", "compress", "tar up", "bundle", "into", "-c", "excluding", "exclude", "except"]) || (has(&["targz", "tarball"]) && has(&["of", "from"]))) && !has(&["unpack", "extract", "without"]) { 6.5 } else { 0.0 },
             ("tar", "action", "extract") => if has(&["unpack", "extract", "untar", "decompress", "-x"]) && !has(&["without extracting", "without unpacking"]) { 6.5 } else { 0.4 },
 
             ("nmcli radio wifi", "state", "on") => if has(&["on", "enable", "activate", "start"]) && !has(&["off", "disable"]) { 6.0 } else { 0.0 },
@@ -4712,6 +5306,22 @@ mod tests {
         let misses: Vec<&String> = report.lines.iter().filter(|line| line.starts_with("MISS")).collect();
         assert!(report.top1.total > 0, "no safety cases ran");
         assert!(misses.is_empty(), "safety evals must be at 100%: {misses:#?}");
+    }
+
+    /// Sysadmin round (evals/sysadmin.toml): git, process, file, ssh, cron, docker requests; every case must pass.
+    #[test]
+    fn sysadmin_evals_all_pass() {
+        let arch = vec!["arch".to_string(), "omarchy".to_string()];
+        let matcher = LocalMatcher::new(&catalog::usable(load_catalog(), &arch, false));
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals/sysadmin.toml");
+        let report = eval::score_for(&matcher, &file, &arch).unwrap();
+        let misses: Vec<&String> = report.lines.iter().filter(|line| line.starts_with("MISS")).collect();
+        for line in &misses {
+            println!("{line}");
+        }
+        println!("sysadmin: {} misses of {} cases", misses.len(), report.lines.len());
+        assert!(report.lines.len() >= 100, "sysadmin.toml should hold the sysadmin cases");
+        assert!(misses.is_empty(), "sysadmin evals must be at 100%: {} misses", misses.len());
     }
 
     /// Never mislead (evals/mislead.toml): questions about state never get actions, dangerous

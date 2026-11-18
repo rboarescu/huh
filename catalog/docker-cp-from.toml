@@ -1,0 +1,25 @@
+name = "docker cp from"
+description = "Copy a file out of a Docker container to this computer"
+template = "docker cp {container}:{source} {dest}"
+kind = "action"
+keywords = ["copy file from container", "copy out of container", "get a file from a container", "download file from container", "docker cp from container"]
+
+[[slots]]
+id = "container"
+kind = "text"
+type = "container"
+what = "the container that holds the file"
+extract = "sys_container"
+
+[[slots]]
+id = "source"
+kind = "text"
+what = "the path inside the container to copy"
+extract = "sys_cp_first"
+
+[[slots]]
+id = "dest"
+kind = "path"
+what = "where on this computer the copy should go"
+extract = "sys_cp_last"
+default = "."

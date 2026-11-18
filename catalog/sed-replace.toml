@@ -1,0 +1,27 @@
+name = "sed replace"
+description = "Replace every occurrence of a word or text with another inside a file"
+template = "sed -i 's/{from}/{to}/g' {file}"
+kind = "action"
+destructive = true
+warning = "this edits the file in place; keep a copy first (sed -i.bak keeps one)."
+keywords = ["replace text in file", "find and replace", "substitute text in a file", "change foo to bar in file", "search and replace in file", "replace all occurrences"]
+
+[[slots]]
+id = "from"
+kind = "text"
+raw = true
+what = "the text to look for"
+extract = "sys_sub_from"
+
+[[slots]]
+id = "to"
+kind = "text"
+raw = true
+what = "the text to put in its place"
+extract = "sys_sub_to"
+
+[[slots]]
+id = "file"
+kind = "path"
+what = "the file to edit"
+extract = "filename"

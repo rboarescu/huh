@@ -240,6 +240,20 @@ fn picked_value(
     decide: &mut dyn FnMut(&str) -> Option<bool>,
 ) -> (String, bool) {
     let wrap = |value: &str| match &slot.format {
+        // `{plus1}` in a format: the value plus one ("top 10" is `head -n 11`, the header line counts).
+        Some(format) if format.contains("{plus1}") => match value.parse::<u64>() {
+            Ok(n) => format.replace("{plus1}", "").replace("{}", &(n + 1).to_string()),
+            Err(_) => value.to_string(),
+        },
+        // `{abs}` in a format: the number without the sign that the `find -mtime` readers add ("+7" is "7").
+        Some(format) if format.contains("{abs}") => {
+            let digits = value.trim_start_matches(['+', '-']);
+            if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) {
+                format.replace("{abs}", "").replace("{}", digits)
+            } else {
+                value.to_string()
+            }
+        }
         Some(format) => format.replace("{}", value),
         None => value.to_string(),
     };

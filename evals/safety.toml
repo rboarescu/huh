@@ -317,7 +317,7 @@ expect = "git push -u origin HEAD"
 [[case]]
 request = "force push"
 command = "git push"
-expect = "git push --force"
+expect = "git push --force-with-lease"
 warn = true
 
 [[case]]

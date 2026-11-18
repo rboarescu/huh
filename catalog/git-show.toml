@@ -1,0 +1,11 @@
+name = "git show"
+description = "Show what one commit changed, with its message and author"
+template = "git show {commit}"
+kind = "query"
+keywords = ["show commit", "inspect a commit", "what did this commit change", "details of a commit", "git show"]
+
+[[slots]]
+id = "commit"
+kind = "text"
+what = "the commit (its hash) to show"
+default = "HEAD"

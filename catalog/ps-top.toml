@@ -1,0 +1,28 @@
+name = "ps top"
+description = "List the programs using the most memory or processor, as a fixed list of the top few"
+template = "ps aux --sort=-{sort} | head -n {count}"
+kind = "query"
+keywords = ["top processes by memory", "top processes by cpu", "biggest memory users", "which processes use the most memory", "most cpu hungry processes", "top 10 processes", "memory hogs"]
+
+[[slots]]
+id = "sort"
+kind = "choice"
+question = "Should the list be ordered by memory or by processor use?"
+
+[[slots.options]]
+name = "memory"
+value = "%mem"
+description = "Order by memory (RAM) use, highest first"
+
+[[slots.options]]
+name = "cpu"
+value = "%cpu"
+description = "Order by processor (CPU) use, highest first"
+
+[[slots]]
+id = "count"
+kind = "text"
+what = "how many programs to list"
+extract = "count"
+default = "11"
+format = "{}{plus1}"
