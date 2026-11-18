@@ -1,0 +1,20 @@
+name = "count lines in files by type"
+description = "Count the lines in every file of one type (such as .rs or .py) under a folder, with a total"
+template = "find {where} -type f {name} | xargs wc -l"
+kind = "query"
+keywords = ["count lines in all files", "lines of code", "count lines in all rs files", "total lines of all source files", "line count of every file of a type", "how many lines of code"]
+
+[[slots]]
+id = "where"
+kind = "path"
+what = "the folder to look under"
+default = "."
+extract = "sys_under_dir"
+
+[[slots]]
+id = "name"
+kind = "text"
+what = "the file name pattern of the files to count"
+default = ""
+format = "-name {}"
+extract = "file_glob"

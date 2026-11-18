@@ -340,6 +340,12 @@ expect = 'chmod +t /tmp/shared'
 [[case]]
 request = "check filesystem on /dev/sdc1"
 command = "fsck"
+expect = 'sudo fsck -n /dev/sdc1'
+warn = false
+
+[[case]]
+request = "repair the filesystem on /dev/sdc1"
+command = "fsck repair"
 expect = 'sudo fsck /dev/sdc1'
 warn = true
 
@@ -416,6 +422,11 @@ expect = 'docker logs --tail 100 api'
 
 [[case]]
 request = "docker logs --tail 100 web"
+command = "none"
+hint = 'huh explain "docker logs --tail 100 web"'
+
+[[case]]
+request = "docker logs of web, last 100 lines"
 command = "docker logs"
 expect = 'docker logs --tail 100 web'
 
@@ -582,8 +593,8 @@ expect = 'passwd'
 [[case]]
 request = "check the filesystem on /dev/sda2"
 command = "fsck"
-expect = 'sudo fsck /dev/sda2'
-warn = true
+expect = 'sudo fsck -n /dev/sda2'
+warn = false
 
 [[case]]
 request = "what cron jobs does user deploy have"

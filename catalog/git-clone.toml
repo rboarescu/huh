@@ -1,10 +1,25 @@
 name = "git clone"
 description = "Download a copy of a git repository from a web address"
-template = "git clone {url}"
+template = "git clone {depth} {url} {dir}"
 kind = "action"
 keywords = ["download git repo", "clone repository", "checkout remote repo"]
+
+[[slots]]
+id = "depth"
+kind = "text"
+what = "how many commits of history to download (1 for only the latest)"
+default = ""
+format = "--depth {}"
+extract = "sys_depth"
 
 [[slots]]
 id = "url"
 kind = "text"
 what = "the address of the repository"
+
+[[slots]]
+id = "dir"
+kind = "path"
+what = "the folder to clone into"
+default = ""
+extract = "sys_clone_dir"

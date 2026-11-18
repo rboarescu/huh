@@ -1,0 +1,435 @@
+# Typed values must never vanish silently: every value the request types (a path, number, address,
+# name, hash, quoted text, ...) must show up in the first suggestion's line or in one of its notes
+# ("not included: ..."). `values` lists what must appear (case-insensitive; "a|b" accepts either
+# spelling); command = "any" accepts whatever command comes first, since the guarantee is about the
+# values, not the command. Lines with several lost values also get a lower confidence.
+
+# --- the examples that fresh testers hit -----------------------------------------------------------
+
+[[case]]
+request = "df human readable for /var"
+command = "df"
+expect = "df -h /var"
+values = ["/var"]
+
+[[case]]
+request = "git clone https://github.com/acme/api.git into /opt/api depth 1"
+command = "git clone"
+expect = "git clone --depth 1 https://github.com/acme/api.git /opt/api"
+values = ["https://github.com/acme/api.git", "/opt/api", "depth 1|--depth 1"]
+
+[[case]]
+request = "docker stats for container redis"
+command = "docker stats"
+expect = "docker stats redis"
+values = ["redis"]
+
+[[case]]
+request = "generate ed25519 ssh key with comment ops@lab"
+command = "ssh-keygen"
+expect = "ssh-keygen -t ed25519 -C ops@lab"
+values = ["ops@lab"]
+
+[[case]]
+request = "docker prune unused images older than 24h"
+command = "docker image prune"
+values = ["24h"]
+
+[[case]]
+request = "count lines in all .rs files under src"
+command = "any"
+expect = "find src -type f -name '*.rs' | xargs wc -l"
+values = ["src", ".rs"]
+
+[[case]]
+request = "git cherry-pick abc1234 onto release"
+command = "git cherry-pick"
+values = ["abc1234", "release"]
+
+[[case]]
+request = "docker run nginx on port 8080:80 detached name web"
+command = "docker run"
+expect = "docker run -d -p 8080:80 --name web nginx"
+values = ["8080:80", "web", "nginx"]
+
+# --- paths, numbers and units ----------------------------------------------------------------------
+
+[[case]]
+request = "show last 20 lines of /var/log/syslog"
+command = "any"
+values = ["20", "/var/log/syslog"]
+
+[[case]]
+request = "copy report.pdf to /mnt/backup"
+command = "any"
+values = ["report.pdf", "/mnt/backup"]
+
+[[case]]
+request = "ping 8.8.8.8 5 times"
+command = "any"
+values = ["8.8.8.8", "5"]
+
+[[case]]
+request = "ssh to admin@10.0.0.5 port 2222"
+command = "any"
+values = ["admin@10.0.0.5", "2222"]
+
+[[case]]
+request = "find files larger than 100MB in /home"
+command = "any"
+values = ["100", "/home"]
+
+[[case]]
+request = "delete files older than 30 days in /tmp/cache"
+command = "any"
+values = ["30", "/tmp/cache"]
+
+[[case]]
+request = "follow the log /var/log/nginx/error.log"
+command = "any"
+values = ["/var/log/nginx/error.log"]
+
+[[case]]
+request = "add user bob to group docker"
+command = "any"
+values = ["bob", "docker"]
+
+[[case]]
+request = "create user alice with shell /bin/zsh"
+command = "any"
+values = ["alice", "/bin/zsh"]
+
+[[case]]
+request = "change owner of /srv/www to www-data"
+command = "any"
+values = ["/srv/www", "www-data"]
+
+[[case]]
+request = "make /opt/app/run.sh executable"
+command = "any"
+values = ["/opt/app/run.sh"]
+
+[[case]]
+request = "download https://example.com/file.iso to /tmp"
+command = "any"
+values = ["https://example.com/file.iso", "/tmp"]
+
+[[case]]
+request = "compress /var/log into logs.tar.gz"
+command = "any"
+values = ["/var/log", "logs.tar.gz"]
+
+[[case]]
+request = "extract backup.tar.gz into /restore"
+command = "any"
+values = ["backup.tar.gz", "/restore"]
+
+[[case]]
+request = "show the 15 biggest files in /var"
+command = "any"
+values = ["15", "/var"]
+
+[[case]]
+request = "check port 443 on example.com"
+command = "any"
+values = ["443", "example.com"]
+
+[[case]]
+request = "git commit with message 'fix login bug'"
+command = "any"
+values = ["fix login bug"]
+
+[[case]]
+request = "git log last 5 commits by alice"
+command = "any"
+values = ["5", "alice"]
+
+[[case]]
+request = "git diff abc1234 def5678"
+command = "any"
+values = ["abc1234", "def5678"]
+
+[[case]]
+request = "docker logs api last 100 lines"
+command = "any"
+values = ["100", "api"]
+
+[[case]]
+request = "docker exec into container web run /bin/sh"
+command = "any"
+values = ["web", "/bin/sh"]
+
+[[case]]
+request = "docker run redis on port 6379"
+command = "any"
+values = ["redis", "6379"]
+
+[[case]]
+request = "mount /dev/sdb1 on /mnt/usb"
+command = "any"
+values = ["/dev/sdb1", "/mnt/usb"]
+
+[[case]]
+request = "resize photo.jpg to 1920x1080"
+command = "any"
+values = ["photo.jpg", "1920x1080"]
+
+[[case]]
+request = "schedule backup.sh every day at 03:30"
+command = "any"
+values = ["backup.sh", "03:30|3:30|30 3"]
+
+[[case]]
+request = "wait 90 seconds"
+command = "any"
+values = ["90"]
+
+[[case]]
+request = "grep ERROR in /var/log/app.log"
+command = "any"
+values = ["ERROR", "/var/log/app.log"]
+
+[[case]]
+request = "set timezone to Europe/Bucharest"
+command = "any"
+values = ["Europe/Bucharest"]
+
+[[case]]
+request = "set hostname to web01"
+command = "any"
+values = ["web01"]
+
+[[case]]
+request = "journal logs for sshd since 2 hours ago"
+command = "any"
+values = ["sshd", "2 hours"]
+
+[[case]]
+request = "du of ~/Downloads top 10"
+command = "any"
+values = ["~/Downloads|$HOME/Downloads", "10"]
+
+[[case]]
+request = "show processes of user postgres"
+command = "any"
+values = ["postgres"]
+
+[[case]]
+request = "open port 8443 for 192.168.1.0/24"
+command = "any"
+values = ["8443", "192.168.1.0/24"]
+
+[[case]]
+request = "symlink /opt/app/current to /srv/app"
+command = "any"
+values = ["/opt/app/current", "/srv/app"]
+
+[[case]]
+request = "rename old.txt to new.txt"
+command = "any"
+values = ["old.txt", "new.txt"]
+
+[[case]]
+request = "move the logs to /archive/2024"
+command = "any"
+values = ["/archive/2024"]
+
+[[case]]
+request = "scp file.zip to deploy@host.example.com:/srv"
+command = "any"
+values = ["file.zip", "deploy@host.example.com:/srv"]
+
+[[case]]
+request = "install htop version 3.2"
+command = "any"
+values = ["htop", "3.2"]
+
+[[case]]
+request = "tar /etc/nginx into /backup/nginx.tar.gz"
+command = "any"
+values = ["/etc/nginx", "/backup/nginx.tar.gz"]
+
+[[case]]
+request = "disk usage of /srv/data in megabytes depth 2"
+command = "any"
+values = ["/srv/data", "2"]
+
+[[case]]
+request = "show listening ports for pid 1234"
+command = "any"
+values = ["1234"]
+
+[[case]]
+request = "pull latest changes from origin branch develop"
+command = "any"
+values = ["develop"]
+
+[[case]]
+request = "restart container named cache and tail 50 lines"
+command = "any"
+values = ["cache", "50"]
+
+[[case]]
+request = "cron job to run /usr/local/bin/clean.sh every 15 minutes"
+command = "any"
+values = ["/usr/local/bin/clean.sh", "15"]
+
+[[case]]
+request = "email report to ops@example.com"
+command = "any"
+values = ["ops@example.com"]
+
+[[case]]
+request = "list the 3 newest files in ~/Pictures"
+command = "any"
+values = ["3", "~/Pictures|$HOME/Pictures"]
+
+# --- several values lost: the line is probably the wrong command ------------------------------------
+
+[[case]]
+request = "what is my ip address on eth0 with 4242 retries and 77 timeouts"
+command = "any"
+values = ["4242", "77"]
+max_confidence = 0.5
+
+[[case]]
+request = "list files in /var/log with 4242 lines and 77 columns"
+command = "any"
+values = ["4242", "77", "/var/log"]
+
+# --- more terse sysadmin and beginner phrasing ------------------------------------------------------
+
+[[case]]
+request = "tail 100 lines of /var/log/auth.log"
+command = "any"
+values = ["100", "/var/log/auth.log"]
+
+[[case]]
+request = "how much space does /home/radu/Videos take"
+command = "any"
+values = ["/home/radu/Videos"]
+
+[[case]]
+request = "unzip data.zip to /tmp/out"
+command = "any"
+values = ["data.zip", "/tmp/out"]
+
+[[case]]
+request = "who owns /etc/passwd"
+command = "any"
+values = ["/etc/passwd"]
+
+[[case]]
+request = "create folder /srv/app/logs"
+command = "any"
+values = ["/srv/app/logs"]
+
+[[case]]
+request = "chmod 640 on /etc/app.conf"
+command = "any"
+values = ["640", "/etc/app.conf"]
+
+[[case]]
+request = "backup /home/radu to /mnt/backup/home.tar.gz"
+command = "any"
+values = ["/home/radu", "/mnt/backup/home.tar.gz"]
+
+[[case]]
+request = "connect to wifi named HomeNet"
+command = "any"
+values = ["HomeNet"]
+
+[[case]]
+request = "remind me in 25 minutes to call mom"
+command = "any"
+values = ["25", "call mom"]
+
+[[case]]
+request = "undo the last 2 commits"
+command = "any"
+values = ["2"]
+
+[[case]]
+request = "rsync photos to nas.local:/volume1/photos"
+command = "any"
+values = ["nas.local:/volume1/photos"]
+
+[[case]]
+request = "find the string 'connection refused' in /var/log/syslog"
+command = "any"
+values = ["connection refused", "/var/log/syslog"]
+
+[[case]]
+request = "check if port 5432 is open on db.internal"
+command = "any"
+values = ["5432", "db.internal"]
+
+[[case]]
+request = "traceroute to 1.1.1.1"
+command = "any"
+values = ["1.1.1.1"]
+
+[[case]]
+request = "resolve api.example.com using 9.9.9.9"
+command = "any"
+values = ["api.example.com", "9.9.9.9"]
+
+[[case]]
+request = "list files modified in the last 3 days in /var/www"
+command = "any"
+values = ["3", "/var/www"]
+
+[[case]]
+request = "download https://x.org/a.zip and save as latest.zip"
+command = "any"
+values = ["https://x.org/a.zip", "latest.zip"]
+
+[[case]]
+request = "show last 30 lines of journal for docker.service"
+command = "any"
+values = ["30", "docker"]
+
+[[case]]
+request = "git checkout branch feature/payment-api"
+command = "any"
+values = ["feature/payment-api"]
+
+[[case]]
+request = "squash the last 3 commits"
+command = "any"
+values = ["3"]
+
+[[case]]
+request = "copy 5 files from /mnt/a to /mnt/b"
+command = "any"
+values = ["/mnt/a", "/mnt/b"]
+
+[[case]]
+request = "open port 22 for 10.0.0.0/8"
+command = "any"
+values = ["22", "10.0.0.0/8"]
+
+[[case]]
+request = "remove user guest and home"
+command = "any"
+values = ["guest"]
+
+[[case]]
+request = "create a 2G swap file at /swapfile"
+command = "any"
+values = ["2", "/swapfile"]
+
+[[case]]
+request = "extract only config.yaml from release-1.2.tar.gz"
+command = "any"
+values = ["config.yaml", "release-1.2.tar.gz"]
+
+[[case]]
+request = "compare file1.txt and file2.txt"
+command = "any"
+values = ["file1.txt", "file2.txt"]
+
+[[case]]
+request = "sort data.csv by column 3"
+command = "any"
+values = ["data.csv", "3"]

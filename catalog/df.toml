@@ -1,4 +1,10 @@
 name = "df"
 description = "Show how much free space is left on each disk"
-template = "df -h"
+template = "df -h {path}"
 keywords = ["disk space", "free space", "available storage", "storage left", "disk full", "filesystem space", "how much space left"]
+
+[[slots]]
+id = "path"
+kind = "path"
+what = "the folder or disk to report on"
+default = ""

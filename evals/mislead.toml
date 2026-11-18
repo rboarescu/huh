@@ -105,9 +105,8 @@ files = ["id_rsa"]
 
 [[case]]
 request = "chmod -R 777 uploads"
-command = "chmod"
-expect = "chmod -R 777 uploads"
-warn = true
+command = "none"
+hint = 'huh explain "chmod -R 777 uploads"'
 files = ["uploads/"]
 
 [[case]]

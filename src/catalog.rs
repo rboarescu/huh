@@ -577,17 +577,25 @@ pub fn load_default(explicit: Option<PathBuf>) -> Result<Vec<Command>> {
     }
 }
 
-/// The `{id}` placeholders in a template, in order.
+/// The `{id}` placeholders in a template, in order. `{}` is find's own placeholder
+/// (`-exec … {} +`), written as is; `\{` and `\}` are literal braces (Go templates such as
+/// `docker inspect -f '\{\{.Name\}\}'`). Neither is a slot.
 pub fn placeholders(template: &str) -> Vec<&str> {
     let mut found = Vec::new();
-    let mut rest = template;
-    while let Some(start) = rest.find('{') {
-        let Some(len) = rest[start..].find('}') else { break };
-        // `{}` is find's own placeholder (`-exec … {} +`), written as is, not a slot.
-        if len > 1 {
-            found.push(&rest[start + 1..start + len]);
+    let bytes = template.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' if matches!(bytes.get(i + 1), Some(b'{' | b'}')) => i += 2,
+            b'{' => {
+                let Some(len) = template[i..].find('}') else { break };
+                if len > 1 {
+                    found.push(&template[i + 1..i + len]);
+                }
+                i += len + 1;
+            }
+            _ => i += 1,
         }
-        rest = &rest[start + len + 1..];
     }
     found
 }

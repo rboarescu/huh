@@ -33,11 +33,41 @@ pub fn refusal(request: &str) -> Option<String> {
                 .into(),
         );
     }
+    // A device path (/dev/sdb, /dev/nvme0n1p2) or a bare device name (sdb1, mmcblk0) is a drive too.
+    let device_name = |x: &String| {
+        let lettered = ["sd", "hd", "vd", "xvd"].iter().find_map(|p| x.strip_prefix(p)).is_some_and(|rest| {
+            let mut chars = rest.chars();
+            chars.next().is_some_and(|c| c.is_ascii_lowercase()) && chars.all(|c| c.is_ascii_digit())
+        });
+        lettered
+            || (x.starts_with("nvme") && x[4..].starts_with(|c: char| c.is_ascii_digit()))
+            || (x.starts_with("mmcblk") && x[6..].starts_with(|c: char| c.is_ascii_digit()))
+    };
+    let device_path = request.split_whitespace().any(|t| is_disk_device(t.trim_matches([',', ';', '.', '?', '!'])));
     let whole_drive = any(&["disk", "drive", "usb", "partition", "stick", "pendrive", "ssd", "hdd", "nvme"])
         || (has("sd") && has("card"))
-        || (has("flash") && has("drive"));
-    let wipes = any(&["format", "reformat", "wipe", "erase", "nuke", "destroy", "zero", "zeroize"])
-        || has("empty") && has("disk");
+        || (has("flash") && has("drive"))
+        || device_path
+        || w.iter().any(device_name);
+    let wipes = any(&[
+        "format",
+        "reformat",
+        "wipe",
+        "erase",
+        "nuke",
+        "destroy",
+        "zero",
+        "zeroize",
+        "zeroise",
+        "shred",
+        "scrub",
+        "overwrite",
+        "blank",
+        "mkfs",
+        "obliterate",
+    ]) || w.iter().any(|x| x.starts_with("mkfs"))
+        || has("empty") && has("disk")
+        || (device_path && any(&["delete", "remove", "rm", "secure", "securely"]));
     if whole_drive && wipes && !any(&["cache", "history", "logs", "log", "trash", "space"]) {
         return Some(
             "formatting or wiping a drive erases everything on it, and a wrong device name destroys the wrong disk. \
@@ -196,5 +226,352 @@ pub fn tell_the_truth(suggestion: &mut Suggestion, command: &Command, details: &
     }
     if only_placeholders(command, details) {
         suggestion.probability = suggestion.probability.min(PLACEHOLDER_CONFIDENCE);
+    }
+}
+
+// --- requests that are themselves command lines ---------------------------------------------------
+
+/// Words that make a request prose rather than a command line ("du -sh the folders in /var").
+const PROSE_WORDS: &[&str] = &[
+    "the",
+    "a",
+    "an",
+    "in",
+    "to",
+    "for",
+    "of",
+    "with",
+    "me",
+    "my",
+    "all",
+    "and",
+    "into",
+    "on",
+    "by",
+    "from",
+    "at",
+    "is",
+    "that",
+    "it",
+    "process",
+    "owned",
+    "named",
+    "called",
+    "except",
+    "excluding",
+    "without",
+    "every",
+    "each",
+    "only",
+    "please",
+    "i",
+    "want",
+    "how",
+    "what",
+    "which",
+    "where",
+    "under",
+    "inside",
+    "older",
+    "newer",
+];
+
+/// A request that is itself a shell command line ("tar -xzf backup.tar.gz", "ls | wc -l"): its first
+/// word is a program and it has flags, `NAME=value` arguments or shell operators. Matching its words
+/// against the catalog would guess; `huh explain` reads it. An instruction with a command inside
+/// ("run ls -la in src") starts with a plain word and is not one.
+pub fn command_line_request<'a>(request: &'a str, known: &dyn Fn(&str) -> bool) -> Option<&'a str> {
+    let line = request.trim().trim_matches('`').trim();
+    let mut words = line.split_whitespace().peekable();
+    if words.peek() == Some(&"sudo") {
+        words.next();
+    }
+    let first = words.next()?;
+    if !known(first) || !first.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "-_.".contains(c)) {
+        return None;
+    }
+    let rest: Vec<&str> = words.collect();
+    let flagged = rest.iter().any(|w| {
+        let mut chars = w.chars();
+        (chars.next() == Some('-') && chars.next().is_some_and(|c| c.is_ascii_alphanumeric() || c == '-'))
+            || matches!(*w, "|" | "||" | "&&" | ";" | ">" | ">>" | "<" | "2>&1")
+            || (w.contains('=') && w.chars().next().is_some_and(|c| c.is_ascii_alphabetic()))
+    });
+    let prose = rest.iter().any(|w| PROSE_WORDS.contains(&w.to_lowercase().as_str()));
+    (flagged && !prose).then_some(line)
+}
+
+/// Targets that are the whole system or a whole user's files.
+const SYSTEM_TARGETS: &[&str] = &[
+    "/", "/*", "~", "~/", "~/*", "$HOME", "$HOME/", "$HOME/*", "${HOME}", "/etc", "/usr", "/bin", "/sbin", "/lib",
+    "/lib64", "/boot", "/var", "/home", "/root", "/opt", "/dev", "/sys", "/proc", "/etc/*", "/usr/*", "/var/*",
+    "/home/*", "/boot/*", "/bin/*", "/lib/*",
+];
+
+/// A path under /dev that names a disk, partition or other block device.
+pub fn is_disk_device(path: &str) -> bool {
+    let Some(name) = path.trim_matches(['"', '\'']).strip_prefix("/dev/") else { return false };
+    let name = name.strip_prefix("disk/").unwrap_or(name);
+    ["sd", "hd", "vd", "xvd", "nvme", "mmcblk", "md", "dm-", "mapper", "loop", "disk", "sr", "by-"]
+        .iter()
+        .any(|p| name.starts_with(p))
+}
+
+/// Whether a suggested line deletes, shreds or truncates a disk device (`rm /dev/sdb`): never a
+/// right answer, whatever the request said.
+pub fn deletes_a_drive(line: &str) -> bool {
+    let mut words = line.split_whitespace().skip_while(|w| matches!(*w, "sudo" | "doas"));
+    words.next().is_some_and(|p| matches!(p, "rm" | "rmdir" | "unlink" | "shred" | "truncate" | "mv"))
+        && words.any(|w| is_disk_device(w) || w.starts_with("/dev/") && w != "/dev/null")
+}
+
+/// Whether a command line would destroy the whole system or a whole drive: a recursive delete or
+/// permission change of `/`, `~` or a system folder, raw writes to a disk, a filesystem made on a
+/// device, or a fork bomb.
+pub fn destroys_system(line: &str) -> bool {
+    if line.contains(":(){") || line.contains(":() {") {
+        return true;
+    }
+    let tokens: Vec<&str> = line.split_whitespace().map(|w| w.trim_matches([';', '"', '\''])).collect();
+    // `> /dev/sda`, `cat x | tee /dev/sda`.
+    if tokens.windows(2).any(|w| matches!(w[0], ">" | ">>" | "tee") && is_disk_device(w[1])) {
+        return true;
+    }
+    let mut args = tokens.iter().copied().peekable();
+    while args.peek().is_some_and(|w| matches!(*w, "sudo" | "doas" | "nohup" | "time" | "exec")) {
+        args.next();
+    }
+    let Some(program) = args.next() else { return false };
+    let args: Vec<&str> = args.collect();
+    let program = program.rsplit('/').next().unwrap_or(program);
+    let recursive = args.iter().any(|a| {
+        *a == "--recursive" || (a.starts_with('-') && !a.starts_with("--") && a.chars().any(|c| matches!(c, 'r' | 'R')))
+    });
+    let system_target = args.iter().any(|a| SYSTEM_TARGETS.contains(a));
+    match program {
+        "rm" | "chmod" | "chown" | "chgrp" | "mv" | "shred" | "find" | "rsync" => {
+            args.contains(&"--no-preserve-root")
+                || (system_target && (recursive || matches!(program, "mv" | "shred" | "rsync")))
+                || (program == "find" && system_target && args.iter().any(|a| matches!(*a, "-delete" | "-exec")))
+        }
+        "dd" => args.iter().any(|a| a.strip_prefix("of=").is_some_and(is_disk_device)),
+        "wipefs" | "blkdiscard" | "sgdisk" => args.iter().any(|a| is_disk_device(a)),
+        p if p.starts_with("mkfs") || p == "mkswap" => args.iter().any(|a| is_disk_device(a)),
+        _ => false,
+    }
+}
+
+// --- "show me" requests never get a destructive answer ----------------------------------------------
+
+/// Whether the request only asks to look at something (show, inspect, list, ...) and says nothing
+/// about changing it. A destructive command is never the answer to such a request.
+pub fn asks_to_look(request: &str) -> bool {
+    const LOOK: &[&str] = &[
+        "show", "inspect", "list", "display", "get", "print", "check", "find", "what", "which", "view", "see", "tell",
+        "whats", "lookup",
+    ];
+    const CHANGE: &[&str] = &[
+        "delet",
+        "remov",
+        "kill",
+        "stop",
+        "eras",
+        "drop",
+        "prun",
+        "clean",
+        "wip",
+        "terminat",
+        "destroy",
+        "purg",
+        "clear",
+        "uninstall",
+        "discard",
+        "reset",
+        "overwrit",
+        "truncat",
+        "shred",
+        "rid",
+        "rm",
+        "force",
+        "unlink",
+        "revert",
+        "undo",
+        "format",
+        "restart",
+        "reboot",
+        "shutdown",
+        "poweroff",
+        "halt",
+        "trash",
+        "flush",
+        "evict",
+        "zero",
+        "nuke",
+        "reclaim",
+        "rollback",
+        "abort",
+        "cancel",
+        "disable",
+        "unmount",
+        "umount",
+    ];
+    let w = words(request);
+    let leads = w.iter().take(3).any(|x| LOOK.contains(&x.as_str()));
+    // "show deleted files" describes; only a word that asks for the change itself counts.
+    let changes = w.iter().any(|x| (x == "shred" || !x.ends_with("ed")) && CHANGE.iter().any(|c| x.starts_with(c)));
+    leads && !changes
+}
+
+// --- "everything in X" means the contents, not X ----------------------------------------------------
+
+/// The folder a request names the contents of: "all files in Documents", "everything in ~/old",
+/// "the contents of build". Not "this folder" or other words for the current one.
+pub fn contents_target(request: &str) -> Option<String> {
+    let toks: Vec<String> = request
+        .split_whitespace()
+        .map(|w| w.trim_matches(|c: char| matches!(c, ',' | ';' | '?' | '!' | '"' | '\'' | '`')).trim_end_matches('.'))
+        .map(str::to_string)
+        .collect();
+    let low: Vec<String> = toks.iter().map(|t| t.to_lowercase()).collect();
+    let is = |i: usize, set: &[&str]| low.get(i).is_some_and(|w| set.contains(&w.as_str()));
+    const THINGS: &[&str] =
+        &["files", "folders", "directories", "contents", "content", "stuff", "things", "items", "data"];
+    const PREPS: &[&str] = &["in", "inside", "from", "under", "within", "of"];
+    let mut start = None;
+    for i in 0..low.len() {
+        let found = if is(i, &["all", "every"]) {
+            let mut j = i + 1;
+            if is(j, &["the", "of"]) {
+                j += 1;
+            }
+            (is(j, THINGS) && is(j + 1, PREPS)).then_some(j + 2)
+        } else if is(i, &["everything"]) {
+            is(i + 1, PREPS).then_some(i + 2)
+        } else if is(i, &["contents", "content"]) {
+            is(i + 1, &["of"]).then_some(i + 2)
+        } else {
+            None
+        };
+        if found.is_some() {
+            start = found;
+            break;
+        }
+    }
+    let mut j = start?;
+    while is(j, &["the", "my", "your", "our"]) {
+        j += 1;
+    }
+    let value = toks.get(j)?;
+    let lower = value.to_lowercase();
+    let current = matches!(
+        lower.as_str(),
+        "this" | "that" | "here" | "it" | "them" | "current" | "." | "./" | "~" | "/" | "$home"
+    ) || value.contains('*')
+        || value.contains('?');
+    (!current && !value.is_empty()).then(|| value.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn known(word: &str) -> bool {
+        matches!(word, "ls" | "rm" | "dd" | "du" | "tar" | "find" | "chmod" | "docker" | "cat")
+    }
+
+    #[test]
+    fn command_lines_are_told_from_instructions() {
+        for line in ["tar -xzf backup.tar.gz", "du -sh /var | sort -h", "dd if=/dev/zero of=/dev/sda", "sudo rm -rf /"]
+        {
+            assert_eq!(command_line_request(line, &known), Some(line), "{line}");
+        }
+        for request in [
+            "run ls -la in src",
+            "ls",
+            "find large files",
+            "du -sh the folders in /var",
+            "tar the folder with -z please",
+            "show disk usage",
+        ] {
+            assert_eq!(command_line_request(request, &known), None, "{request}");
+        }
+    }
+
+    #[test]
+    fn destructive_lines_on_the_whole_system_are_recognised() {
+        for line in [
+            "rm -rf /",
+            "rm -rf /*",
+            "sudo rm -fr ~",
+            "rm -rf --no-preserve-root /",
+            "chmod -R 777 /",
+            "chown -R nobody /etc",
+            "dd if=/dev/zero of=/dev/sda bs=1M",
+            "mkfs.ext4 /dev/sda1",
+            "wipefs -a /dev/nvme0n1",
+            "cat /dev/zero > /dev/sda",
+            ":(){ :|:& };:",
+        ] {
+            assert!(destroys_system(line), "{line}");
+        }
+        for line in ["rm -rf build", "rm -r /tmp/x", "chmod -R 755 uploads", "dd if=a.img of=b.img", "ls /"] {
+            assert!(!destroys_system(line), "{line}");
+        }
+    }
+
+    #[test]
+    fn deleting_a_device_is_never_suggested() {
+        assert!(deletes_a_drive("rm /dev/sdb"));
+        assert!(deletes_a_drive("sudo shred -n 1 /dev/nvme0n1"));
+        assert!(!deletes_a_drive("sudo fsck -n /dev/sdc1"));
+        assert!(!deletes_a_drive("rm notes.txt"));
+    }
+
+    #[test]
+    fn wipes_of_devices_are_refused_in_any_wording() {
+        for request in [
+            "wipe /dev/sdb",
+            "securely erase /dev/nvme0n1",
+            "zero out /dev/mmcblk0",
+            "delete /dev/sdb1",
+            "overwrite sdb with zeros",
+            "shred /dev/sdc",
+        ] {
+            assert!(refusal(request).is_some(), "{request}");
+        }
+        for request in ["mount /dev/sdb1 on /mnt/usb", "check filesystem on /dev/sdc1", "show partitions of /dev/sda"] {
+            assert!(refusal(request).is_none(), "{request}");
+        }
+    }
+
+    #[test]
+    fn looking_requests_are_told_from_changing_ones() {
+        for request in ["show process tree of pid 1234", "docker inspect ip of container api", "what is using port 80"]
+        {
+            assert!(asks_to_look(request), "{request}");
+        }
+        for request in ["show me how to delete a file", "find and delete old logs", "stop container api", "kill pid 1"]
+        {
+            assert!(!asks_to_look(request), "{request}");
+        }
+        assert!(asks_to_look("show deleted files"));
+    }
+
+    #[test]
+    fn everything_in_a_folder_names_its_contents() {
+        for (request, folder) in [
+            ("delete all files in Documents", "Documents"),
+            ("delete everything in ~/Downloads", "~/Downloads"),
+            ("remove the contents of build", "build"),
+            ("get rid of all the files from /tmp/cache", "/tmp/cache"),
+            ("wipe all files inside the logs folder", "logs"),
+        ] {
+            assert_eq!(contents_target(request).as_deref(), Some(folder), "{request}");
+        }
+        for request in
+            ["delete the Documents folder", "delete everything in this folder", "delete all files", "delete *.log"]
+        {
+            assert_eq!(contents_target(request), None, "{request}");
+        }
     }
 }

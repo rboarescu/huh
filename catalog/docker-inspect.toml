@@ -1,0 +1,11 @@
+name = "docker inspect"
+description = "Show every detail of a Docker container or image: its settings, mounts, network and state"
+template = "docker inspect {container}"
+kind = "query"
+keywords = ["inspect container", "container details", "container settings", "container configuration", "show container info", "inspect image", "docker inspect"]
+
+[[slots]]
+id = "container"
+kind = "text"
+type = "container"
+what = "the container or image to look at"

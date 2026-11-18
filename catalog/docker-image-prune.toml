@@ -1,6 +1,6 @@
 name = "docker image prune"
 description = "Delete Docker images that nothing uses, such as dangling untagged ones"
-template = "docker image prune {all}"
+template = "docker image prune {all} {until}"
 destructive = true
 warning = "unused images are deleted; they have to be pulled or rebuilt to use them again."
 keywords = ["dangling images", "remove dangling docker images", "prune images", "clean unused images", "delete untagged images", "remove unused docker images"]
@@ -9,3 +9,11 @@ keywords = ["dangling images", "remove dangling docker images", "prune images", 
 id = "all"
 value = "-a"
 question = "Does the user want all unused images removed, not only dangling untagged ones?"
+
+[[slots]]
+id = "until"
+kind = "text"
+what = "the age beyond which images are removed (for example 24h or 168h)"
+default = ""
+format = "--filter until={}"
+extract = "sys_until_age"

@@ -1,6 +1,6 @@
 name = "docker run"
 description = "Create and start a new Docker container from an image"
-template = "docker run {detached} {interactive} {image}"
+template = "docker run {detached} {interactive} {ports} {name} {image}"
 keywords = ["start new container", "launch image", "run container", "detached", "interactive shell"]
 
 [[flags]]
@@ -14,6 +14,23 @@ value = "-it"
 question = "Does the user want an interactive shell or session in the new container?"
 
 [[slots]]
+id = "ports"
+kind = "text"
+what = "the port mapping, host port then container port (8080:80)"
+default = ""
+format = "-p {}"
+extract = "sys_port_map"
+
+[[slots]]
+id = "name"
+kind = "text"
+what = "the name to give the new container"
+default = ""
+format = "--name {}"
+extract = "sys_name"
+
+[[slots]]
 id = "image"
 kind = "text"
 what = "the image to run"
+extract = "sys_run_image"

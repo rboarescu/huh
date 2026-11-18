@@ -414,25 +414,47 @@ pub fn quote(value: &str) -> String {
 /// Replaces `{id}` placeholders in one pass and tidies the spacing.
 fn fill(template: &str, values: &BTreeMap<&str, String>) -> String {
     let mut out = String::new();
-    let mut rest = template;
-    while let Some(start) = rest.find('{') {
-        let Some(len) = rest[start..].find('}') else { break };
-        out.push_str(&rest[..start]);
-        if len == 1 {
-            // `{}` is find's own placeholder (`-exec … {} +`), kept as written.
-            out.push_str("{}");
-        } else if let Some(value) = values.get(&rest[start + 1..start + len]) {
-            out.push_str(value);
+    let bytes = template.as_bytes();
+    let (mut i, mut copied) = (0, 0);
+    while i < bytes.len() {
+        match bytes[i] {
+            // `\{` and `\}` are literal braces (Go templates): the backslash is dropped.
+            b'\\' if matches!(bytes.get(i + 1), Some(b'{' | b'}')) => {
+                out.push_str(&template[copied..i]);
+                copied = i + 1;
+                i += 2;
+            }
+            b'{' => {
+                let Some(len) = template[i..].find('}') else { break };
+                out.push_str(&template[copied..i]);
+                if len == 1 {
+                    // `{}` is find's own placeholder (`-exec … {} +`), kept as written.
+                    out.push_str("{}");
+                } else if let Some(value) = values.get(&template[i + 1..i + len]) {
+                    out.push_str(value);
+                }
+                i += len + 1;
+                copied = i;
+            }
+            _ => i += 1,
         }
-        rest = &rest[start + len + 1..];
     }
-    out.push_str(rest);
+    out.push_str(&template[copied..]);
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escaped_braces_are_literal() {
+        let template = r"docker inspect -f '\{\{range .Networks\}\}\{\{.IPAddress\}\}\{\{end\}\}' {container} {}";
+        assert_eq!(crate::catalog::placeholders(template), vec!["container"]);
+        let mut values = BTreeMap::new();
+        values.insert("container", "api".to_string());
+        assert_eq!(fill(template, &values), "docker inspect -f '{{range .Networks}}{{.IPAddress}}{{end}}' api {}");
+    }
 
     fn chmod() -> Command {
         toml::from_str(include_str!("../catalog/chmod.toml")).unwrap()

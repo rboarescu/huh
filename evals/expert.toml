@@ -267,3 +267,101 @@ request = "force push"
 command = "git push"
 warn = true
 mode = "expert"
+
+# --- the relaxations never undo the dangerous-output fixes ---------------------------------------------
+
+[[case]]
+request = "rm -rf /"
+command = "none"
+hint = "destroy the system"
+mode = "expert"
+
+[[case]]
+request = "rm -rf /*"
+command = "none"
+hint = 'huh explain "rm -rf /*"'
+mode = "expert"
+
+[[case]]
+request = "rm -rf ~"
+command = "none"
+hint = "destroy the system"
+mode = "expert"
+
+[[case]]
+request = "chmod -R 777 /"
+command = "none"
+hint = "destroy the system"
+mode = "expert"
+
+[[case]]
+request = "dd if=/dev/zero of=/dev/sda"
+command = "none"
+hint = "huh explain"
+mode = "expert"
+
+[[case]]
+request = ":(){ :|:& };:"
+command = "none"
+hint = "destroy the system"
+mode = "expert"
+
+[[case]]
+request = "wipe /dev/sdb"
+command = "none"
+hint = "disk tool"
+mode = "expert"
+
+[[case]]
+request = "securely erase /dev/nvme0n1"
+command = "none"
+hint = "disk tool"
+mode = "expert"
+
+[[case]]
+request = "delete /dev/sdb1"
+command = "none"
+hint = "disk tool"
+mode = "expert"
+
+[[case]]
+request = "docker inspect ip of container api"
+command = "docker container ip"
+warn = false
+mode = "expert"
+
+[[case]]
+request = "show process tree of pid 1234"
+command = "pstree"
+expect = "pstree -p 1234"
+warn = false
+mode = "expert"
+
+# Expert mode keeps a destructive answer to a "show me" request, but below every command that only looks.
+[[case]]
+request = "show pid 1234"
+command = "pgrep"
+warn = false
+mode = "expert"
+
+[[case]]
+request = "delete all files in Documents"
+command = "rm"
+expect = "rm -r Documents/*"
+warn = true
+note = "hidden files"
+mode = "expert"
+
+[[case]]
+request = "delete everything in ~/Downloads"
+command = "rm"
+expect = "rm -r ~/Downloads/*"
+warn = true
+mode = "expert"
+
+[[case]]
+request = "delete the Documents folder"
+command = "rm"
+expect = "rm -r Documents"
+warn = true
+mode = "expert"

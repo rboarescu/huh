@@ -30,6 +30,14 @@ struct Case {
     platform: Option<String>,
     /// "expert" scores the case in expert mode (default: normal).
     mode: Option<String>,
+    /// Typed values the first suggestion must keep: each must appear in its line or in one of its
+    /// notes (case-insensitive); "a|b" accepts either spelling. Nothing may vanish silently.
+    #[serde(default)]
+    values: Vec<String>,
+    /// Text the answer's hint ("No suggestion: ...") must contain (optional).
+    hint: Option<String>,
+    /// The confidence of the first suggestion must not exceed this (optional).
+    max_confidence: Option<f64>,
 }
 
 #[derive(Default)]
@@ -134,16 +142,29 @@ fn score_cases(matcher: &LocalMatcher, path: &Path, platforms: &[String]) -> Res
         let got = first.map_or("(no suggestion)", |s| s.line.as_str());
 
         let ok = if case.command == "none" {
-            let ok = outcome.suggestions.is_empty();
+            let ok = outcome.suggestions.is_empty()
+                && case.hint.as_ref().is_none_or(|h| outcome.hint.as_ref().is_some_and(|got| got.contains(h.as_str())));
             rejected.add(ok);
             ok
         } else {
             // "top|ps" means either command is a right answer.
             let accepted: Vec<&str> = case.command.split('|').collect();
-            let command_ok = first.is_some_and(|s| accepted.contains(&s.command.as_str()));
+            // "any" accepts whatever comes first, or nothing (an honest abstention): such cases only
+            // check what a shown suggestion does with the typed values.
+            let any = case.command == "any";
+            let command_ok = any || first.is_some_and(|s| accepted.contains(&s.command.as_str()));
             top1.add(command_ok);
             top3.add(outcome.ranked.iter().any(|(name, _)| accepted.contains(&name.as_str())));
-            let warn_ok = case.warn.is_none_or(|wanted| first.is_some_and(|s| s.destructive == wanted));
+            let kept = |value: &String| {
+                first.map_or(any, |s| {
+                    let shown: Vec<String> =
+                        std::iter::once(&s.line).chain(&s.notes).map(|text| text.to_lowercase()).collect();
+                    value.split('|').any(|alt| shown.iter().any(|text| text.contains(&alt.to_lowercase())))
+                })
+            };
+            let warn_ok = case.warn.is_none_or(|wanted| first.is_some_and(|s| s.destructive == wanted))
+                && case.values.iter().all(kept)
+                && case.max_confidence.is_none_or(|max| first.map_or(any, |s| s.probability <= max + 1e-9));
             match &case.expect {
                 Some(expect) => {
                     let line_ok = first.is_some_and(|s| {
