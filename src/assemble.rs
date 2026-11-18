@@ -418,7 +418,10 @@ fn fill(template: &str, values: &BTreeMap<&str, String>) -> String {
     while let Some(start) = rest.find('{') {
         let Some(len) = rest[start..].find('}') else { break };
         out.push_str(&rest[..start]);
-        if let Some(value) = values.get(&rest[start + 1..start + len]) {
+        if len == 1 {
+            // `{}` is find's own placeholder (`-exec … {} +`), kept as written.
+            out.push_str("{}");
+        } else if let Some(value) = values.get(&rest[start + 1..start + len]) {
             out.push_str(value);
         }
         rest = &rest[start + len + 1..];

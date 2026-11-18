@@ -583,7 +583,10 @@ pub fn placeholders(template: &str) -> Vec<&str> {
     let mut rest = template;
     while let Some(start) = rest.find('{') {
         let Some(len) = rest[start..].find('}') else { break };
-        found.push(&rest[start + 1..start + len]);
+        // `{}` is find's own placeholder (`-exec … {} +`), written as is, not a slot.
+        if len > 1 {
+            found.push(&rest[start + 1..start + len]);
+        }
         rest = &rest[start + len + 1..];
     }
     found

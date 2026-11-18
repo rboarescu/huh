@@ -92,8 +92,8 @@ expect = "chmod 600 id_rsa"
 
 [[case]]
 request = "chmod 644 for all files in public"
-command = "chmod"
-expect = "chmod -R 644 public"
+command = "find chmod files"
+expect = "find public -type f -exec chmod 644 {} +"
 files = ["public/", "README.md"]
 
 [[case]]

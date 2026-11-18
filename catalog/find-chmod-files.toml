@@ -1,0 +1,19 @@
+name = "find chmod files"
+description = "Set the permissions of every file below a folder, leaving the folders alone"
+template = "find {where} -type f -exec chmod {mode} {} +"
+kind = "action"
+destructive = true
+warning = "this changes the permissions of every file below the folder; on a system folder that can break the system."
+keywords = ["chmod all files in", "permissions of all files", "set mode on files only", "chmod files recursively", "644 for all files", "make all files readable", "file permissions recursively"]
+
+[[slots]]
+id = "where"
+kind = "path"
+what = "the folder whose files should change"
+default = "."
+
+[[slots]]
+id = "mode"
+kind = "text"
+what = "the permission mode, such as 644"
+extract = "chmod_mode"

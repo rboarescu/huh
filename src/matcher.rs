@@ -1702,6 +1702,13 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
             && ((q.has_word("status") && !q.has_any(&["tailscale", "battery", "wifi", "network", "omarchy", "vpn", "raid", "user service"]))
                 || (has_is_running && q.has_any(&["service", "daemon", "unit"]))) => bonus += 9.5,
         "find delete" if delete_verb && (age_phrase || pattern_delete) => bonus += 13.0,
+        // A mode for "all files in X" must not reach the folders: `chmod -R 644` makes them unopenable.
+        "find chmod files" if (q.has_any(&["chmod", "permission", "permissions", "mode", "readable", "writable", "executable"])
+                || crate::extract::extract("chmod_mode", q.raw).is_some())
+            && q.has_any(&["all files", "every file", "each file", "files in", "files under", "files inside", "only files", "files only", "only the files", "regular files"]) => bonus += 14.0,
+        "find chmod dirs" if (q.has_any(&["chmod", "permission", "permissions", "mode", "readable", "writable", "executable"])
+                || crate::extract::extract("chmod_mode", q.raw).is_some())
+            && q.has_any(&["all directories", "all folders", "every directory", "every folder", "directories in", "folders in", "directories under", "folders under", "only directories", "only folders", "directories only", "folders only", "subfolders", "subdirectories"]) => bonus += 14.0,
         "kill port" if kills && q.names_port() && !q.has_any(&["listening", "what", "which", "who"]) => bonus += 14.0,
         "kill port" if q.has_phrase("already in use") => bonus += 14.0,
         "ss port" if q.names_port() && !port_check && q.has_any(&["listening", "listens", "using", "uses", "used", "what", "which", "who", "program", "process"]) && !kills => bonus += 14.0,

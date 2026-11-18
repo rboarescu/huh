@@ -646,3 +646,26 @@ expect = 'free -h'
 [[case]]
 request = "show commits between main and develop"
 command = "git log"
+
+[[case]]
+request = "chmod 644 for all files in public"
+command = "find chmod files"
+expect = "find public -type f -exec chmod 644 {} +"
+warn = true
+
+[[case]]
+request = "set 755 on all directories in dist"
+command = "find chmod dirs"
+expect = "find dist -type d -exec chmod 755 {} +"
+warn = true
+
+[[case]]
+request = "make all subfolders of public 750"
+command = "find chmod dirs"
+expect = "find public -type d -exec chmod 750 {} +"
+warn = true
+
+[[case]]
+request = "chmod 600 on id_rsa"
+command = "chmod"
+expect = "chmod 600 id_rsa"
