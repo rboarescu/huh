@@ -9,6 +9,18 @@
 - **Tests**: `evals/slots.toml` (52 cases, 39 failed before; `cargo test` requires all, new optional `note` field), plus the existing evals unchanged.
 - **Not handled**: wrong commands from ranking (e.g. "compress the projects folder into a tar.gz" gives `gzip`, "force quit spotify" gives `kill -9`, "go back to the previous folder" has no `cd -`); `scp`/`rsync` ports and users; several values for one slot; relative dates beyond the words after `since`.
 
+## Completed: Error doctor accuracy pass (2026-11-18)
+
+Governing rule: a confident wrong cause or fix is worse than "huh does not recognise this". New suite `evals/errors-real.toml` (67 cases from real runs of the 96-failure test) went from 21/67 causes and 23/67 fixes to 67/67 and 67/67; `cargo test` now requires 100% on all three error suites. The eval format gained optional `exit` (omitted = piped input), `forbid` (words that must not appear) and `files` (files made in a temp folder, `$TMP`).
+
+- **Permission denied**: stats the file (read-only). Your own file with no read/write bit gets `chmod u+r`/`u+w`; a missing file checks its folder; sudo only for files of another user or under /etc, /var, /usr, /root, /sys, /proc, /dev, /boot. Redirect or `cat` failures are no longer mistaken for "not executable". Several failing files are each named (up to three).
+- **Modules**: Python import names map to pip names (`yaml` -> `pyyaml`, `cv2`, `PIL`, `bs4`, `sklearn` and more); a near-miss of a common, installed or local module is called a typo (`grep` to find it) instead of `pip install <typo>`; PEP 668 systems get a venv command. Same for node `Cannot find module`.
+- **Successful output**: without an exit code and without an error-looking line, huh says the output does not look like an error and what it seems to be; exit 0 says it succeeded.
+- **Network**: name lookup failures quote only text in the output and suggest `getent hosts <host>` (DNS wording keeps the `ping` check); `ping`/`wget` forms recognised; "Connection refused" says nothing listens on that port (`ss -ltn` for local, `nc -zv` for remote), not `ping`.
+- **Rules added**: docker pull denied / repository missing, `pacman` without root, git (not a repository, bad branch or pathspec, `src refspec`, merge conflicts and unmerged paths, empty stash), Makefile `missing separator`, Python SyntaxError/IndentationError/KeyError/AttributeError/JSONDecodeError and other tracebacks (file and line), pip `externally-managed-environment`, npm `Missing script`, unzip on a non-zip, `Killed` (out of memory), `Segmentation fault`.
+- **Changed**: `tar xzf` on a non-gzip file suggests `file <name>` with the real file name instead of a guessed `tar -xf`; `systemctl --user` suggestions keep `--user` and "could not be found" is recognised; the fallback quotes the first error line (or the last line of a traceback) instead of the last line; paths in "does not exist" messages are extracted cleanly.
+- **Still not handled**: compiler errors beyond quoting the first one, most npm/cargo failures beyond the quoted line, Python errors whose frame is in a library only, and any failure whose output carries no error keyword (reported as "does not look like an error" when the exit code is unknown).
+
 ## Completed: Platform and package-name fixes from the Docker verification (2026-11-17)
 
 - **Names**: "install dig/docker" map program to package per family (the `[programs]`/`[packages]` data, via `pkg_role` on package tasks and `assemble::package_line`); fixed suse (`btrfsprogs`, `iperf`, `rust`), void (`fish-shell`, `rust`, `bind-utils`; `nmap`/`unrar` fall back to `xlocate`), alpine (`rust`; `snapper`/`unrar` marked not packaged with `""`), nixos (`gnumake`, npm in `nodejs`). Names were checked in containers.
@@ -74,7 +86,7 @@ The evals score 100%, but four simulated users (beginner on Omarchy, sysadmin, f
    - "discard changes in f" gives `gio trash f`.
    - "remove dangling docker images" gives `docker rmi dangling`.
 2. ~~**Slot filling**~~ Done 2026-11-18 (see "Completed: Slot filling"). Left: scp/rsync users and ports, several values for one slot.
-3. **Error doctor (`huh why`)**: only 22 of 96 real failures got a useful fix.
+3. ~~**Error doctor (`huh why`)**~~ Done 2026-11-18 (see "Completed: Error doctor accuracy pass"). Original problems, kept for history: only 22 of 96 real failures got a useful fix.
    - Every "Permission denied" is blamed on root.
    - A misspelled module gets `pip install <typo>`.
    - `sl: command not found` gets `pacman -S sl` instead of `ls`.

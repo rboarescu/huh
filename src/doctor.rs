@@ -6,7 +6,7 @@
 use crate::session::Last;
 use anyhow::Result;
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// Standard shell exit codes and their plain-English meanings.
@@ -199,6 +199,10 @@ fn diagnose(last: &Last) -> String {
         return diagnose_exit_zero(last);
     }
 
+    if last.exit.is_none() && !last.output.trim().is_empty() && !last.output.lines().any(is_error_line) {
+        return diagnose_not_an_error(last);
+    }
+
     if let Some(ans) = diagnose_docker(last) {
         return ans;
     }
@@ -220,6 +224,9 @@ fn diagnose(last: &Last) -> String {
     if let Some(ans) = diagnose_network(last) {
         return ans;
     }
+    if let Some(ans) = diagnose_several_files(last) {
+        return ans;
+    }
     if let Some(ans) = diagnose_filesystem(last) {
         return ans;
     }
@@ -229,13 +236,20 @@ fn diagnose(last: &Last) -> String {
     if let Some(ans) = diagnose_tools_and_code(last) {
         return ans;
     }
+    if let Some(ans) = diagnose_crashes(last) {
+        return ans;
+    }
     diagnose_fallback(last)
 }
 
 /// The explanation, then a `Try:` line with the command to run. "nothing" means there is no
 /// command to suggest, and then there is no `Try:` line either.
 fn format_answer(explanation: &str, try_cmd: &str) -> String {
-    if try_cmd == "nothing" { explanation.to_string() } else { format!("{explanation}\nTry: {try_cmd}") }
+    if try_cmd.trim().is_empty() || try_cmd.trim().eq_ignore_ascii_case("nothing") {
+        explanation.to_string()
+    } else {
+        format!("{explanation}\nTry: {try_cmd}")
+    }
 }
 
 fn cmd_label(command: &str) -> String {
@@ -263,6 +277,35 @@ fn diagnose_docker(last: &Last) -> Option<String> {
         };
         let fix = if in_docker_group { "newgrp docker" } else { "sudo usermod -aG docker $USER" };
         return Some(format_answer(explanation, fix));
+    }
+    if lower.contains("pull access denied") || lower.contains("repository does not exist") {
+        let image = last
+            .output
+            .split("pull access denied for ")
+            .nth(1)
+            .and_then(|r| r.split([',', ' ']).next())
+            .map(str::to_string)
+            .or_else(|| {
+                last.output
+                    .split("Unable to find image '")
+                    .nth(1)
+                    .and_then(|r| r.split('\'').next())
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(|| "the image".to_string());
+        let name = image.split(':').next().unwrap_or(&image).rsplit('/').next().unwrap_or(&image).to_string();
+        return Some(format_answer(
+            &format!(
+                "Docker could not pull `{image}` (`pull access denied ... repository does not exist or may require 'docker login'`): either no image has that name or it is private. Check the spelling of the name and tag, or run `docker login` if the image is private."
+            ),
+            &format!("docker search {name}"),
+        ));
+    }
+    if lower.contains("manifest unknown") || (lower.contains("manifest for") && lower.contains("not found")) {
+        return Some(format_answer(
+            "Docker found the repository but not that tag (`manifest unknown`): the image exists, but the tag you asked for does not. Check the tag spelling on the image's page.",
+            "nothing",
+        ));
     }
     if lower.contains("cannot connect to the docker daemon") {
         let sock_note = if Path::new("/var/run/docker.sock").exists() {
@@ -302,14 +345,18 @@ fn diagnose_service_daemons(last: &Last) -> Option<String> {
     }
     if let Some(unit) = extract_systemd_missing_unit(&last.output) {
         let stem = unit.rsplit_once('.').map_or(unit.as_str(), |(s, _)| s);
+        let user = if last.command.split_whitespace().any(|w| w == "--user") { " --user" } else { "" };
         let try_cmd = if stem.is_empty() {
-            "systemctl list-unit-files".to_string()
+            format!("systemctl{user} list-unit-files")
         } else {
-            format!("systemctl list-unit-files '*{stem}*'")
+            format!("systemctl{user} list-unit-files '*{stem}*'")
         };
+        let said =
+            if last.output.to_lowercase().contains("could not be found") { "could not be found" } else { "not found" };
+        let scope = if user.is_empty() { "" } else { " among your user units" };
         return Some(format_answer(
             &format!(
-                "Systemd could not find the unit `{unit}` (`Unit {unit} not found`). The service may not be installed or may use a different unit name."
+                "Systemd could not find the unit `{unit}`{scope} (`Unit {unit} {said}`). The service may not be installed or may use a different unit name."
             ),
             &try_cmd,
         ));
@@ -327,9 +374,16 @@ fn diagnose_not_executable(last: &Last) -> Option<String> {
                 && t.contains("permission denied")
                 && (t.contains("./") || t.contains(": /"))
         });
+    // Only the program being run counts: `cat /etc/x` failing to read a file is not an execute problem.
+    let (_, prog, _) = extract_command_parts(&last.command);
+    let runs_a_path = prog.contains('/')
+        && last.output.lines().any(|l| {
+            let low = l.to_lowercase();
+            low.contains("permission denied") && low.contains(&prog.to_lowercase())
+        });
     let is_exec_denied = last.exit == Some(126)
         || (lower.contains("permission denied")
-            && (trimmed_cmd.starts_with("./") || trimmed_cmd.starts_with('/') || shell_exec_denied));
+            && if trimmed_cmd.is_empty() { shell_exec_denied } else { runs_a_path });
     if !is_exec_denied {
         return None;
     }
@@ -488,6 +542,14 @@ fn diagnose_command_not_found(last: &Last) -> Option<String> {
 
 fn diagnose_pacman(last: &Last) -> Option<String> {
     let lower = last.output.to_lowercase();
+    if lower.contains("you cannot perform this operation unless you are root") {
+        let command = last.command.trim();
+        let fix = if command.is_empty() { "sudo pacman -S <package>".to_string() } else { format!("sudo {command}") };
+        return Some(format_answer(
+            "Pacman changes the system's packages, so it must run as root (`you cannot perform this operation unless you are root`); run it with sudo.",
+            &fix,
+        ));
+    }
     if lower.contains("unable to lock database") || lower.contains("db.lck") {
         let lock_note = if Path::new("/var/lib/pacman/db.lck").exists() {
             " The lock file `/var/lib/pacman/db.lck` currently exists on disk."
@@ -561,16 +623,37 @@ fn diagnose_git(last: &Last) -> Option<String> {
             "git stash",
         ));
     }
-    None
+    diagnose_git_more(last)
 }
 
 fn diagnose_network(last: &Last) -> Option<String> {
     let lower = last.output.to_lowercase();
-    if lower.contains("temporary failure in name resolution") || lower.contains("could not resolve host") {
-        return Some(format_answer(
-            "DNS name resolution failed (`Temporary failure in name resolution`), so the hostname could not be looked up.",
-            "ping -c 4 1.1.1.1",
-        ));
+    if let Some((host, said)) = unresolved_host(&last.output) {
+        let temporary = said.to_lowercase().contains("temporary failure");
+        return Some(match host {
+            Some(host) if temporary => format_answer(
+                &format!(
+                    "The DNS lookup for `{host}` failed (`{said}`): the DNS server could not be reached, so the network connection or DNS settings are the likely problem rather than the name."
+                ),
+                "ping -c 4 1.1.1.1",
+            ),
+            Some(host) => format_answer(
+                &format!(
+                    "The host name `{host}` could not be looked up (`{said}`): either the name is misspelled, or DNS or the network connection is down."
+                ),
+                &format!("getent hosts {host}"),
+            ),
+            None if temporary => format_answer(
+                "A host name could not be looked up (`Temporary failure in name resolution`): DNS or the network connection is down.",
+                "ping -c 4 1.1.1.1",
+            ),
+            None => format_answer(
+                &format!(
+                    "A host name could not be looked up (`{said}`): the name is misspelled, or DNS or the network is down."
+                ),
+                "nothing",
+            ),
+        });
     }
     if lower.contains("permission denied (publickey)") {
         let host = extract_ssh_target(&last.command, &last.output).unwrap_or_else(|| "<host>".to_string());
@@ -589,18 +672,34 @@ fn diagnose_network(last: &Last) -> Option<String> {
             &format!("ssh-copy-id {host}"),
         ));
     }
-    if lower.contains("connection refused") {
-        let port = extract_ssh_port(&last.command, &last.output);
-        if last.command.trim_start().starts_with("ssh") || lower.contains("ssh:") || port.is_some() {
-            let host = extract_ssh_target(&last.command, &last.output).unwrap_or_else(|| "<host>".to_string());
-            let port_str = port.unwrap_or_else(|| "22".to_string());
-            return Some(format_answer(
-                &format!(
-                    "SSH could not connect to `{host}` because the host refused the connection on port {port_str} (the SSH server may not be running, listening on port {port_str}, or reachable)."
-                ),
-                &format!("ping -c 4 {host}"),
-            ));
-        }
+    if (lower.contains("connection refused")
+        || lower.contains("econnrefused")
+        || lower.contains("couldn't connect to server"))
+        && let Some((host, port)) = refused_target(&last.command, &last.output)
+    {
+        let host_text = host.clone().unwrap_or_else(|| "that host".to_string());
+        let on_port = port.as_ref().map_or(String::new(), |p| format!(" on port {p}"));
+        let local = host
+            .as_deref()
+            .is_none_or(|h| h == "localhost" || h == "::1" || h == "[::1]" || h == "0.0.0.0" || h.starts_with("127."));
+        let is_ssh = last.command.trim_start().starts_with("ssh") || lower.contains("ssh:");
+        let who = if is_ssh { "an SSH server" } else { "a server" };
+        let cause = if local {
+            format!("nothing is listening{on_port} on this machine, so {who} is not running there or uses another port")
+        } else {
+            format!(
+                "nothing is listening{on_port} at `{host_text}`: {who} is not running there, uses another port, or a firewall rejects the connection"
+            )
+        };
+        let fix = match (&port, local) {
+            (Some(p), true) => format!("ss -ltn 'sport = :{p}'"),
+            (Some(p), false) => format!("nc -zv {host_text} {p}"),
+            (None, _) => "ss -ltn".to_string(),
+        };
+        return Some(format_answer(
+            &format!("The connection to `{host_text}`{on_port} was refused (`Connection refused`): {cause}."),
+            &fix,
+        ));
     }
     if lower.contains("ssl certificate problem") && lower.contains("self-signed") {
         let url = last
@@ -704,19 +803,20 @@ fn diagnose_permissions(last: &Last) -> Option<String> {
         || lower.contains("interactive authentication required")
     {
         let trimmed = last.command.trim();
-        let evidence = last_meaningful_line(&last.output).unwrap_or("Permission denied");
-        if trimmed.is_empty() {
-            if lower.contains("interactive authentication required")
-                && let Some(systemctl_cmd) = extract_systemd_failed_action(&last.output)
-            {
-                return Some(format_answer(
-                    &format!("The command failed because root or PolicyKit authentication is required (`{evidence}`)."),
-                    &format!("sudo {systemctl_cmd}"),
-                ));
-            }
+        let evidence_line = last.output.lines().map(str::trim).find(|l| {
+            let low = l.to_lowercase();
+            ["permission denied", "access denied", "not permitted", "must be root", "authentication required"]
+                .iter()
+                .any(|p| low.contains(p))
+        });
+        let evidence = evidence_line.map(str::to_string).or_else(|| error_summary(&last.output)).unwrap_or_default();
+        if trimmed.is_empty()
+            && lower.contains("interactive authentication required")
+            && let Some(systemctl_cmd) = extract_systemd_failed_action(&last.output)
+        {
             return Some(format_answer(
-                &format!("The command failed because root or administrator privileges are required (`{evidence}`)."),
-                "nothing",
+                &format!("The command failed because root or PolicyKit authentication is required (`{evidence}`)."),
+                &format!("sudo {systemctl_cmd}"),
             ));
         }
         if trimmed.starts_with("sudo ") {
@@ -727,14 +827,52 @@ fn diagnose_permissions(last: &Last) -> Option<String> {
                 "ls -l",
             ));
         }
+        let denied = file_failures(&last.output).into_iter().find(|f| f.problem == FileProblem::Denied);
+        if let Some(failure) = denied {
+            let (sentence, fix) =
+                permission_advice(&failure.path, failure.writing || writes_to_file(trimmed, &last.output), trimmed);
+            return Some(format_answer(&format!("{sentence} (`{evidence}`)"), &fix));
+        }
+        let needs_root = lower.contains("operation not permitted")
+            || lower.contains("must be root")
+            || lower.contains("access denied")
+            || lower.contains("authentication required");
+        if !needs_root {
+            return Some(format_answer(
+                &format!(
+                    "The command was refused with `{evidence}`, but the output does not say which file or resource. Check the owner and mode of what it touches; only if that is a system file does it need root."
+                ),
+                "nothing",
+            ));
+        }
+        if trimmed.is_empty() || is_shell_builtin(trimmed) {
+            return Some(format_answer(
+                &format!("The command failed because it needs administrator privileges (`{evidence}`)."),
+                "nothing",
+            ));
+        }
         return Some(format_answer(
             &format!(
-                "The operation failed due to insufficient permissions (`{evidence}`); root privileges are required."
+                "The operation failed due to insufficient permissions (`{evidence}`); it probably needs administrator rights."
             ),
             &format!("sudo {trimmed}"),
         ));
     }
     None
+}
+
+/// Commands the shell runs itself, which `sudo` cannot run.
+fn is_shell_builtin(command: &str) -> bool {
+    let (_, prog, _) = extract_command_parts(command);
+    matches!(prog, "cd" | "source" | "." | "export" | "alias" | "ulimit" | "umask" | "exec")
+}
+
+/// A shell redirect (`> file`) or a command that changes files, so a refused access was a write.
+fn writes_to_file(command: &str, output: &str) -> bool {
+    let (_, prog, _) = extract_command_parts(command);
+    let first = output.lines().next().unwrap_or("").trim_start().to_lowercase();
+    (command.contains('>') && (first.starts_with("bash:") || first.starts_with("sh:") || first.starts_with("zsh:")))
+        || matches!(prog, "touch" | "mkdir" | "rm" | "rmdir" | "mv" | "tee" | "ln" | "truncate")
 }
 
 fn diagnose_tools_and_code(last: &Last) -> Option<String> {
@@ -748,28 +886,40 @@ fn diagnose_tools_and_code(last: &Last) -> Option<String> {
             &try_cmd,
         ));
     }
-    if lower.contains("not in gzip format") {
-        let archive = extract_tar_archive(last).unwrap_or_else(|| "<archive>".to_string());
+    if let Some(ans) = diagnose_archives(last) {
+        return Some(ans);
+    }
+    if lower.contains("externally-managed-environment") {
         return Some(format_answer(
-            &format!(
-                "`tar` failed because `{archive}` is not compressed with gzip (`not in gzip format`), so the `-z` flag does not match the file."
-            ),
-            &format!("tar -xf {archive}"),
+            "pip refused to install into the system Python because it is externally managed (`externally-managed-environment`, PEP 668): the distribution's package manager owns those files. Use a virtual environment (`python3 -m venv .venv`, then `.venv/bin/pip install <package>`), `pipx install <app>` for command-line tools, or the distribution's own python package.",
+            "python3 -m venv .venv",
         ));
     }
     if let Some(module) = extract_python_module(&last.output) {
+        return Some(diagnose_python_module(&module));
+    }
+    if let Some(name) = extract_node_module(&last.output) {
+        return Some(diagnose_node_module(&name));
+    }
+    if let Some(script) = last.output.split("Missing script: \"").nth(1).and_then(|r| r.split('"').next()) {
         return Some(format_answer(
             &format!(
-                "Python could not import `{module}` because that module is not installed (`ModuleNotFoundError: No module named '{module}'`)."
+                "npm has no script called `{script}` in this package.json (`Missing script: \"{script}\"`); `npm run` lists the scripts it does have."
             ),
-            &format!("pip install {module}"),
+            "npm run",
         ));
+    }
+    if let Some(ans) = diagnose_makefile(last) {
+        return Some(ans);
     }
     if lower.contains("no such process") {
         return Some(format_answer(
             "That process ID does not exist (`No such process`); the process may have already exited or the PID was mistyped.",
             "ps aux",
         ));
+    }
+    if let Some(ans) = diagnose_python(last) {
+        return Some(ans);
     }
     if let Some(err_line) = last.output.lines().find(|l| l.trim_start().starts_with("error[E")) {
         let detail = err_line.trim();
@@ -786,16 +936,6 @@ fn diagnose_tools_and_code(last: &Last) -> Option<String> {
 fn diagnose_fallback(last: &Last) -> String {
     let lower = last.output.to_lowercase();
     let (_, prog, _) = extract_command_parts(&last.command);
-    if last.exit == Some(137) {
-        return format_answer(
-            &format!(
-                "The process{} was forcefully killed (exit code 137: {}).",
-                cmd_label(&last.command),
-                exit_meaning(137).unwrap_or("killed")
-            ),
-            "nothing",
-        );
-    }
     if last.exit == Some(143) {
         return format_answer(
             &format!(
@@ -845,14 +985,1047 @@ fn diagnose_fallback(last: &Last) -> String {
             None => format!("exit code {c}"),
         },
     );
-    if let Some(line) = last_meaningful_line(&last.output) {
-        format_answer(&format!("The command{} failed with {exit_desc}: `{line}`.", cmd_label(&last.command)), "nothing")
+    if let Some(line) = error_summary(&last.output) {
+        format_answer(
+            &format!("The command{} failed with {exit_desc}: {}.", cmd_label(&last.command), quote_line(&line)),
+            "nothing",
+        )
     } else {
         format_answer(
             &format!("The command{} failed with {exit_desc} and printed no output.", cmd_label(&last.command)),
             "nothing",
         )
     }
+}
+
+// ---------------------------------------------------------------------------
+// Which lines are errors, and what does successful output look like
+// ---------------------------------------------------------------------------
+
+/// True for a line of `ls -l` output (`-rw-r--r-- 1 user group ...`).
+fn is_long_listing_line(line: &str) -> bool {
+    let Some(mode) = line.split_whitespace().next() else { return false };
+    let chars: Vec<char> = mode.chars().collect();
+    chars.len() >= 10
+        && "-dlbcpsDC".contains(chars[0])
+        && chars[1..10].iter().all(|c| "rwxsStT-".contains(*c))
+        && chars[10..].iter().all(|c| matches!(c, '.' | '+' | '@'))
+}
+
+/// Does this line report a problem? Deliberately generous, because a wrong "this is not an
+/// error" is worse than a wrong "this might be".
+fn is_error_line(line: &str) -> bool {
+    let t = line.trim();
+    if t.is_empty() || is_long_listing_line(t) {
+        return false;
+    }
+    let mut lower = t.to_lowercase();
+    // Test runners and build tools say "ok" or "0 failed" on success.
+    if lower.ends_with("... ok") || lower.contains("a complete log of this run") {
+        return false;
+    }
+    for benign in
+        ["0 failed", "failed: 0", "0 failures", "0 errors", "no errors", "errors: 0", "0 error", "without errors"]
+    {
+        lower = lower.replace(benign, "");
+    }
+    const PATTERNS: &[&str] = &[
+        "error:",
+        "error[",
+        "err!",
+        "fatal",
+        "traceback",
+        "exception",
+        "no such",
+        "not found",
+        "denied",
+        "refused",
+        "failed",
+        "failure",
+        "cannot",
+        "can't ",
+        "unable to",
+        "undefined reference",
+        "could not",
+        "couldn't",
+        "not permitted",
+        "not allowed",
+        "unrecognized",
+        "unknown",
+        "unexpected",
+        "invalid",
+        "illegal",
+        "segmentation fault",
+        "panicked",
+        "killed",
+        "abort",
+        "conflict (",
+        "merge conflict",
+        "unmerged",
+        "no stash",
+        "did not match",
+        "missing",
+        "not in gzip",
+        "not a zip",
+        "corrupt",
+        "already in use",
+        "no space",
+        "read-only file system",
+        "busy",
+        "timed out",
+        "timeout",
+        "unreachable",
+        "unauthorized",
+        "forbidden",
+        "must be root",
+        "authentication required",
+        "not exist",
+        "does not match",
+        "rejected",
+        "mismatch",
+    ];
+    lower.starts_with("error")
+        || lower.contains("error ")
+        || lower.ends_with("error")
+        || PATTERNS.iter().any(|pattern| lower.contains(pattern))
+}
+
+/// The line that says what went wrong: the exception line of a Python traceback, else the
+/// first line that looks like an error.
+fn error_summary(output: &str) -> Option<String> {
+    let lines: Vec<&str> = output.lines().collect();
+    if lines.iter().any(|l| l.starts_with("Traceback (most recent call last)")) {
+        let last = lines.iter().rev().map(|l| l.trim_end()).find(|l| !l.is_empty())?;
+        if !last.starts_with(char::is_whitespace) {
+            return Some(last.trim().to_string());
+        }
+    }
+    let first = lines.iter().map(|l| l.trim()).find(|l| is_error_line(l));
+    // npm prints `npm error code EJSONPARSE` first and says what is wrong on a later line.
+    if let Some(first) = first
+        && first.starts_with("npm error code ")
+        && let Some(detail) = lines.iter().map(|l| l.trim()).skip_while(|l| *l != first).skip(1).find(|l| {
+            l.strip_prefix("npm error ").is_some_and(|rest| {
+                !rest.is_empty()
+                    && !["code ", "syscall ", "path ", "errno ", "dest ", "A complete log"]
+                        .iter()
+                        .any(|p| rest.starts_with(p))
+            })
+        })
+    {
+        return Some(format!("{first}: {}", detail.trim_start_matches("npm error ")));
+    }
+    first.or_else(|| last_meaningful_line(output)).map(str::to_string)
+}
+
+/// A line wrapped in backticks, or in quotes when it has backticks of its own.
+fn quote_line(line: &str) -> String {
+    let line: String =
+        if line.chars().count() > 200 { line.chars().take(200).collect::<String>() + "..." } else { line.to_string() };
+    if line.contains('`') { format!("\"{line}\"") } else { format!("`{line}`") }
+}
+
+/// What a piece of output without an error in it seems to be.
+fn describe_output(output: &str) -> &'static str {
+    let lower = output.to_lowercase();
+    let has = |words: &[&str]| words.iter().any(|w| lower.contains(w));
+    if has(&["nothing to commit", "working tree clean", "on branch "]) {
+        "the result of `git status`"
+    } else if has(&["set up to track", "everything up-to-date", "everything up to date"])
+        || (lower.contains("\nto ") && lower.contains(" -> "))
+    {
+        "a successful `git push`"
+    } else if lower.starts_with("container id") {
+        "the table printed by `docker ps`"
+    } else if has(&["test result: ok"]) {
+        "a passing test run"
+    } else if has(&["finished `", "finished dev", "finished release"]) {
+        "a finished `cargo` build"
+    } else if has(&["installing ", "total installed size", "proceed with installation"]) {
+        "the log of a package installation"
+    } else if output.lines().any(is_long_listing_line) || lower.trim_start().starts_with("total ") {
+        "a directory listing"
+    } else {
+        "ordinary program output"
+    }
+}
+
+fn diagnose_not_an_error(last: &Last) -> String {
+    format_answer(
+        &format!(
+            "This output does not look like an error: it seems to be {}, and no line in it reports a failure. If the command did go wrong, run `huh why` right after it, or pipe in the lines that show the error.",
+            describe_output(&last.output)
+        ),
+        "nothing",
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Files that could not be read, written or found
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FileProblem {
+    Denied,
+    Missing,
+}
+
+struct FileFailure {
+    path: String,
+    problem: FileProblem,
+    /// The line said the program was writing, creating or removing.
+    writing: bool,
+}
+
+/// The path a tool's error line is about: the quoted part, or the last `:`-separated part
+/// with any "cannot open" lead-in removed.
+fn path_in(before: &str) -> Option<String> {
+    for (open, close) in [('\'', '\''), ('‘', '’'), ('`', '\''), ('"', '"')] {
+        if let Some(start) = before.find(open) {
+            let rest = &before[start + open.len_utf8()..];
+            if let Some(end) = rest.rfind(close) {
+                let path = rest[..end].trim();
+                if !path.is_empty() {
+                    return Some(path.to_string());
+                }
+            }
+        }
+    }
+    let piece = before.rsplit_once(": ").map_or(before, |(_, piece)| piece).trim();
+    let lower = piece.to_lowercase();
+    let mut piece = piece;
+    for lead in [
+        "could not open file ",
+        "could not open ",
+        "cannot open file ",
+        "cannot open ",
+        "can't open file ",
+        "cannot access ",
+        "cannot stat ",
+        "cannot find or open ",
+        "cannot read ",
+        "unable to open ",
+    ] {
+        if lower.starts_with(lead) {
+            piece = piece[lead.len()..].trim();
+            break;
+        }
+    }
+    let piece = piece.trim_matches(['\'', '"', '`']);
+    (!piece.is_empty()
+        && !matches!(piece, "bash" | "sh" | "zsh" | "fish" | "dash")
+        && !piece.contains(char::is_whitespace))
+    .then(|| piece.to_string())
+}
+
+/// Every file named in a "Permission denied" or "No such file or directory" line, in order,
+/// without repeats.
+fn file_failures(output: &str) -> Vec<FileFailure> {
+    let mut found: Vec<FileFailure> = Vec::new();
+    for line in output.lines() {
+        let t = line.trim();
+        let lower = t.to_lowercase();
+        let mut hit: Option<(FileProblem, String)> = None;
+        if lower.starts_with("permissionerror") || lower.contains("[errno 13]") || lower.contains("[errno 2]") {
+            let problem = if lower.contains("[errno 13]") || lower.starts_with("permissionerror") {
+                FileProblem::Denied
+            } else {
+                FileProblem::Missing
+            };
+            if let Some(start) = t.find(": '").or_else(|| t.find(": \"")) {
+                hit = path_in(&t[start + 1..]).map(|path| (problem, path));
+            }
+        } else if let Some(at) = lower.find("eacces: permission denied, ") {
+            // Node: `EACCES: permission denied, mkdir '/usr/lib/node_modules/foo'`
+            hit = path_in(&t[at..]).map(|path| (FileProblem::Denied, path));
+        } else {
+            for (needle, problem) in
+                [(": permission denied", FileProblem::Denied), (": no such file or directory", FileProblem::Missing)]
+            {
+                if let Some(at) = lower.find(needle) {
+                    let rest = lower[at + needle.len()..].trim().trim_matches('.');
+                    if rest.is_empty() {
+                        hit = path_in(&t[..at]).map(|path| (problem, path));
+                        break;
+                    }
+                }
+            }
+        }
+        if let Some((problem, path)) = hit
+            && !found.iter().any(|f| f.path == path)
+        {
+            let writing = [
+                "cannot create",
+                "cannot touch",
+                "cannot remove",
+                "cannot write",
+                "cannot delete",
+                "cannot move",
+                "for writing",
+                "cannot make",
+                "cannot unlink",
+            ]
+            .iter()
+            .any(|w| lower.contains(w));
+            found.push(FileFailure { path, problem, writing });
+        }
+    }
+    found
+}
+
+#[cfg(unix)]
+fn my_uid() -> Option<u32> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata("/proc/self").ok().map(|m| m.uid())
+}
+
+#[cfg(not(unix))]
+fn my_uid() -> Option<u32> {
+    None
+}
+
+fn under_system_dir(path: &str) -> bool {
+    let absolute = if path.starts_with('/') {
+        path.to_string()
+    } else {
+        match std::env::current_dir() {
+            Ok(dir) => dir.join(path).display().to_string(),
+            Err(_) => path.to_string(),
+        }
+    };
+    ["/etc", "/var", "/usr", "/root", "/sys", "/proc", "/dev", "/boot"]
+        .iter()
+        .any(|dir| absolute == *dir || absolute.starts_with(&format!("{dir}/")))
+}
+
+/// What a refused access to `path` most likely means, from the file itself (read-only checks),
+/// and the command that fixes it.
+#[cfg(unix)]
+fn permission_advice(path: &str, writing: bool, command: &str) -> (String, String) {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let sudo = {
+        let trimmed = command.trim();
+        if trimmed.is_empty() || trimmed.starts_with("sudo ") || is_shell_builtin(trimmed) {
+            format!("ls -ld {path}")
+        } else {
+            format!("sudo {trimmed}")
+        }
+    };
+    let me = my_uid();
+    let action = if writing { "write to" } else { "read" };
+    let system = under_system_dir(path);
+    let (target, meta) = match std::fs::metadata(path) {
+        Ok(meta) => (path.to_string(), Some(meta)),
+        Err(_) => {
+            // Not there (or not reachable): the folder it would live in decides.
+            let parent = Path::new(path).parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+            (parent.display().to_string(), std::fs::metadata(parent).ok())
+        }
+    };
+    let creating = target != path;
+    let Some(meta) = meta else {
+        return (
+            format!(
+                "Permission was denied for `{path}`; look at its owner and mode, and at those of the folders above it, to see why."
+            ),
+            format!("ls -ld {path}"),
+        );
+    };
+    let what = if creating || meta.is_dir() { "folder" } else { "file" };
+    if system {
+        return (
+            format!(
+                "`{path}` is a system path (under /etc, /var, /usr and the like), which ordinary users cannot {action}, so administrator rights are needed."
+            ),
+            sudo,
+        );
+    }
+    if me.is_some() && meta.uid() != me.unwrap_or(0) && me != Some(0) {
+        return (
+            format!(
+                "The {what} `{target}` belongs to another user (uid {}), so your user cannot {action} `{path}` there.",
+                meta.uid()
+            ),
+            sudo,
+        );
+    }
+    let mode = meta.permissions().mode() & 0o777;
+    let wants_write = writing || creating;
+    let (bit, letter, need) = if wants_write { (0o200, "u+w", "write") } else { (0o400, "u+r", "read") };
+    if meta.is_dir() && mode & 0o100 == 0 {
+        return (
+            format!("`{target}` is your own folder, but its mode ({mode:04o}) does not let you enter it."),
+            format!("chmod u+x {target}"),
+        );
+    }
+    if mode & bit == 0 {
+        let owner =
+            if creating { format!("The folder `{target}` is yours") } else { format!("`{target}` is your own file") };
+        let sentence = if creating {
+            format!(
+                "{owner}, but its mode ({mode:04o}) does not let you {need} in it, so `{path}` cannot be created or changed."
+            )
+        } else {
+            format!("{owner}, but its mode ({mode:04o}) gives you no {need} permission.")
+        };
+        return (sentence, format!("chmod {letter} {target}"));
+    }
+    (
+        format!(
+            "`{target}` is yours and its mode ({mode:04o}) looks fine, so the refusal comes from somewhere else: a folder above it, an ACL, an immutable flag or a read-only mount."
+        ),
+        format!("ls -ld {path}"),
+    )
+}
+
+#[cfg(not(unix))]
+fn permission_advice(path: &str, _writing: bool, _command: &str) -> (String, String) {
+    (format!("Permission was denied for `{path}`."), format!("ls -ld {path}"))
+}
+
+/// Several different files failed in one command: say what is wrong with each (up to three).
+fn diagnose_several_files(last: &Last) -> Option<String> {
+    let failures = file_failures(&last.output);
+    if failures.len() < 2 || last.command.trim_start().starts_with("cd ") {
+        return None;
+    }
+    let mut parts = Vec::new();
+    let mut fix: Option<String> = None;
+    for failure in failures.iter().take(3) {
+        match failure.problem {
+            FileProblem::Missing => {
+                parts.push(format!("`{}` does not exist (`No such file or directory`).", failure.path))
+            }
+            FileProblem::Denied => {
+                let (sentence, command) = permission_advice(&failure.path, failure.writing, &last.command);
+                parts.push(format!("`{}`: permission denied. {sentence}", failure.path));
+                fix.get_or_insert(command);
+            }
+        }
+    }
+    let more =
+        if failures.len() > 3 { format!(" ({} more files failed too.)", failures.len() - 3) } else { String::new() };
+    let fix = fix.unwrap_or_else(|| "ls".to_string());
+    Some(format_answer(&format!("{} files failed in this command. {}{more}", failures.len(), parts.join(" ")), &fix))
+}
+
+// ---------------------------------------------------------------------------
+// Python and node modules
+// ---------------------------------------------------------------------------
+
+/// Python import names whose pip package has another name.
+const PIP_NAMES: &[(&str, &str)] = &[
+    ("yaml", "pyyaml"),
+    ("cv2", "opencv-python"),
+    ("PIL", "pillow"),
+    ("bs4", "beautifulsoup4"),
+    ("sklearn", "scikit-learn"),
+    ("skimage", "scikit-image"),
+    ("dateutil", "python-dateutil"),
+    ("dotenv", "python-dotenv"),
+    ("jwt", "pyjwt"),
+    ("serial", "pyserial"),
+    ("usb", "pyusb"),
+    ("OpenSSL", "pyopenssl"),
+    ("Crypto", "pycryptodome"),
+    ("attr", "attrs"),
+    ("git", "GitPython"),
+    ("magic", "python-magic"),
+    ("docx", "python-docx"),
+    ("MySQLdb", "mysqlclient"),
+    ("zmq", "pyzmq"),
+    ("fitz", "pymupdf"),
+    ("google", "protobuf"),
+    ("psycopg2", "psycopg2-binary"),
+    ("lxml", "lxml"),
+    ("wx", "wxPython"),
+    ("gi", "PyGObject"),
+];
+
+/// Modules whose names people mistype: a missing module close to one of these is a typo.
+const COMMON_PY_MODULES: &[&str] = &[
+    "requests",
+    "numpy",
+    "pandas",
+    "scipy",
+    "matplotlib",
+    "seaborn",
+    "flask",
+    "django",
+    "fastapi",
+    "pytest",
+    "yaml",
+    "torch",
+    "tensorflow",
+    "keras",
+    "sklearn",
+    "cv2",
+    "PIL",
+    "bs4",
+    "lxml",
+    "sqlalchemy",
+    "aiohttp",
+    "httpx",
+    "click",
+    "pydantic",
+    "jinja2",
+    "boto3",
+    "paramiko",
+    "psutil",
+    "tqdm",
+    "rich",
+    "typer",
+    "uvicorn",
+    "selenium",
+    "scrapy",
+    "networkx",
+    "sympy",
+    "plotly",
+    "dash",
+    "streamlit",
+    "openpyxl",
+    "redis",
+    "pymongo",
+    "psycopg2",
+    "setuptools",
+    "wheel",
+    "cryptography",
+    "dotenv",
+    "dateutil",
+    "pytz",
+    "markdown",
+    "docker",
+    "toml",
+    "tomli",
+    "attrs",
+    "numba",
+    "transformers",
+    "openai",
+];
+
+const COMMON_NPM_PACKAGES: &[&str] = &[
+    "express",
+    "react",
+    "react-dom",
+    "lodash",
+    "axios",
+    "moment",
+    "left-pad",
+    "chalk",
+    "commander",
+    "dotenv",
+    "webpack",
+    "typescript",
+    "jest",
+    "mocha",
+    "request",
+    "underscore",
+    "async",
+    "debug",
+    "uuid",
+    "yargs",
+    "body-parser",
+    "cors",
+    "mongoose",
+    "socket.io",
+    "vue",
+    "next",
+    "eslint",
+    "prettier",
+    "rimraf",
+    "glob",
+    "minimist",
+    "inquirer",
+    "bluebird",
+    "cheerio",
+    "puppeteer",
+    "nodemon",
+    "ws",
+    "mysql",
+    "pg",
+    "sequelize",
+    "passport",
+    "jsonwebtoken",
+    "bcrypt",
+    "morgan",
+    "redux",
+    "rxjs",
+    "classnames",
+    "date-fns",
+    "fs-extra",
+    "semver",
+    "colors",
+    "ora",
+    "node-fetch",
+    "cross-env",
+];
+
+fn pip_name(module: &str) -> String {
+    let top = module.split('.').next().unwrap_or(module);
+    PIP_NAMES.iter().find(|(import, _)| *import == top).map_or_else(|| top.to_string(), |(_, pip)| (*pip).to_string())
+}
+
+/// Python packages installed here or sitting next to the failing script.
+fn nearby_python_modules() -> Vec<String> {
+    let mut names = BTreeSet::new();
+    let mut add = |dir: &Path| {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for entry in entries.flatten() {
+            let Some(name) = entry.file_name().to_str().map(str::to_string) else { continue };
+            let stem = name.strip_suffix(".py").unwrap_or(&name);
+            if !stem.is_empty() && !stem.starts_with(['_', '.']) && !stem.contains(['-', '.']) {
+                names.insert(stem.to_string());
+            }
+        }
+    };
+    add(Path::new("."));
+    let mut roots = vec![PathBuf::from("/usr/lib"), PathBuf::from("/usr/local/lib")];
+    if let Ok(home) = std::env::var("HOME") {
+        roots.push(Path::new(&home).join(".local/lib"));
+    }
+    for root in roots {
+        let Ok(entries) = std::fs::read_dir(&root) else { continue };
+        for entry in entries.flatten() {
+            if entry.file_name().to_str().is_some_and(|n| n.starts_with("python3")) {
+                add(&entry.path().join("site-packages"));
+                add(&entry.path().join("dist-packages"));
+            }
+        }
+    }
+    names.into_iter().collect()
+}
+
+fn externally_managed() -> bool {
+    let platforms = crate::platform::detect();
+    if crate::platform::manager(&platforms)
+        .is_some_and(|family| matches!(family.as_str(), "arch" | "omarchy" | "debian" | "fedora" | "suse"))
+    {
+        return true;
+    }
+    let Ok(entries) = std::fs::read_dir("/usr/lib") else { return false };
+    entries.flatten().any(|e| {
+        e.file_name().to_str().is_some_and(|n| n.starts_with("python3")) && e.path().join("EXTERNALLY-MANAGED").exists()
+    })
+}
+
+fn diagnose_python_module(module: &str) -> String {
+    let top = module.split('.').next().unwrap_or(module);
+    let evidence = format!("`ModuleNotFoundError: No module named '{module}'`");
+    let known = PIP_NAMES.iter().any(|(import, _)| *import == top) || COMMON_PY_MODULES.contains(&top);
+    if !known && top.chars().count() >= 4 {
+        let mut candidates: Vec<String> = COMMON_PY_MODULES.iter().map(|m| (*m).to_string()).collect();
+        candidates.extend(nearby_python_modules());
+        if let Some(close) = closest_typo(top, &candidates, 1) {
+            return format_answer(
+                &format!(
+                    "Python could not import `{top}` ({evidence}). That looks like a typo for `{close}`: fix the spelling in the code rather than installing a package named `{top}`."
+                ),
+                &format!("grep -rn '{top}' --include=*.py ."),
+            );
+        }
+    }
+    let pip = pip_name(module);
+    let renamed = if pip == top {
+        String::new()
+    } else {
+        format!(" The import name `{top}` is installed from the pip package `{pip}`.")
+    };
+    if externally_managed() {
+        format_answer(
+            &format!(
+                "Python could not import `{top}` because it is not installed ({evidence}).{renamed} This system's Python is externally managed (PEP 668), so a bare `pip install {pip}` is refused: install it in a virtual environment and run your script with `.venv/bin/python`, or use your distribution's own python package."
+            ),
+            &format!("python3 -m venv .venv && .venv/bin/pip install {pip}"),
+        )
+    } else {
+        format_answer(
+            &format!("Python could not import `{top}` because it is not installed ({evidence}).{renamed}"),
+            &format!("pip install {pip}"),
+        )
+    }
+}
+
+fn extract_node_module(output: &str) -> Option<String> {
+    for line in output.lines() {
+        if let Some(pos) = line.find("Cannot find module ") {
+            let name = line[pos + "Cannot find module ".len()..].split_whitespace().next()?;
+            let name = name.trim_matches(['\'', '"', '`']);
+            if !name.is_empty() {
+                return Some(name.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn diagnose_node_module(name: &str) -> String {
+    let evidence = format!("`Cannot find module '{name}'`");
+    if name.starts_with('.') || name.starts_with('/') {
+        return format_answer(
+            &format!(
+                "Node could not load the file `{name}` ({evidence}): that path does not exist, or has no index file or the wrong extension."
+            ),
+            "ls",
+        );
+    }
+    // `lodash/fp` is the package `lodash`; `@scope/pkg/sub` is `@scope/pkg`.
+    let package = if name.starts_with('@') {
+        name.splitn(3, '/').take(2).collect::<Vec<_>>().join("/")
+    } else {
+        name.split('/').next().unwrap_or(name).to_string()
+    };
+    if !COMMON_NPM_PACKAGES.contains(&package.as_str()) && package.chars().count() >= 4 {
+        let mut candidates: Vec<String> = COMMON_NPM_PACKAGES.iter().map(|m| (*m).to_string()).collect();
+        if let Ok(entries) = std::fs::read_dir("node_modules") {
+            candidates.extend(
+                entries
+                    .flatten()
+                    .filter_map(|e| e.file_name().into_string().ok())
+                    .filter(|n| !n.starts_with(['.', '@'])),
+            );
+        }
+        if let Some(close) = closest_typo(&package, &candidates, 1) {
+            return format_answer(
+                &format!(
+                    "Node could not find the module `{name}` ({evidence}). That looks like a typo for `{close}`: fix the spelling in the code rather than installing a package named `{package}`."
+                ),
+                &format!("grep -rn --exclude-dir=node_modules '{package}' ."),
+            );
+        }
+    }
+    format_answer(
+        &format!(
+            "Node could not find the module `{name}` ({evidence}) because the package is not installed in this project."
+        ),
+        &format!("npm install {package}"),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Python tracebacks, makefiles, crashes
+// ---------------------------------------------------------------------------
+
+/// `File "x.py", line 3` frames of a Python error, in order: (file, line, the source line after it).
+fn python_frames(output: &str) -> Vec<(String, u32, String)> {
+    let lines: Vec<&str> = output.lines().collect();
+    let mut frames = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        let t = line.trim_start();
+        let Some(rest) = t.strip_prefix("File \"") else { continue };
+        let Some((file, after)) = rest.split_once("\", line ") else { continue };
+        let number: String = after.chars().take_while(char::is_ascii_digit).collect();
+        let Ok(number) = number.parse::<u32>() else { continue };
+        let code = lines
+            .get(i + 1)
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.starts_with("File \"") && !l.starts_with('^'))
+            .unwrap_or_default();
+        frames.push((file.to_string(), number, code));
+    }
+    frames
+}
+
+fn diagnose_python(last: &Last) -> Option<String> {
+    let exception = last.output.lines().rev().map(str::trim_end).find(|l| !l.is_empty())?;
+    if exception.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let (name, message) = exception.split_once(':').map_or((exception, ""), |(n, m)| (n, m.trim()));
+    let short = name.rsplit('.').next().unwrap_or(name);
+    if name.contains(char::is_whitespace) || !(short.ends_with("Error") || short.ends_with("Exception")) {
+        return None;
+    }
+    let frames = python_frames(&last.output);
+    let own = |file: &str| {
+        !file.contains("/usr/lib/python")
+            && !file.contains("site-packages")
+            && !file.contains("dist-packages")
+            && !file.starts_with('<')
+    };
+    let (file, line, code) = frames.iter().rev().find(|(f, ..)| own(f)).or_else(|| frames.last())?.clone();
+    let name_of_file = Path::new(&file).file_name().and_then(|n| n.to_str()).unwrap_or(&file).to_string();
+    let spot =
+        if code.is_empty() { format!("`{file}`, line {line}") } else { format!("`{file}`, line {line} (`{code}`)") };
+    let sed = format!("sed -n '{},{}p' {file}", line.saturating_sub(1).max(1), line + 1);
+    let evidence = format!("`{exception}`");
+    let explanation = match short {
+        "SyntaxError" | "IndentationError" | "TabError" => format!(
+            "Python could not parse {spot}: {evidence}. The mistake is on that line or just before it (a missing bracket, colon or quote, or inconsistent indentation)."
+        ),
+        "KeyError" => format!(
+            "The dictionary has no key {message} ({evidence}), raised in {spot}. Check that the key exists, or read it with `.get()`."
+        ),
+        "AttributeError" => format!(
+            "An object does not have the attribute you used ({evidence}), raised in {spot}. Often the value is `None` or a different type than expected."
+        ),
+        "JSONDecodeError" => {
+            let place = message.rsplit_once(": ").map_or(message, |(_, place)| place);
+            format!(
+                "The text given to the JSON parser is not valid JSON ({evidence}); the problem is at {}. The parse was called in {spot}.",
+                place.split(" (char").next().unwrap_or(place)
+            )
+        }
+        _ => format!("Python raised {evidence} in {spot}."),
+    };
+    let _ = name_of_file;
+    Some(format_answer(&explanation, &sed))
+}
+
+fn diagnose_makefile(last: &Last) -> Option<String> {
+    for line in last.output.lines() {
+        let t = line.trim();
+        if !t.contains("missing separator") {
+            continue;
+        }
+        let mut parts = t.splitn(3, ':');
+        let (file, number) = (parts.next()?, parts.next()?.trim());
+        if number.is_empty() || !number.chars().all(|c| c.is_ascii_digit()) {
+            return Some(format_answer(
+                "Make found a line it cannot read (`missing separator`): recipe lines must start with a tab character, not spaces.",
+                "nothing",
+            ));
+        }
+        return Some(format_answer(
+            &format!(
+                "`{file}` line {number} has `missing separator`: make needs the lines under a target (the commands) to start with a tab character, and this line starts with spaces (or a typo)."
+            ),
+            &format!("sed -n '{number}p' {file} | cat -A"),
+        ));
+    }
+    None
+}
+
+fn diagnose_crashes(last: &Last) -> Option<String> {
+    let lower = last.output.to_lowercase();
+    if lower.contains("segmentation fault") {
+        return Some(format_answer(
+            "The program crashed with `Segmentation fault`: it touched memory it must not use, which is a bug in the program itself (or in a library or plugin it loads), not a mistake in how you ran it. systemd keeps a record of the crash.",
+            "coredumpctl list",
+        ));
+    }
+    let killed_line = last.output.lines().any(|l| l.split_whitespace().any(|w| w == "Killed"));
+    if killed_line || last.exit == Some(137) {
+        let code = if last.exit == Some(137) { ", exit code 137" } else { "" };
+        return Some(format_answer(
+            &format!(
+                "The process was killed with SIGKILL (`Killed`{code}). The usual cause is the kernel's out-of-memory killer stopping a program that used too much memory; a manual `kill -9` looks the same. The kernel log says which."
+            ),
+            "journalctl -k -g 'out of memory|killed process'",
+        ));
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
+// Network
+// ---------------------------------------------------------------------------
+
+/// The host that could not be looked up, and the exact words of the error, from curl, git, ssh,
+/// ping and wget output.
+fn unresolved_host(output: &str) -> Option<(Option<String>, String)> {
+    for line in output.lines() {
+        let t = line.trim();
+        let lower = t.to_lowercase();
+        let clean = |s: &str| s.trim().trim_matches(['\'', '"', '`', ':', '.', ',']).to_string();
+        if let Some(at) = lower.find("could not resolve hostname ") {
+            let host = t[at + "could not resolve hostname ".len()..].split([':', ' ']).next().map(clean);
+            let host_part = host.clone().unwrap_or_default();
+            return Some((host, format!("Could not resolve hostname {host_part}")));
+        }
+        if let Some(at) = lower.find("could not resolve host: ") {
+            let host = t[at + "could not resolve host: ".len()..].split_whitespace().next().map(clean);
+            let host_part = host.clone().unwrap_or_default();
+            return Some((host, format!("Could not resolve host: {host_part}")));
+        }
+        if let Some(at) = lower.find("unable to resolve host address ") {
+            let host = t[at + "unable to resolve host address ".len()..].split_whitespace().next().map(clean);
+            return Some((host, "unable to resolve host address".to_string()));
+        }
+        for phrase in
+            ["name or service not known", "temporary failure in name resolution", "nodename nor servname provided"]
+        {
+            if let Some(at) = lower.find(phrase) {
+                // `ping: host: Name or service not known`
+                let host = t[..at]
+                    .trim_end()
+                    .trim_end_matches(':')
+                    .rsplit([' ', ':'])
+                    .next()
+                    .map(clean)
+                    .filter(|h| !h.is_empty() && h.contains('.') || h == "localhost");
+                return Some((host, t[at..at + phrase.len()].to_string()));
+            }
+        }
+    }
+    None
+}
+
+/// Where a refused connection was going: (host, port).
+fn refused_target(command: &str, output: &str) -> Option<(Option<String>, Option<String>)> {
+    for line in output.lines() {
+        let t = line.trim();
+        let lower = t.to_lowercase();
+        for lead in ["connect to host ", "failed to connect to ", "connect to ", "econnrefused ", "dial tcp "] {
+            if let Some(at) = lower.find(lead) {
+                let rest = &t[at + lead.len()..];
+                let target = rest.split_whitespace().next().unwrap_or("").trim_end_matches(':');
+                if let Some((host, port)) =
+                    target.rsplit_once(':').filter(|(_, p)| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+                {
+                    return Some((Some(host.to_string()), Some(port.to_string())));
+                }
+                let port = rest
+                    .split(" port ")
+                    .nth(1)
+                    .map(|p| p.chars().take_while(char::is_ascii_digit).collect::<String>())
+                    .filter(|p| !p.is_empty());
+                if !target.is_empty() {
+                    return Some((Some(target.to_string()), port));
+                }
+            }
+        }
+    }
+    if command.trim_start().starts_with("ssh") {
+        return Some((extract_ssh_target(command, output), extract_ssh_port(command, output)));
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
+// Git, pip, npm, archives
+// ---------------------------------------------------------------------------
+
+fn conflicted_files(output: &str) -> Vec<String> {
+    let mut files = Vec::new();
+    for line in output.lines() {
+        let t = line.trim();
+        if t.starts_with("CONFLICT") {
+            let file = if let Some((_, f)) = t.split_once("Merge conflict in ") {
+                f.trim().to_string()
+            } else if let Some((_, rest)) = t.split_once("): ") {
+                rest.split_whitespace().next().unwrap_or("").to_string()
+            } else {
+                String::new()
+            };
+            if !file.is_empty() && !files.contains(&file) {
+                files.push(file);
+            }
+        } else if let Some(file) = t.strip_prefix("U\t").or_else(|| t.strip_prefix("U ")) {
+            let file = file.trim().to_string();
+            if !file.is_empty() && !files.contains(&file) {
+                files.push(file);
+            }
+        }
+    }
+    files
+}
+
+fn diagnose_git_more(last: &Last) -> Option<String> {
+    let lower = last.output.to_lowercase();
+    if lower.contains("not a git repository") {
+        return Some(format_answer(
+            "This folder is not inside a git repository (`fatal: not a git repository`). Either you are in the wrong folder (`cd` into the project), or the project has never been put under git, in which case `git init` creates a repository here.",
+            "pwd",
+        ));
+    }
+    if lower.contains("src refspec") && lower.contains("does not match any") {
+        let name =
+            last.output.split("src refspec ").nth(1).and_then(|r| r.split_whitespace().next()).unwrap_or("that name");
+        return Some(format_answer(
+            &format!(
+                "Git has nothing to push as `{name}` (`src refspec {name} does not match any`): no local branch has that name. Usually the repository has no commits yet, or the branch is called something else."
+            ),
+            "git branch -a",
+        ));
+    }
+    if lower.contains("did not match any file(s) known to git")
+        || lower.contains("invalid reference:")
+        || lower.contains("unknown revision or path not in the working tree")
+    {
+        let name = last.output.split('\'').nth(1).unwrap_or("that name");
+        return Some(format_answer(
+            &format!(
+                "`{name}` is neither a branch, tag or commit nor a file that git knows (`{}`). Check the spelling against the existing branches.",
+                last.output
+                    .lines()
+                    .find(|l| l.to_lowercase().contains("did not match")
+                        || l.to_lowercase().contains("invalid reference")
+                        || l.to_lowercase().contains("unknown revision"))
+                    .unwrap_or("did not match")
+                    .trim()
+            ),
+            "git branch -a",
+        ));
+    }
+    if lower.contains("conflict (")
+        || lower.contains("automatic merge failed")
+        || lower.contains("unmerged paths")
+        || lower.contains("unmerged files")
+        || lower.contains("unresolved conflict")
+    {
+        let files = conflicted_files(&last.output);
+        let which = if files.is_empty() {
+            "the conflicted files (listed under \"Unmerged paths\" by `git status`)".to_string()
+        } else {
+            files.iter().take(3).map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", ")
+        };
+        return Some(format_answer(
+            &format!(
+                "Git stopped halfway through a merge with unresolved conflicts, because the same lines changed on both sides: {which} must be fixed by hand. Open each file, resolve the `<<<<<<<` / `=======` / `>>>>>>>` markers, then run `git add <file>` for each and `git commit` to finish (or `git merge --abort` to undo the merge)."
+            ),
+            "git status",
+        ));
+    }
+    if lower.contains("no stash entries found") {
+        return Some(format_answer(
+            "Git has no stash to apply (`No stash entries found`): nothing was stashed here, or it was already popped or dropped.",
+            "git stash list",
+        ));
+    }
+    None
+}
+
+fn archive_in_output(output: &str) -> Option<String> {
+    for line in output.lines() {
+        if let Some(rest) = line.trim().strip_prefix("Archive:") {
+            let name = rest.trim();
+            if !name.is_empty() {
+                return Some(name.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn diagnose_archives(last: &Last) -> Option<String> {
+    let lower = last.output.to_lowercase();
+    if lower.contains("end-of-central-directory signature not found") || lower.contains("cannot find zipfile directory")
+    {
+        let name = archive_in_output(&last.output)
+            .or_else(|| {
+                last.command.split_whitespace().skip(1).filter(|t| !t.starts_with('-')).last().map(str::to_string)
+            })
+            .unwrap_or_else(|| "<name>".to_string());
+        return Some(format_answer(
+            &format!(
+                "`unzip` says `{name}` is not a zip archive (`End-of-central-directory signature not found`): the file is damaged, was only partly downloaded, or is some other format (a .tar.gz or an HTML error page, for example). `file` shows what it really is."
+            ),
+            &format!("file {name}"),
+        ));
+    }
+    if lower.contains("not in gzip format") {
+        let archive = extract_tar_archive(last);
+        let known = archive.is_some();
+        let name = archive.unwrap_or_else(|| "<name>".to_string());
+        let which = if known { format!("`{name}`") } else { "the file".to_string() };
+        return Some(format_answer(
+            &format!(
+                "`tar` was told to decompress {which} as gzip (the `z` flag), but it is not gzip-compressed (`gzip: stdin: not in gzip format`). It may be a plain or differently compressed archive (then drop the `z`, since plain `tar xf` detects the format), or not an archive at all, as when a download saved an error page. `file` shows what it really is."
+            ),
+            &format!("file {name}"),
+        ));
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -1075,7 +2248,9 @@ fn extract_systemd_missing_unit(output: &str) -> Option<String> {
         let low = line.to_lowercase();
         if let Some(pos) = low.find("unit ") {
             let rest = &line[pos + "unit ".len()..];
-            if let Some(end_pos) = rest.to_lowercase().find(" not found") {
+            if let Some(end_pos) =
+                rest.to_lowercase().find(" not found").or_else(|| rest.to_lowercase().find(" could not be found"))
+            {
                 let unit = rest[..end_pos].trim().trim_matches(['\'', '"', '.']);
                 if !unit.is_empty() && !unit.contains(' ') {
                     return Some(unit.to_string());
@@ -1153,6 +2328,9 @@ fn extract_mountpoint(output: &str) -> Option<String> {
 }
 
 fn extract_missing_path(last: &Last) -> String {
+    if let Some(failure) = file_failures(&last.output).iter().find(|f| f.problem == FileProblem::Missing) {
+        return failure.path.clone();
+    }
     for line in last.output.lines() {
         let t = line.trim();
         if let Some(pos) = t.find("cannot find or open ") {
@@ -1564,7 +2742,7 @@ mod tests {
             exit: Some(2),
             output: "gzip: stdin: not in gzip format".into(),
         };
-        assert_eq!(suggested(&diagnose(&tar_bad)), Some("tar -xf fake.tar.gz"));
+        assert_eq!(suggested(&diagnose(&tar_bad)), Some("file fake.tar.gz"));
 
         let missing_unit = Last {
             command: "sudo systemctl restart postgresql".into(),
@@ -1679,5 +2857,52 @@ mod tests {
         assert_eq!(fix_command("echo gti && gti x", "gti", "git"), "echo gti && git x");
         assert_eq!(fix_command("", "gti", "git"), "git");
         assert_eq!(fix_command("mygti x", "gti", "git"), "git");
+    }
+
+    #[test]
+    fn success_lines_are_not_errors_and_real_ones_are() {
+        for ok in [
+            "test result: ok. 12 passed; 0 failed; 0 ignored",
+            "test parser::rejects_denied_input ... ok",
+            "-rw-r--r--  1 radu radu 1024 Nov 18 06:00 error.log",
+            "npm error A complete log of this run can be found in: /x.log",
+            "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.41s",
+        ] {
+            assert!(!is_error_line(ok), "{ok}");
+        }
+        for bad in ["cat: x: Permission denied", "fatal: not a git repository", "npm error code EJSONPARSE", "Killed"] {
+            assert!(is_error_line(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn paths_come_out_of_error_lines_cleanly() {
+        let path = |output: &str| file_failures(output).first().map(|f| f.path.clone());
+        assert_eq!(
+            path("ls: cannot access '/nonexistent/path': No such file or directory").as_deref(),
+            Some("/nonexistent/path")
+        );
+        assert_eq!(
+            path("jq: error: Could not open file missing.json: No such file or directory").as_deref(),
+            Some("missing.json")
+        );
+        assert_eq!(path("bash: cd: projcts: No such file or directory").as_deref(), Some("projcts"));
+        assert_eq!(path("cat: a b.txt: Permission denied"), None);
+        assert_eq!(path("user@host: Permission denied (publickey)."), None);
+        assert_eq!(path("Permission denied, please try again."), None);
+    }
+
+    #[test]
+    fn python_import_names_map_to_pip_names() {
+        assert_eq!(pip_name("yaml"), "pyyaml");
+        assert_eq!(pip_name("PIL.Image"), "pillow");
+        assert_eq!(pip_name("requests"), "requests");
+    }
+
+    #[test]
+    fn no_try_line_means_the_word_nothing_never_shows() {
+        for case in ["", " ", "nothing", "Nothing"] {
+            assert!(!format_answer("It broke.", case).contains("Try:"), "{case:?}");
+        }
     }
 }

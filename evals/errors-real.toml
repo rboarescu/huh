@@ -1,0 +1,783 @@
+# Failures from a real-world test of `huh why` (96 failures, 22 useful fixes), with output taken
+# from real runs (or realistic text where a run would need docker, pacman or an out-of-memory kill).
+# Same format as errors.toml, plus:
+#   exit    left out = the output was piped in, so no exit code is known.
+#   forbid  words the explanation must NOT contain (a confident wrong cause).
+#   files   files made in a fresh folder, "name:octalmode" (trailing "/" = folder); `$TMP` in the
+#           command and output is that folder.
+# fix = "nothing" asserts that there is no `Try:` line.
+
+# --- 1. Permission denied is not always a root problem ---------------------------------------
+
+[[case]]
+command = "cat $TMP/locked.txt"
+exit = 1
+output = "cat: $TMP/locked.txt: Permission denied"
+files = ["locked.txt:000"]
+mention = ["your own file|owned by you", "read"]
+forbid = ["root or administrator", "root privileges"]
+fix = "chmod u+r"
+
+[[case]]
+command = "cat $TMP/locked.txt"
+output = "cat: $TMP/locked.txt: Permission denied"
+files = ["locked.txt:000"]
+mention = ["your own file|owned by you", "locked.txt"]
+forbid = ["root or administrator", "root privileges"]
+fix = "chmod u+r"
+
+[[case]]
+command = "echo hi >> $TMP/notes.txt"
+exit = 1
+output = "bash: $TMP/notes.txt: Permission denied"
+files = ["notes.txt:444"]
+mention = ["your own file|owned by you", "write"]
+forbid = ["root or administrator", "not executable"]
+fix = "chmod u+w"
+
+[[case]]
+command = "touch $TMP/ro/new.txt"
+exit = 1
+output = "touch: cannot touch '$TMP/ro/new.txt': Permission denied"
+files = ["ro/:555"]
+mention = ["folder|directory", "write"]
+forbid = ["root or administrator"]
+fix = "chmod u+w"
+
+[[case]]
+command = "cat /etc/shadow"
+exit = 1
+output = "cat: /etc/shadow: Permission denied"
+mention = ["system|root|another user", "/etc/shadow"]
+fix = "sudo cat /etc/shadow"
+
+[[case]]
+command = "cat /var/log/btmp"
+exit = 1
+output = "cat: /var/log/btmp: Permission denied"
+mention = ["system|root|another user", "/var/log/btmp"]
+fix = "sudo"
+
+[[case]]
+command = "python3 save.py"
+exit = 1
+output = '''
+Traceback (most recent call last):
+  File "/home/radu/save.py", line 1, in <module>
+    open("/etc/hosts", "w").write("x")
+PermissionError: [Errno 13] Permission denied: '/etc/hosts'
+'''
+mention = ["/etc/hosts"]
+fix = "sudo"
+
+[[case]]
+command = "cat $TMP/locked.txt $TMP/run.sh $TMP/missing.txt"
+exit = 1
+output = '''
+cat: $TMP/locked.txt: Permission denied
+echo
+cat: $TMP/missing.txt: No such file or directory
+'''
+files = ["locked.txt:000", "run.sh:644"]
+mention = ["locked.txt", "missing.txt", "permission", "does not exist"]
+forbid = ["root or administrator"]
+fix = "chmod u+r"
+
+# --- 2. Missing Python and node modules ------------------------------------------------------
+
+[[case]]
+command = "python3 -c 'import numpyy'"
+exit = 1
+output = '''
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import numpyy
+ModuleNotFoundError: No module named 'numpyy'
+'''
+mention = ["numpyy", "typo|misspell", "numpy"]
+forbid = ["pip install numpyy"]
+fix = "grep"
+
+[[case]]
+command = "python3 app.py"
+exit = 1
+output = '''
+Traceback (most recent call last):
+  File "/home/radu/app.py", line 1, in <module>
+    import requests
+ModuleNotFoundError: No module named 'requests'
+'''
+mention = ["requests", "PEP 668|externally|virtual environment|venv"]
+fix = "venv"
+
+[[case]]
+command = "python3 app.py"
+exit = 1
+output = '''
+Traceback (most recent call last):
+  File "/home/radu/app.py", line 3, in <module>
+    import yaml
+ModuleNotFoundError: No module named 'yaml'
+'''
+mention = ["pyyaml", "yaml"]
+fix = "pyyaml"
+
+[[case]]
+command = "python3 vision.py"
+exit = 1
+output = '''
+Traceback (most recent call last):
+  File "/home/radu/vision.py", line 1, in <module>
+    import cv2
+ModuleNotFoundError: No module named 'cv2'
+'''
+mention = ["opencv-python"]
+fix = "opencv-python"
+
+[[case]]
+command = "python3 img.py"
+exit = 1
+output = '''
+Traceback (most recent call last):
+  File "/home/radu/img.py", line 1, in <module>
+    from PIL import Image
+ModuleNotFoundError: No module named 'PIL'
+'''
+mention = ["pillow"]
+fix = "pillow"
+
+[[case]]
+command = "python3 scrape.py"
+exit = 1
+output = '''
+Traceback (most recent call last):
+  File "/home/radu/scrape.py", line 1, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+'''
+mention = ["beautifulsoup4"]
+fix = "beautifulsoup4"
+
+[[case]]
+command = "python3 model.py"
+exit = 1
+output = '''
+Traceback (most recent call last):
+  File "/home/radu/model.py", line 1, in <module>
+    from sklearn.linear_model import Ridge
+ModuleNotFoundError: No module named 'sklearn'
+'''
+mention = ["scikit-learn"]
+fix = "scikit-learn"
+
+[[case]]
+command = "node -e \"require('left-padz')\""
+exit = 1
+output = '''
+node:internal/modules/cjs/loader:1607
+  throw err;
+  ^
+
+Error: Cannot find module 'left-padz'
+Require stack:
+- /home/radu/proj/[eval]
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1603:15)
+    at Module._load (node:internal/modules/cjs/loader:1370:5)
+    at require (node:internal/modules/helpers:318:16)
+    at [eval]:1:1 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [ '/home/radu/proj/[eval]' ]
+}
+
+Node.js v26.12.0
+'''
+mention = ["left-padz", "typo|misspell", "left-pad"]
+forbid = ["npm install left-padz"]
+fix = "grep"
+
+[[case]]
+command = "node server.js"
+exit = 1
+output = '''
+node:internal/modules/cjs/loader:1607
+  throw err;
+  ^
+
+Error: Cannot find module 'express'
+Require stack:
+- /home/radu/proj/server.js
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1603:15) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [ '/home/radu/proj/server.js' ]
+}
+
+Node.js v26.12.0
+'''
+mention = ["express", "not installed|cannot find|missing"]
+fix = "npm install express"
+
+# --- 3. Successful output is not a failure ---------------------------------------------------
+
+[[case]]
+command = ""
+output = '''
+On branch main
+Your branch is up to date with 'origin/main'.
+
+nothing to commit, working tree clean
+'''
+mention = ["does not look like an error", "git"]
+forbid = ["failed with"]
+fix = "nothing"
+
+[[case]]
+command = ""
+output = '''
+CONTAINER ID   IMAGE     COMMAND                  CREATED        STATUS        PORTS                  NAMES
+a1b2c3d4e5f6   nginx     "/docker-entrypoint.…"   2 hours ago    Up 2 hours    0.0.0.0:8080->80/tcp   web
+'''
+mention = ["does not look like an error", "docker"]
+forbid = ["failed with"]
+fix = "nothing"
+
+[[case]]
+command = ""
+output = '''
+total 24
+drwxr-xr-x  3 radu radu 4096 Nov 18 06:00 .
+drwxr-xr-x 12 radu radu 4096 Nov 18 05:58 ..
+-rw-r--r--  1 radu radu  220 Nov 18 05:58 .bash_logout
+-rw-r--r--  1 radu radu 1024 Nov 18 06:00 error.log
+drwxr-xr-x  2 radu radu 4096 Nov 18 06:00 src
+'''
+mention = ["does not look like an error", "listing"]
+forbid = ["failed with"]
+fix = "nothing"
+
+[[case]]
+command = ""
+output = '''
+Hello, world!
+42
+'''
+mention = ["does not look like an error"]
+forbid = ["failed with"]
+fix = "nothing"
+
+[[case]]
+command = ""
+output = '''
+warning: unused variable: `x`
+ --> src/main.rs:2:9
+  |
+2 |     let x = 5;
+  |         ^ help: if this is intentional, prefix it with an underscore: `_x`
+  |
+  = note: `#[warn(unused_variables)]` on by default
+
+warning: `demo` (bin "demo") generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.41s
+'''
+mention = ["does not look like an error", "cargo"]
+forbid = ["failed with"]
+fix = "nothing"
+
+[[case]]
+command = ""
+output = '''
+resolving dependencies...
+looking for conflicting packages...
+
+Packages (1) htop-3.4.1-1
+
+Total Download Size:   0.18 MiB
+Total Installed Size:  0.45 MiB
+
+:: Proceed with installation? [Y/n]
+:: Retrieving packages...
+ htop-3.4.1-1-x86_64  185.2 KiB  1650 KiB/s 00:00 [######################] 100%
+(1/1) checking keys in keyring                     [######################] 100%
+(1/1) checking package integrity                   [######################] 100%
+(1/1) loading package files                        [######################] 100%
+(1/1) checking for file conflicts                  [######################] 100%
+(1/1) checking available disk space                [######################] 100%
+:: Processing package changes...
+(1/1) installing htop                              [######################] 100%
+:: Running post-transaction hooks...
+(1/2) Arming ConditionNeedsUpdate...
+(2/2) Updating the desktop file MIME type cache...
+'''
+mention = ["does not look like an error", "install"]
+forbid = ["failed with"]
+fix = "nothing"
+
+[[case]]
+command = ""
+output = '''
+running 12 tests
+test parser::rejects_denied_input ... ok
+test parser::handles_missing_file ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+'''
+mention = ["does not look like an error", "test"]
+forbid = ["failed with"]
+fix = "nothing"
+
+[[case]]
+command = ""
+output = '''
+Enumerating objects: 5, done.
+Counting objects: 100% (5/5), done.
+Writing objects: 100% (3/3), 289 bytes | 289.00 KiB/s, done.
+To github.com:radu/demo.git
+ * [new branch]      main -> main
+branch 'main' set up to track 'origin/main'.
+'''
+mention = ["does not look like an error", "push"]
+forbid = ["failed with"]
+fix = "nothing"
+
+[[case]]
+command = "git status"
+exit = 0
+output = '''
+On branch main
+nothing to commit, working tree clean
+'''
+mention = ["succeeded"]
+fix = "nothing"
+
+# --- 4. Name resolution and refused connections ----------------------------------------------
+
+[[case]]
+command = "curl -sS http://nonexistent.invalid"
+exit = 6
+output = "curl: (6) Could not resolve host: nonexistent.invalid"
+mention = ["nonexistent.invalid", "could not resolve host", "typo|misspell|name"]
+forbid = ["temporary failure"]
+fix = "getent hosts nonexistent.invalid"
+
+[[case]]
+command = "git clone https://nonexistent.invalid/x.git"
+exit = 128
+output = '''
+Cloning into 'x'...
+fatal: unable to access 'https://nonexistent.invalid/x.git/': Could not resolve host: nonexistent.invalid
+'''
+mention = ["nonexistent.invalid", "could not resolve host"]
+forbid = ["temporary failure"]
+fix = "getent hosts nonexistent.invalid"
+
+[[case]]
+command = "ssh nonexistent.invalid"
+exit = 255
+output = '''
+Pseudo-terminal will not be allocated because stdin is not a terminal.
+ssh: Could not resolve hostname nonexistent.invalid: Name or service not known
+'''
+mention = ["nonexistent.invalid", "could not resolve hostname|name or service not known"]
+forbid = ["temporary failure"]
+fix = "getent hosts nonexistent.invalid"
+
+[[case]]
+command = "ping -c1 nonexistent.invalid"
+exit = 2
+output = "ping: nonexistent.invalid: Name or service not known"
+mention = ["nonexistent.invalid", "name or service not known"]
+forbid = ["temporary failure"]
+fix = "getent hosts nonexistent.invalid"
+
+[[case]]
+command = "ping -c1 example.com"
+exit = 2
+output = "ping: example.com: Temporary failure in name resolution"
+mention = ["temporary failure in name resolution", "dns|network"]
+fix = "getent hosts example.com|ping -c 4 1.1.1.1"
+
+[[case]]
+command = "ssh -p 59998 localhost"
+exit = 255
+output = '''
+Pseudo-terminal will not be allocated because stdin is not a terminal.
+ssh: connect to host localhost port 59998: Connection refused
+'''
+mention = ["59998", "nothing is listening|no server|not listening"]
+forbid = ["ping"]
+fix = "59998"
+
+[[case]]
+command = "curl http://localhost:59997/"
+exit = 7
+output = "curl: (7) Failed to connect to localhost port 59997 after 0 ms: Couldn't connect to server"
+mention = ["59997", "nothing is listening|no server|not listening"]
+fix = "59997"
+
+# --- 5. Docker image that cannot be pulled ---------------------------------------------------
+
+[[case]]
+command = "docker run nosuchimage-xyz-zz:latest"
+exit = 125
+output = '''
+Unable to find image 'nosuchimage-xyz-zz:latest' locally
+docker: Error response from daemon: pull access denied for nosuchimage-xyz-zz, repository does not exist or may require 'docker login': denied: requested access to the resource is denied.
+See 'docker run --help'.
+'''
+mention = ["nosuchimage-xyz-zz", "does not exist|private", "spelling|docker login"]
+forbid = ["root or administrator", "sudo"]
+fix = "docker login|docker search"
+
+# --- 6. Typos keep their arguments -----------------------------------------------------------
+
+[[case]]
+command = "sl -la"
+exit = 127
+output = "bash: sl: command not found"
+mention = ["typo"]
+fix = "ls -la"
+
+[[case]]
+command = "gti status"
+exit = 127
+output = "bash: gti: command not found"
+mention = ["typo"]
+fix = "git status"
+
+# --- 7. tar on a file that is not gzip -------------------------------------------------------
+
+[[case]]
+command = "tar xzf bad.tar.gz"
+exit = 2
+output = '''
+
+gzip: stdin: not in gzip format
+tar: Child returned status 1
+tar: Error is not recoverable: exiting now
+'''
+mention = ["bad.tar.gz", "not gzip|not in gzip format|not compressed"]
+forbid = ["<archive>"]
+fix = "file bad.tar.gz"
+
+[[case]]
+command = ""
+output = '''
+gzip: stdin: not in gzip format
+tar: Child returned status 1
+tar: Error is not recoverable: exiting now
+'''
+mention = ["not gzip|not in gzip format|not compressed"]
+fix = "file "
+
+# --- 8. systemctl --user ---------------------------------------------------------------------
+
+[[case]]
+command = "systemctl --user start nosuchunit.service"
+exit = 5
+output = "Failed to start nosuchunit.service: Unit nosuchunit.service not found."
+mention = ["nosuchunit.service"]
+fix = "systemctl --user list-unit-files"
+
+[[case]]
+command = "systemctl --user status nosuchunit.service"
+exit = 4
+output = "Unit nosuchunit.service could not be found."
+mention = ["nosuchunit.service", "could not be found|not found|not exist"]
+fix = "systemctl --user list-unit-files"
+
+# --- 9. The line quoted must be the one that matters -----------------------------------------
+
+[[case]]
+command = "npm install"
+exit = 1
+output = '''
+npm error code EJSONPARSE
+npm error JSON.parse Invalid package.json: JSONParseError: Expected property name or '}' in JSON at position 1 (line 1 column 2) while parsing "{bad\n"
+npm error JSON.parse Failed to parse JSON data.
+npm error JSON.parse Note: package.json must be actual JSON, not just JavaScript.
+npm error A complete log of this run can be found in: /home/radu/.npm/_logs/2026-11-18T06_14_05_763Z-debug-0.log
+'''
+mention = ["EJSONPARSE|package.json"]
+forbid = ["complete log"]
+fix = "nothing"
+
+[[case]]
+command = "npm run nosuch"
+exit = 1
+output = '''
+npm error Missing script: "nosuch"
+npm error
+npm error To see a list of scripts, run:
+npm error   npm run
+npm error A complete log of this run can be found in: /home/radu/.npm/_logs/2026-11-18T06_14_05_659Z-debug-0.log
+'''
+mention = ["Missing script"]
+forbid = ["complete log"]
+fix = "npm run"
+
+[[case]]
+command = "unzip bad.tar.gz"
+exit = 9
+output = '''
+Archive:  bad.tar.gz
+  End-of-central-directory signature not found.  Either this file is not
+  a zipfile, or it constitutes one disk of a multi-part archive.  In the
+  latter case the central directory and zipfile comment will be found on
+  the last disk(s) of this archive.
+unzip:  cannot find zipfile directory in one of bad.tar.gz or
+        bad.tar.gz.zip, and cannot find bad.tar.gz.ZIP, period.
+'''
+mention = ["bad.tar.gz", "not a zip|zipfile|zip archive"]
+forbid = ["period."]
+fix = "file bad.tar.gz"
+
+[[case]]
+command = "gcc main.o -o main"
+exit = 1
+output = '''
+/usr/bin/ld: main.o: in function `main':
+main.c:(.text+0xe): undefined reference to `foo'
+collect2: error: ld returned 1 exit status
+'''
+mention = ["undefined reference to `foo'|foo"]
+forbid = ["collect2"]
+fix = "nothing"
+
+[[case]]
+command = "gcc c.c -o c"
+exit = 1
+output = '''
+c.c: In function ‘main’:
+c.c:1:21: error: expected expression before ‘;’ token
+    1 | int main(){ int x = ; return y; }
+      |                     ^
+c.c:1:30: error: ‘y’ undeclared (first use in this function)
+    1 | int main(){ int x = ; return y; }
+      |                              ^
+c.c:1:30: note: each undeclared identifier is reported only once for each function it appears in
+'''
+mention = ["expected expression before"]
+forbid = ["undeclared"]
+fix = "nothing"
+
+[[case]]
+command = "git push origin main"
+exit = 1
+output = '''
+error: src refspec main does not match any
+error: failed to push some refs to 'origin'
+'''
+mention = ["main", "no commits|does not exist|no branch|does not match"]
+fix = "git branch"
+
+[[case]]
+command = "frobnicate --now"
+exit = 1
+output = '''
+starting up
+loading config
+config.toml: unexpected key `colour` on line 4
+'''
+mention = ["config.toml"]
+fix = "nothing"
+
+# --- 10. Common failures that had no rule ----------------------------------------------------
+
+[[case]]
+command = "pacman -S foo"
+exit = 1
+output = "error: you cannot perform this operation unless you are root."
+mention = ["root", "pacman"]
+fix = "sudo pacman -S foo"
+
+[[case]]
+command = "git status"
+exit = 128
+output = '''
+fatal: not a git repository (or any parent up to mount point /)
+Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).
+'''
+mention = ["not a git repository", "git init|cd "]
+fix = "pwd|git init|ls"
+
+[[case]]
+command = "git checkout nosuchbranch"
+exit = 1
+output = "error: pathspec 'nosuchbranch' did not match any file(s) known to git"
+mention = ["nosuchbranch", "branch"]
+fix = "git branch -a"
+
+[[case]]
+command = "git merge feature"
+exit = 1
+output = '''
+Auto-merging src/main.rs
+CONFLICT (content): Merge conflict in src/main.rs
+Automatic merge failed; fix conflicts and then commit the result.
+'''
+mention = ["src/main.rs", "git add", "git commit"]
+fix = "git status"
+
+[[case]]
+command = "git commit -m wip"
+exit = 128
+output = '''
+U	src/main.rs
+error: Committing is not possible because you have unmerged files.
+hint: Fix them up in the work tree, and then use 'git add/rm <file>'
+fatal: Exiting because of an unresolved conflict.
+'''
+mention = ["unmerged|conflict", "git add"]
+fix = "git status"
+
+[[case]]
+command = "git stash pop"
+exit = 1
+output = "No stash entries found."
+mention = ["no stash|nothing", "stash"]
+fix = "git stash list"
+
+[[case]]
+command = "make"
+exit = 2
+output = "Makefile:2: *** missing separator.  Stop."
+mention = ["tab", "Makefile", "line 2"]
+fix = "Makefile"
+
+[[case]]
+command = "python3 s.py"
+exit = 1
+output = '''
+  File "/home/radu/proj/s.py", line 1
+    def f(:
+          ^
+SyntaxError: invalid syntax
+'''
+mention = ["s.py", "line 1", "SyntaxError|syntax"]
+fix = "s.py"
+
+[[case]]
+command = "python3 i.py"
+exit = 1
+output = '''
+  File "/home/radu/proj/i.py", line 2
+    y=2
+IndentationError: unexpected indent
+'''
+mention = ["i.py", "line 2", "indent"]
+fix = "i.py"
+
+[[case]]
+command = "python3 k.py"
+exit = 1
+output = '''
+Traceback (most recent call last):
+  File "/home/radu/proj/k.py", line 2, in <module>
+    print(d["a"])
+          ~^^^^^
+KeyError: 'a'
+'''
+mention = ["KeyError", "'a'", "k.py", "line 2"]
+fix = "k.py"
+
+[[case]]
+command = "python3 a.py"
+exit = 1
+output = '''
+Traceback (most recent call last):
+  File "/home/radu/proj/a.py", line 2, in <module>
+    x.foo
+AttributeError: 'NoneType' object has no attribute 'foo'
+'''
+mention = ["AttributeError", "NoneType", "a.py", "line 2"]
+fix = "a.py"
+
+[[case]]
+command = "python3 j.py"
+exit = 1
+output = '''
+Traceback (most recent call last):
+  File "/home/radu/proj/j.py", line 2, in <module>
+    json.loads("{bad")
+    ~~~~~~~~~~^^^^^^^^
+  File "/usr/lib/python3.14/json/__init__.py", line 352, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/lib/python3.14/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/json/decoder.py", line 361, in raw_decode
+    obj, end = self.scan_once(s, idx)
+               ~~~~~~~~~~~~~~^^^^^^^^
+json.decoder.JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+'''
+mention = ["JSON", "line 1", "column 2", "j.py"]
+fix = "j.py"
+
+[[case]]
+command = "pip install requests"
+exit = 1
+output = '''
+error: externally-managed-environment
+
+× This environment is externally managed
+╰─> To install Python packages system-wide, try 'pacman -S
+    python-xyz', where xyz is the package you are trying to
+    install.
+
+note: If you believe this is a mistake, please contact your Python installation or OS distribution provider. You can override this, at the risk of breaking your Python installation or OS, by passing --break-system-packages.
+hint: See PEP 668 for the detailed specification.
+'''
+mention = ["externally", "venv|virtual environment", "pipx"]
+fix = "venv"
+
+[[case]]
+command = "python3 train.py"
+exit = 137
+output = "Killed"
+mention = ["memory", "killed"]
+fix = "journalctl -k|dmesg"
+
+[[case]]
+command = ""
+output = "bash: line 1: 48213 Killed                  python3 train.py"
+mention = ["memory", "killed"]
+fix = "journalctl -k|dmesg"
+
+[[case]]
+command = "./crashy"
+exit = 139
+output = "Segmentation fault (core dumped)"
+mention = ["segmentation fault", "crash|bug"]
+fix = "coredumpctl"
+
+# --- 11. Cosmetics ---------------------------------------------------------------------------
+
+[[case]]
+command = "cat /nonexistent/path"
+exit = 1
+output = "cat: /nonexistent/path: No such file or directory"
+mention = ["`/nonexistent/path` does not exist"]
+fix = "ls"
+
+[[case]]
+command = "ls /nonexistent/path"
+exit = 2
+output = "ls: cannot access '/nonexistent/path': No such file or directory"
+mention = ["`/nonexistent/path` does not exist"]
+forbid = ["`cannot access"]
+fix = "ls"
+
+[[case]]
+command = "jq . missing.json"
+exit = 2
+output = "jq: error: Could not open file missing.json: No such file or directory"
+mention = ["`missing.json` does not exist"]
+forbid = ["`could not open"]
+fix = "ls"
+
+[[case]]
+command = "ls /nonexistent/path"
+exit = 2
+output = "ls: cannot access '/nonexistent/path': No such file or directory"
+mention = ["nonexistent/path"]
+forbid = ["try: nothing"]
+fix = "ls"

@@ -109,6 +109,8 @@ Try: omarchy pkg add jq
 (Nothing was run.)
 ```
 
+`huh why` says so when it does not know: output with no error line and no exit code is reported as "does not look like an error" (with what it seems to be), and an unrecognised failure quotes the line that reports it instead of guessing a fix. Refused access to a file is checked against the file itself (owner and mode, read-only), so `sudo` is suggested only for other users' or system files; a missing Python or node module that looks like a typo is called one rather than installed.
+
 ### Other commands
 
 ```bash
@@ -118,6 +120,7 @@ huh eval --cases evals/heldout.toml                  # score the held-out suite
 huh eval --cases evals/debian.toml --platform debian # score Debian platform filtering
 huh eval-errors                                      # score evals/errors.toml
 huh eval-errors --cases evals/errors-heldout.toml    # score held-out error cases
+huh eval-errors --cases evals/errors-real.toml       # score failures from the real-world test
 ```
 
 ## Terminal recording and prompt completion
@@ -253,6 +256,7 @@ Error Doctor (`eval-errors`, release build):
 |---|---|---|---|---|
 | `evals/errors.toml` | 30 | 30/30 (100%) | 30/30 (100%) | 0 ms |
 | `evals/errors-heldout.toml` | 12 | 12/12 (100%) | 12/12 (100%) | 0 ms |
+| `evals/errors-real.toml` | 67 | 67/67 (100%) | 67/67 (100%) | 0 ms |
 
 ## Tools
 
