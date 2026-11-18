@@ -353,13 +353,13 @@ fn diagnose_docker(last: &Last) -> Option<String> {
             ),
             Some(false) => (
                 format!(
-                    "{base} On this computer, your user is not in the docker group; adding it fixes this (log in again afterwards)."
+                    "{base} On this computer, your user is not in the docker group; adding it fixes this (log in again afterwards). Know what that grants: members of the docker group can start a container that mounts the whole disk, which is the same as having root (rootless Docker avoids this)."
                 ),
                 "sudo usermod -aG docker $USER",
             ),
             None => (
                 format!(
-                    "{base} huh could not check which groups your user is in; if docker is not among them, adding your user to the docker group fixes this (log in again afterwards)."
+                    "{base} huh could not check which groups your user is in; if docker is not among them, adding your user to the docker group fixes this (log in again afterwards). Know what that grants: members of the docker group can start a container that mounts the whole disk, which is the same as having root (rootless Docker avoids this)."
                 ),
                 "sudo usermod -aG docker $USER",
             ),

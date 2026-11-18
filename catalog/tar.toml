@@ -22,6 +22,7 @@ description = "Unpack an existing archive"
 [[slots.options]]
 name = "list_contents"
 value = "-tzf"
+read_only = true
 description = "See what an archive contains without unpacking it"
 
 [[slots]]

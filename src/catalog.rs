@@ -211,6 +211,10 @@ pub struct SlotOption {
     /// `stay-awake` is never right for "put it to sleep".
     #[serde(default)]
     pub opposites: Vec<String>,
+    /// Picking this option only shows something (`tar -t` lists, `git stash list`): a `mixed`
+    /// entry with such an option picked changes nothing.
+    #[serde(default)]
+    pub read_only: bool,
 }
 
 #[derive(Deserialize, Debug, Clone)]

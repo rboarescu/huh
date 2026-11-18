@@ -363,63 +363,16 @@ pub fn destroys_system(line: &str) -> bool {
 
 // --- "show me" requests never get a destructive answer ----------------------------------------------
 
-/// Whether the request only asks to look at something (show, inspect, list, ...) and says nothing
-/// about changing it. A destructive command is never the answer to such a request.
-pub fn asks_to_look(request: &str) -> bool {
-    const LOOK: &[&str] = &[
-        "show", "inspect", "list", "display", "get", "print", "check", "find", "what", "which", "view", "see", "tell",
-        "whats", "lookup",
-    ];
-    const CHANGE: &[&str] = &[
-        "delet",
-        "remov",
-        "kill",
-        "stop",
-        "eras",
-        "drop",
-        "prun",
-        "clean",
-        "wip",
-        "terminat",
-        "destroy",
-        "purg",
-        "clear",
-        "uninstall",
-        "discard",
-        "reset",
-        "overwrit",
-        "truncat",
-        "shred",
-        "rid",
-        "rm",
-        "force",
-        "unlink",
-        "revert",
-        "undo",
-        "format",
-        "restart",
-        "reboot",
-        "shutdown",
-        "poweroff",
-        "halt",
-        "trash",
-        "flush",
-        "evict",
-        "zero",
-        "nuke",
-        "reclaim",
-        "rollback",
-        "abort",
-        "cancel",
-        "disable",
-        "unmount",
-        "umount",
-    ];
-    let w = words(request);
-    let leads = w.iter().take(3).any(|x| LOOK.contains(&x.as_str()));
-    // "show deleted files" describes; only a word that asks for the change itself counts.
-    let changes = w.iter().any(|x| (x == "shred" || !x.ends_with("ed")) && CHANGE.iter().any(|c| x.starts_with(c)));
-    leads && !changes
+/// Whether the suggested line changes something: an `action` entry, or a `mixed` one whose picked
+/// option is not read-only (`tar -xzf` unpacks, `tar -tzf` only lists).
+pub fn changes_something(command: &Command, details: &Details) -> bool {
+    match command.kind() {
+        crate::catalog::Kind::Query => false,
+        crate::catalog::Kind::Action => true,
+        crate::catalog::Kind::Mixed => !command.slots.iter().zip(&details.slots).any(|(slot, pick)| {
+            matches!(pick, crate::matcher::SlotPick::Option(i) if slot.options.get(*i).is_some_and(|o| o.read_only))
+        }),
+    }
 }
 
 // --- "everything in X" means the contents, not X ----------------------------------------------------
@@ -542,19 +495,6 @@ mod tests {
         for request in ["mount /dev/sdb1 on /mnt/usb", "check filesystem on /dev/sdc1", "show partitions of /dev/sda"] {
             assert!(refusal(request).is_none(), "{request}");
         }
-    }
-
-    #[test]
-    fn looking_requests_are_told_from_changing_ones() {
-        for request in ["show process tree of pid 1234", "docker inspect ip of container api", "what is using port 80"]
-        {
-            assert!(asks_to_look(request), "{request}");
-        }
-        for request in ["show me how to delete a file", "find and delete old logs", "stop container api", "kill pid 1"]
-        {
-            assert!(!asks_to_look(request), "{request}");
-        }
-        assert!(asks_to_look("show deleted files"));
     }
 
     #[test]

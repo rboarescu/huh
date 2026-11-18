@@ -106,6 +106,8 @@ Fixed right after the measurement: destructive lines on targets the user never n
 
 ## Planned: tutor mode (`huh tutor`), after the "Next" fixes below
 
+Keep it simple (Radu, 2026-11-18): the point is to explain output fields and flags to people who rarely use the terminal, rustlings-style hints, not a full tutorial system. huh's goal overall is to point the user the right way and let them decide and read the manual.
+
 Idea (2026-11-18, from a real session: `huh "unmount drive"` gave `lsblk`, then `lsblk | huh` only said "not an error", and `lsblk | huh explain` read the output as a 9-command script; that last bug is fixed): a side pane that follows the terminal and explains each command and its output as it happens, like a tutor sitting next to you. Like everything in huh, it only reads and explains; it never runs anything.
 
 ```

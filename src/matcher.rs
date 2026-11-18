@@ -894,6 +894,13 @@ fn request_mood(norm: &str, words: &[String]) -> Mood {
     if INSTRUCTION_OPENERS.iter().any(starts) || w.contains(&"please") {
         return Mood::Instruction;
     }
+    // "show permissions of x", "verify the archive", "count the files": an order to look, not to
+    // change; ranked like a question so a command that only looks wins.
+    const LOOK_OPENERS: &[&str] = &["show", "list", "display", "print", "view", "inspect", "verify", "count"];
+    let look_opener = LOOK_OPENERS.contains(&w[0]) || (w[0] == "check" && w.get(1) != Some(&"out"));
+    if look_opener && !w.iter().any(|x| CHANGE_VERBS.contains(x)) {
+        return Mood::Question;
+    }
     if !QUESTION_OPENERS.iter().any(starts) {
         // "sound isnt working": a report of trouble describes the state; it does not order a change.
         if reports_trouble(&w) && !w.iter().any(|x| CHANGE_VERBS.contains(x)) {
@@ -1737,8 +1744,8 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "stat" if q.mood == Mood::Question && !q.has_any(&["package", "packages"]) && q.has_any(&["permissions", "permission", "owner", "owns", "who owns"]) && q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text)) => bonus += 10.0,
         "echo shell" if q.has_exact_word("shell") && q.mood == Mood::Question && !q.has_any(&["reload", "config", "alias", "variable", "script", "change", "set", "switch", "bash", "zsh", "fish"]) => bonus += 12.0,
         "echo path" if q.has_exact_word("path") && !q.has_any(&["value of", "environment", "printenv", "file", "folder", "directory", "to", "add", "put", "append", "export", "set", "remove"]) => bonus += 12.0,
-        "du" if q.has_any(&["how big", "space", "size"])
-            && q.has_any(&["folder", "directory", "file", "this folder"])
+        "du" if q.has_any(&["how big", "how large", "space", "size"])
+            && (q.has_any(&["folder", "directory", "file", "this folder"]) || q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text)))
             && !q.has_any(&["free", "most space", "taking up", "largest", "biggest", "out of", "permissions"]) => bonus += 7.0,
         "largest items" if q.has_any(&["most space", "taking up", "largest", "biggest"])
             && !q.has_any(&["biggest to smallest", "order", "sort"]) => bonus += 8.5,
@@ -1797,7 +1804,9 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "sort" if q.has_any(&["sort", "order", "alphabetical", "alphabetically", "numerical", "numerically", "biggest to smallest"]) && !q.has_any(&["duplicate", "repeated", "how often", "most space"]) => bonus += 8.0,
         "cut" if q.has_any(&["column", "columns", "field", "fields", "delimiter"]) => bonus += 8.5,
         "diff" if q.has_any(&["different", "difference", "diff", "compare"]) => bonus += 7.5,
-        "tar" if (q.raw.contains(".tar") || q.raw.contains("tar.gz") || q.raw.contains(".tgz") || q.has_word("tarball")) && !q.has_remote_scp() => bonus += 9.0,
+        // "how big is x.tar.gz" asks for a size: that is du, not tar.
+        "tar" if (q.raw.contains(".tar") || q.raw.contains("tar.gz") || q.raw.contains(".tgz") || q.has_word("tarball")) && !q.has_remote_scp()
+            && !q.has_any(&["how big", "how large", "size of", "file size", "how much space"]) => bonus += 9.0,
         "unzip" if q.raw.contains(".zip") && !has_url && !q.has_remote_scp() && q.has_any(&["extract", "unpack", "unzip", "decompress", "open"]) => bonus += 9.5,
         "zip" if !has_url && !q.has_remote_scp() && q.has_any(&["zip up", "into", "pack", "compress", "create", "make"]) && (q.raw.contains(".zip") || q.has_word("zip")) => bonus += 9.5,
         "unrar" if q.raw.contains(".rar") => bonus += 9.5,
@@ -3173,6 +3182,10 @@ fn score_choice_slot(cmd_name: &str, slot: &Slot, entry: &IndexedCommand, q: &Qu
             }
         }
 
+        // A question (or an order to look) takes the option that only looks: `tar -t`, not `tar -x`.
+        if q.mood == Mood::Question && option.read_only {
+            s += 6.0;
+        }
         let better = match best {
             None => true,
             Some((b, bs)) => s > bs || (s == bs && *opt_name < slot.options[b].name),
@@ -5496,6 +5509,11 @@ mod tests {
             "check if nginx is running",
             "which process is using port 80?",
             "who owns this file",
+            // An order to look ranks like a question.
+            "show permissions of /etc/shadow",
+            "verify the archive backup.tar.gz",
+            "list running containers",
+            "check the status of my user service pipewire",
         ] {
             assert_eq!(mood(question), Mood::Question, "{question}");
         }

@@ -320,7 +320,11 @@ pub fn suggest_in(
             contents_of_folder(&mut suggestion, command, request);
             // A request to look never gets a destructive answer: normal mode abstains, expert mode
             // shows it below every command that only looks.
-            let destructive_look = suggestion.destructive && guard::asks_to_look(request);
+            // ("how big is x.tar.gz" must not unpack it; "show permissions of f" must not chmod it.)
+            // Only the stricter question-or-look reading counts here: "get the latest changes" acts.
+            let looks_only = matcher.asks_about_state(request);
+            let destructive_look =
+                looks_only && (suggestion.destructive || guard::changes_something(command, &details));
             if destructive_look && !expert {
                 hint.get_or_insert(
                     "that asks to look at something, and no command in the catalog that only looks fits it.",

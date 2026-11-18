@@ -22,6 +22,7 @@ description = "Bring the most recently stashed changes back and drop them from t
 [[slots.options]]
 name = "list"
 value = "list"
+read_only = true
 description = "List what is stashed"
 
 [[flags]]

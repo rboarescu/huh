@@ -647,3 +647,30 @@ command = "timedatectl"
 [[case]]
 request = "is the printer working"
 command = "none"
+
+[[case]]
+request = "show permissions of /etc/shadow"
+command = "stat|ls"
+warn = false
+
+[[case]]
+request = "how big is backups/site.tar.gz"
+command = "du|ls|stat|wc"
+files = ["backups/"]
+
+[[case]]
+request = "verify the archive backups/site.tar.gz is not corrupted"
+command = "tar"
+expect = "tar -tzf backups/site.tar.gz"
+files = ["backups/"]
+
+[[case]]
+request = "list what is in backup.tar.gz"
+command = "tar"
+expect = "tar -tzf backup.tar.gz"
+files = ["backup.tar.gz"]
+
+[[case]]
+request = "check the permissions on deploy.sh"
+command = "stat|ls"
+files = ["deploy.sh"]
