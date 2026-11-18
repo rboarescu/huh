@@ -324,6 +324,18 @@ For people who use the terminal now and then. Two parts, both read-only (huh run
   4. **Neither tmux nor a tiling desktop**: one message with the install command for tmux on this system and how to run `huh tutor --tty <this tty>` in a second window.
 
   `--side` passes `--quiet` on, refuses when standard input is not a terminal or when run inside its own tmux session, and `--dry-run` (or `HUH_DRY_RUN=1`) prints the command it would start instead of starting it. It only ever starts huh's own tutor, or the tmux or terminal that hosts it, never a suggested command. All starting is in `src/launch.rs`, and a test checks that no other source file uses `std::process::Command`.
+- **Type in the tutor pane**: the tutor also reads lines typed in its own pane, after a dim `huh> ` prompt that follows each block. It is line-based (no full-screen UI), nothing typed is ever run, and it works only when standard input is a terminal. Answers and blocks from the followed terminal are printed one at a time, never mixed. Ctrl+C stops the tutor; Ctrl+D ends the typing and the tutor keeps following.
+
+  | You type | What you get |
+  |---|---|
+  | a command line (`tar -xzf a.tgz`, `ls \| wc -l`) | the `huh explain` breakdown |
+  | plain words (`make deploy.sh executable`) | the suggestions of `huh "..."`, with WARNINGs and hints, in the current mode (normal, or expert with `--expert`, `HUH_MODE` or the config file) |
+  | `?word [word...]` | the `huh tools` filter: at most 20 lines, then "N more: huh tools words" |
+  | `why` | the `huh why` answer for the last command that finished in the followed terminal |
+  | an empty line | the last block again, with every flag and field explained even under `--quiet` |
+  | `/find [words]` | [`huh find`](#find-a-command-or-tool) with the words as the first query; when it ends you are back in the tutor |
+  | `help` or `/help` | a 5-line list of these |
+
 - **`Alt+e`** (with `huh shell-init --hooks`): shows `huh explain` for the line you are typing, below the prompt, without running it.
 
 ```

@@ -748,7 +748,13 @@ fn main() -> Result<()> {
             if let Some(log) = log {
                 tutor::set_recording(log);
             }
-            if let Err(error) = tutor::run(&everything, quiet, tty.as_deref()) {
+            let mode = mode::resolve(
+                cli.expert,
+                cli.normal,
+                std::env::var("HUH_MODE").ok().as_deref(),
+                mode::config_path().as_deref(),
+            )?;
+            if let Err(error) = tutor::run(&everything, quiet, tty.as_deref(), mode) {
                 if !hold {
                     return Err(error);
                 }

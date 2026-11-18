@@ -79,6 +79,7 @@ pub fn man_description(path: &Path, index: &HashMap<String, PathBuf>) -> Option<
     name_summary(&head)
 }
 
+#[derive(Clone)]
 pub struct Tool {
     pub name: String,
     pub description: String,
