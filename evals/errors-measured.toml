@@ -1,0 +1,563 @@
+# Failures from the second measurement round (186 real failures, fresh cases). Same format as
+# errors-real.toml. Outputs were produced in Debian 12 containers (as a normal user), except where
+# a container cannot produce them (pacman, docker daemon, ssh host keys, missing dev libraries,
+# out-of-memory kills), which are pasted text. Guiding rule: a confident wrong cause or fix is
+# worse than saying huh does not recognise the output.
+
+# --- 1. Permission denied: which operation was it? --------------------------------------------
+
+[[case]]
+command = "echo x > /etc/foo"
+exit = 1
+output = "bash: /etc/foo: Permission denied"
+mention = ["/etc/foo", "write|written|create", "administrator|root"]
+forbid = ["chmod +x", "not executable", "sudo echo"]
+fix = "sudo tee /etc/foo"
+
+[[case]]
+command = "echo x >> /etc/foo"
+exit = 1
+output = "bash: line 1: /etc/foo: Permission denied"
+mention = ["/etc/foo", "write|written|create", "administrator|root"]
+forbid = ["chmod +x", "not executable"]
+fix = "sudo tee -a /etc/foo"
+
+[[case]]
+command = "echo x | tee /etc/foo"
+exit = 1
+output = "tee: /etc/foo: Permission denied\nx"
+mention = ["/etc/foo", "write|written|create"]
+forbid = ["chmod +x", "not executable", "sudo echo"]
+fix = "sudo tee /etc/foo"
+
+[[case]]
+command = ""
+output = "bash: /etc/foo: Permission denied"
+mention = ["/etc/foo", "written or run|written|run", "administrator|root"]
+forbid = ["chmod +x", "found but is not executable"]
+fix = "nothing"
+
+# --- 2. pacman as a user: keep the user's operation --------------------------------------------
+
+[[case]]
+command = "pacman -Syu"
+exit = 1
+output = "error: you cannot perform this operation unless you are root."
+mention = ["sudo", "root"]
+forbid = ["pacman -S <package>", "<package>"]
+fix = "sudo pacman -Syu"
+
+[[case]]
+command = "pacman -R bash"
+exit = 1
+output = "error: you cannot perform this operation unless you are root."
+mention = ["sudo", "root"]
+forbid = ["pacman -S <package>", "<package>"]
+fix = "sudo pacman -R bash"
+
+[[case]]
+command = ""
+output = "error: you cannot perform this operation unless you are root."
+mention = ["same pacman command with sudo", "root"]
+forbid = ["pacman -S <package>", "<package>", "<"]
+fix = "nothing"
+
+# --- 3. An exit code that was not given must not be stated -------------------------------------
+
+[[case]]
+command = "docker nosuchsub"
+exit = 1
+output = "docker: unknown command: docker nosuchsub\n\nRun 'docker --help' for more information"
+mention = ["nosuchsub", "docker --help"]
+forbid = ["exit code 127", "was not found (exit", "not installed"]
+fix = "docker --help"
+
+[[case]]
+command = "docker exec nosuch ls"
+exit = 1
+output = "Error response from daemon: No such container: nosuch"
+mention = ["nosuch", "container"]
+forbid = ["exit code 127"]
+fix = "docker ps"
+
+[[case]]
+command = "docker stop web"
+exit = 1
+output = "Error response from daemon: No such container: web\n"
+mention = ["web", "container"]
+fix = "docker ps"
+
+# --- 4. Claims about this machine must be labelled ---------------------------------------------
+
+[[case]]
+command = ""
+output = "permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock: Get \"http://%2Fvar%2Frun%2Fdocker.sock/v1.47/containers/json\": dial unix /var/run/docker.sock: connect: permission denied"
+mention = ["docker group"]
+forbid = ["Your user is listed", "is listed in the docker group"]
+fix = "newgrp docker|usermod -aG docker"
+
+# --- 5. gzip on a file that is not gzip --------------------------------------------------------
+
+[[case]]
+command = "gzip -d f.gz"
+exit = 1
+output = "\ngzip: f.gz: not in gzip format"
+mention = ["f.gz", "gzip"]
+forbid = ["tar", "`z`", "<name>"]
+fix = "file f.gz"
+
+[[case]]
+command = "gunzip f.gz"
+exit = 1
+output = "\ngzip: f.gz: not in gzip format"
+mention = ["f.gz", "gzip"]
+forbid = ["tar", "`z`", "<name>"]
+fix = "file f.gz"
+
+[[case]]
+command = ""
+output = "\ngzip: backup.sql.gz: not in gzip format"
+mention = ["backup.sql.gz", "gzip"]
+forbid = ["tar", "`z`", "<name>"]
+fix = "file backup.sql.gz"
+
+# --- 6. Missing development libraries and headers ----------------------------------------------
+
+[[case]]
+command = "gcc a.c -lssl -o a"
+exit = 1
+output = "/usr/bin/ld: cannot find -lssl: No such file or directory\ncollect2: error: ld returned 1 exit status"
+mention = ["ssl", "development|-dev|-devel|headers"]
+forbid = ["does not exist"]
+fix = "openssl"
+
+[[case]]
+command = "gcc a.c -o a"
+exit = 1
+output = "a.c:1:10: fatal error: openssl/ssl.h: No such file or directory\n    1 | #include <openssl/ssl.h>\n      |          ^~~~~~~~~~~~~~~\ncompilation terminated."
+mention = ["openssl/ssl.h", "development|-dev|-devel|headers"]
+forbid = ["does not exist"]
+fix = "openssl"
+
+[[case]]
+command = ""
+output = "/usr/bin/ld: cannot find -lz: No such file or directory\ncollect2: error: ld returned 1 exit status"
+mention = ["-lz|zlib", "development|-dev|-devel|headers"]
+forbid = ["does not exist"]
+fix = "zlib"
+
+# --- 7. Python tracebacks: point at the user's frame -------------------------------------------
+
+[[case]]
+command = "python3 app.py"
+exit = 1
+output = """Traceback (most recent call last):
+  File "/home/u/w/app.py", line 2, in <module>
+    print(json.load(open("a.json")))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/json/decoder.py", line 355, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"""
+mention = ["app.py", "line 2"]
+forbid = ["decoder.py"]
+fix = "app.py"
+
+[[case]]
+command = "echo 'not json' | python3 -c 'import json,sys; json.load(sys.stdin)'"
+exit = 1
+output = """Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/usr/lib/python3.11/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/json/decoder.py", line 355, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)"""
+mention = ["<string>", "line 1"]
+forbid = ["decoder.py"]
+fix = "nothing"
+
+# --- 8. Failures that were called "does not look like an error" --------------------------------
+
+[[case]]
+command = "git commit -m x"
+output = "On branch main\n\nInitial commit\n\nnothing to commit (create/copy files and use \"git add\" to track)"
+mention = ["nothing to commit", "git add"]
+forbid = ["does not look like an error"]
+fix = "git status"
+
+[[case]]
+command = "git commit -m x"
+output = "On branch main\nUntracked files:\n  (use \"git add <file>...\" to include in what will be committed)\n\tnotes.txt\n\nnothing added to commit but untracked files present (use \"git add\" to track)"
+mention = ["nothing to commit", "untracked"]
+forbid = ["does not look like an error"]
+fix = "git add"
+
+[[case]]
+command = "git commit -m x"
+output = "On branch main\nnothing to commit, working tree clean"
+mention = ["nothing to commit", "no changes|clean|nothing"]
+forbid = ["does not look like an error"]
+fix = "nothing"
+
+[[case]]
+command = ""
+output = "On branch main\nnothing to commit, working tree clean"
+mention = ["does not look like an error", "git status"]
+fix = "nothing"
+
+[[case]]
+command = "git merge nonexist"
+output = "merge: nonexist - not something we can merge"
+mention = ["nonexist", "merge"]
+forbid = ["does not look like an error"]
+fix = "git branch"
+
+[[case]]
+command = "git comit -m x"
+output = "git: 'comit' is not a git command. See 'git --help'.\n\nThe most similar command is\n\tcommit"
+mention = ["comit", "commit"]
+forbid = ["does not look like an error"]
+fix = "git commit -m x"
+
+[[case]]
+command = "python3 -m nosuchmod"
+output = "/usr/bin/python3: No module named nosuchmod"
+mention = ["nosuchmod", "module"]
+forbid = ["does not look like an error"]
+fix = "nothing|pip|python"
+
+[[case]]
+command = "python3 -m pytest"
+output = "/usr/bin/python3: No module named pytest"
+mention = ["pytest", "module"]
+forbid = ["does not look like an error"]
+fix = "pytest"
+
+[[case]]
+command = "cat d"
+output = "cat: d: Is a directory"
+mention = ["d", "directory"]
+forbid = ["does not look like an error"]
+fix = "ls d"
+
+[[case]]
+command = "cp d dest"
+output = "cp: -r not specified; omitting directory 'd'"
+mention = ["-r", "d", "directory"]
+forbid = ["does not look like an error"]
+fix = "cp -r d dest"
+
+[[case]]
+command = "echo a | sed \"s/a/b\""
+output = "sed: -e expression #1, char 5: unterminated `s' command"
+mention = ["sed", "unterminated|closing|missing"]
+forbid = ["does not look like an error"]
+fix = "nothing"
+
+[[case]]
+command = "curl"
+output = "curl: try 'curl --help' or 'curl --manual' for more information"
+mention = ["curl", "URL|address|argument"]
+forbid = ["does not look like an error"]
+fix = "curl --help"
+
+[[case]]
+command = "systemctl --user cat nosuch"
+output = "No files found for nosuch.service."
+mention = ["nosuch"]
+forbid = ["does not look like an error"]
+fix = "systemctl --user list-unit-files"
+
+[[case]]
+command = "make nosuchtarget"
+output = "make: *** No rule to make target 'nosuchtarget'.  Stop."
+mention = ["nosuchtarget", "Makefile|target"]
+forbid = ["does not look like an error"]
+fix = "Makefile|make"
+
+# Garbled subjects: the real file or name.
+
+[[case]]
+command = "tar xf nosuch.tar"
+exit = 2
+output = "tar: nosuch.tar: Cannot open: No such file or directory\ntar: Error is not recoverable: exiting now"
+mention = ["nosuch.tar", "does not exist|cannot be opened"]
+forbid = ["`Cannot open`"]
+fix = "ls"
+
+[[case]]
+command = "sed s/a/b/ nosuch.txt"
+exit = 2
+output = "sed: can't read nosuch.txt: No such file or directory"
+mention = ["nosuch.txt", "does not exist|cannot be opened"]
+forbid = ["`can't read nosuch.txt`"]
+fix = "ls"
+
+[[case]]
+command = "git switch nonexist"
+exit = 128
+output = "fatal: invalid reference: nonexist"
+mention = ["nonexist", "neither a branch|no branch|not a branch"]
+forbid = ["`that name`"]
+fix = "git branch"
+
+# --- 9. False alarms: words in a sentence are not an error -------------------------------------
+
+[[case]]
+command = "node -e 'console.log(\"Error handling docs: no failure here\")'"
+exit = 0
+output = "Error handling docs: no failure here"
+mention = ["succeeded"]
+forbid = ["failed with an error", "failed with"]
+fix = "nothing"
+
+[[case]]
+command = ""
+output = "Error handling docs: no failure here"
+mention = ["error"]
+forbid = ["failed with an error", "failed with"]
+fix = "nothing"
+
+[[case]]
+command = ""
+output = "unreachable, as expected"
+mention = ["unreachable"]
+forbid = ["failed with an error", "failed with"]
+fix = "nothing"
+
+[[case]]
+command = "false || echo \"unreachable, as expected\""
+exit = 0
+output = "unreachable, as expected"
+mention = ["succeeded"]
+forbid = ["failed with an error", "failed with"]
+fix = "nothing"
+
+# --- 10. Coverage ------------------------------------------------------------------------------
+
+[[case]]
+command = "curl http://127.0.0.1:9/"
+exit = 7
+output = "  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\n                                 Dload  Upload   Total   Spent    Left  Speed\n  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\ncurl: (7) Failed to connect to 127.0.0.1 port 9 after 0 ms: Couldn't connect to server"
+mention = ["127.0.0.1", "9", "listening"]
+forbid = ["does not look like an error"]
+fix = "ss -ltn"
+
+[[case]]
+command = "curl -m 1 http://10.255.255.1/"
+exit = 28
+output = "  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\n                                 Dload  Upload   Total   Spent    Left  Speed\n  0     0    0     0    0     0      0      0 --:--:--  0:00:01 --:--:--     0\ncurl: (28) Connection timed out after 1001 milliseconds"
+mention = ["timed out", "10.255.255.1"]
+forbid = ["does not look like an error"]
+fix = "ping|nc -zv|curl"
+
+[[case]]
+command = "ssh radu@192.168.0.50"
+exit = 255
+output = """@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!
+Someone could be eavesdropping on you right now (man-in-the-middle attack)!
+It is also possible that a host key has just been changed.
+The fingerprint for the ED25519 key sent by the remote host is
+SHA256:abc123.
+Please contact your system administrator.
+Add correct host key in /home/radu/.ssh/known_hosts to get rid of this message.
+Offending ED25519 key in /home/radu/.ssh/known_hosts:3
+Host key for 192.168.0.50 has changed and you have requested strict checking.
+Host key verification failed."""
+mention = ["known_hosts", "man-in-the-middle|impersonat|someone", "reinstall|changed"]
+forbid = ["does not look like an error"]
+fix = "ssh-keygen -R 192.168.0.50"
+
+[[case]]
+command = "git push"
+exit = 128
+output = "fatal: No configured push destination.\nEither specify the URL from the command-line or configure a remote repository using\n\n    git remote add <name> <url>\n\nand then push using the remote name\n\n    git push <name>\n"
+mention = ["git remote add", "push"]
+forbid = ["does not look like an error"]
+fix = "git remote"
+
+[[case]]
+command = "git push"
+exit = 1
+output = "To github.com:u/r.git\n ! [rejected]        main -> main (non-fast-forward)\nerror: failed to push some refs to 'github.com:u/r.git'\nhint: Updates were rejected because the tip of your current branch is behind\nhint: its remote counterpart. If you want to integrate the remote changes,\nhint: use 'git pull' before pushing again."
+mention = ["rejected", "remote"]
+forbid = ["does not look like an error"]
+fix = "git pull"
+
+[[case]]
+command = "git branch -d f"
+exit = 1
+output = "error: The branch 'f' is not fully merged.\nIf you are sure you want to delete it, run 'git branch -D f'."
+mention = ["f", "merged", "-D"]
+forbid = ["does not look like an error"]
+fix = "git log"
+
+[[case]]
+command = "git clone /nonexistent/repo.git"
+exit = 128
+output = "fatal: repository '/nonexistent/repo.git' does not exist"
+mention = ["/nonexistent/repo.git", "repository"]
+forbid = ["does not look like an error"]
+fix = "git ls-remote|nothing"
+
+[[case]]
+command = "git add nofile"
+exit = 128
+output = "fatal: pathspec 'nofile' did not match any files"
+mention = ["nofile", "did not match|no file"]
+forbid = ["neither a branch"]
+fix = "git status"
+
+[[case]]
+command = "git remote add origin /y"
+exit = 3
+output = "error: remote origin already exists."
+mention = ["origin", "already"]
+fix = "git remote"
+
+[[case]]
+command = "cargo biuld"
+exit = 101
+output = "error: no such command: `biuld`\n\n\tDid you mean `build`?\n\n\tView all installed commands with `cargo --list`"
+mention = ["biuld", "build"]
+fix = "cargo build"
+
+[[case]]
+command = "cargo build"
+exit = 101
+output = "   Compiling demo v0.1.0 (/home/u/demo)\nerror[E0425]: cannot find value `x` in this scope\n --> src/main.rs:2:20\n  |\n2 |     println!(\"{}\", x);\n  |                    ^ not found in this scope\n\nFor more information about this error, try `rustc --explain E0425`.\nerror: could not compile `demo` (bin \"demo\") due to 1 previous error"
+mention = ["src/main.rs:2", "cannot find value"]
+fix = "rustc --explain E0425|nothing"
+
+[[case]]
+command = "gcc a.c -o a"
+exit = 1
+output = "a.c: In function 'main':\na.c:2:11: error: expected expression before ';' token\n    2 |   int x = ;\n      |           ^"
+mention = ["a.c:2", "expected expression"]
+fix = "nothing"
+
+[[case]]
+command = "gcc a.c -o a"
+exit = 1
+output = "/usr/bin/ld: /tmp/ccfhDFUm.o: in function `main':\na.c:(.text+0xa): undefined reference to `foo'\ncollect2: error: ld returned 1 exit status"
+mention = ["foo", "undefined reference"]
+forbid = ["does not look like an error"]
+fix = "nothing"
+
+[[case]]
+command = "node -e 'console.log(foo)'"
+exit = 1
+output = "[eval]:1\nconsole.log(foo)\n            ^\n\nReferenceError: foo is not defined\n    at [eval]:1:13\n    at runScriptInThisContext (node:internal/vm:143:10)\n\nNode.js v18.20.4"
+mention = ["foo is not defined", "[eval]"]
+fix = "nothing"
+
+[[case]]
+command = "node -e 'let = ='"
+exit = 1
+output = "[eval]:1\nlet = =\n      ^\n\nSyntaxError: Unexpected token '='\n    at makeContextifyScript (node:internal/vm:122:14)\n\nNode.js v18.20.4"
+mention = ["Unexpected token", "[eval]"]
+fix = "nothing"
+
+[[case]]
+command = "npm install nosuchpkgxyz123456789zz"
+exit = 1
+output = "npm ERR! code E404\nnpm ERR! 404 Not Found - GET https://registry.npmjs.org/nosuchpkgxyz123456789zz - Not found\nnpm ERR! 404 \nnpm ERR! 404  'nosuchpkgxyz123456789zz@*' is not in this registry.\nnpm ERR! 404 \nnpm ERR! 404 Note that you can also install from a\nnpm ERR! 404 tarball, folder, http url, or git url.\n\nnpm ERR! A complete log of this run can be found in:\nnpm ERR!     /home/u/.npm/_logs/2026-11-18T07_24_12_979Z-debug-0.log"
+mention = ["nosuchpkgxyz123456789zz", "registry"]
+fix = "npm search nosuchpkgxyz123456789zz"
+
+[[case]]
+command = "echo '{}' | jq '.a['"
+exit = 3
+output = "jq: error: syntax error, unexpected $end (Unix shell quoting issues?) at <top-level>, line 1:\n.a[  \njq: 1 compile error"
+mention = ["jq", "syntax"]
+forbid = ["does not look like an error"]
+fix = "nothing"
+
+[[case]]
+command = "echo a | awk '{print $1'"
+exit = 2
+output = "awk: cmd. line:1: {print $1\nawk: cmd. line:1:          ^ unexpected newline or end of string"
+mention = ["awk", "syntax|unexpected|closing"]
+forbid = ["does not look like an error"]
+fix = "nothing"
+
+[[case]]
+command = "find . -nme x"
+exit = 1
+output = "find: unknown predicate `-nme'"
+mention = ["-nme", "find"]
+forbid = ["does not look like an error"]
+fix = "man find|find --help"
+
+[[case]]
+command = "mkdir d"
+exit = 1
+output = "mkdir: cannot create directory 'd': File exists"
+mention = ["d", "exists"]
+forbid = ["does not look like an error"]
+fix = "ls -ld d|mkdir -p d"
+
+[[case]]
+command = "rm d"
+exit = 1
+output = "rm: cannot remove 'd': Is a directory"
+mention = ["d", "directory", "rm -r", "everything"]
+forbid = ["does not look like an error"]
+fix = "rmdir d"
+
+[[case]]
+command = "make"
+exit = 2
+output = "make: *** No rule to make target 'foo', needed by 'all'.  Stop."
+mention = ["foo", "Makefile"]
+forbid = ["does not look like an error"]
+fix = "Makefile"
+
+[[case]]
+command = "python3 -m pip install nosuchpkgxyz"
+exit = 1
+output = "ERROR: Could not find a version that satisfies the requirement nosuchpkgxyz (from versions: none)\nERROR: No matching distribution found for nosuchpkgxyz"
+mention = ["nosuchpkgxyz", "spelling|name"]
+forbid = ["does not look like an error"]
+fix = "pip index versions nosuchpkgxyz"
+
+[[case]]
+command = "./target/debug/demo"
+exit = 101
+output = "thread 'main' panicked at src/main.rs:2:30:\nindex out of bounds: the len is 0 but the index is 0\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace"
+mention = ["src/main.rs:2", "index out of bounds"]
+fix = "RUST_BACKTRACE=1"
+
+[[case]]
+command = "node build.js"
+exit = 134
+output = "<--- Last few GCs --->\n\n<--- JS stacktrace --->\n\nFATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n 1: 0xb7a940 node::Abort() [node]"
+mention = ["heap", "max-old-space-size"]
+fix = "max-old-space-size"
+
+[[case]]
+command = "./server"
+exit = 2
+output = "fatal error: runtime: out of memory\n\nruntime stack:\nruntime.throw({0x4a1b2c?, 0x2000000?})"
+mention = ["out of memory", "memory"]
+forbid = ["does not look like an error"]
+fix = "free -h"
