@@ -1,0 +1,759 @@
+# Round 3: failures from 244 real runs by fresh testers. Outputs were produced in Debian 12 / Arch
+# containers (as a normal user, core dumps disabled), except where a container cannot produce them
+# (systemd not booted, sshd key checks, Go, jest, GitHub, terraform, kubectl, a held dpkg lock,
+# a core dump), which are pasted text. Guiding rule: a confident wrong cause or fix is worse than
+# saying huh does not recognise the output.
+
+[[case]]
+command = "echo test >> /etc/hosts"
+exit = 1
+output = "bash: line 1: /etc/hosts: Permission denied"
+mention = ["/etc/hosts", "append", "administrator|root"]
+fix = "echo test | sudo tee -a /etc/hosts"
+forbid = ["sudo tee /etc/hosts", "written or run"]
+
+[[case]]
+command = "echo test > /etc/hosts"
+exit = 1
+output = "bash: line 1: /etc/hosts: Permission denied"
+mention = ["/etc/hosts", "replace|overwrit", "administrator|root"]
+fix = "echo test | sudo tee /etc/hosts"
+forbid = ["sudo tee -a", "written or run"]
+
+[[case]]
+command = ""
+output = "bash: line 1: /etc/hosts: Permission denied"
+mention = ["/etc/hosts", "does not say|cannot tell|not say|unknown"]
+fix = "nothing"
+forbid = ["sudo tee /etc/hosts", "chmod +x", "not executable"]
+
+[[case]]
+command = "echo test | tee /etc/foo.conf"
+exit = 1
+output = "tee: /etc/foo.conf: Permission denied\ntest"
+mention = ["/etc/foo.conf", "write|written"]
+fix = "sudo tee /etc/foo.conf"
+forbid = ["cannot read", "chmod +x"]
+
+[[case]]
+command = "tee /etc/foo.conf"
+exit = 1
+output = "tee: /etc/foo.conf: Permission denied"
+mention = ["/etc/foo.conf", "write|written"]
+fix = "sudo tee /etc/foo.conf"
+forbid = ["cannot read", "chmod +x"]
+
+[[case]]
+command = ""
+output = "tee: /etc/foo.conf: Permission denied\ntest"
+mention = ["/etc/foo.conf", "write|written"]
+fix = "nothing"
+forbid = ["cannot read", "chmod +x"]
+
+[[case]]
+command = "ping -c1 localhost"
+exit = 127
+output = "bash: line 1: ping: command not found"
+mention = ["ping", "not installed"]
+fix = "iputils"
+forbid = ["typo", "find"]
+
+[[case]]
+command = "sudo apt update"
+exit = 127
+output = "bash: line 1: sudo: command not found"
+mention = ["sudo", "not installed"]
+fix = "pacman -S sudo"
+forbid = ["typo", "sed"]
+
+[[case]]
+command = ""
+output = "bash: ping: command not found"
+mention = ["ping", "not installed"]
+fix = "iputils"
+forbid = ["typo", "find"]
+
+[[case]]
+command = "build.rs"
+exit = 127
+output = "bash: line 1: build.rs: command not found"
+mention = ["./build.rs", "current folder|this folder"]
+fix = "./build.rs"
+forbid = ["typo"]
+
+[[case]]
+command = "gti status"
+exit = 127
+output = "bash: line 1: gti: command not found"
+mention = ["typo", "git"]
+fix = "git status"
+
+[[case]]
+command = "python3 -m pip install x"
+exit = 1
+output = "/usr/bin/python3: No module named pip"
+mention = ["pip", "no `pip`"]
+fix = "python-pip|python3-pip|ensurepip"
+forbid = [".venv/bin/pip install pip", "venv .venv"]
+
+[[case]]
+command = ""
+output = "/usr/bin/python3: No module named pip"
+mention = ["pip"]
+fix = "python-pip|python3-pip|ensurepip"
+forbid = [".venv/bin/pip install pip"]
+
+[[case]]
+command = "python3 -m venv v1"
+exit = 1
+output = "The virtual environment was not created successfully because ensurepip is not\navailable.  On Debian/Ubuntu systems, you need to install the python3-venv\npackage using the following command.\n\n    apt install python3.11-venv\n\nYou may need to use sudo with that command.  After installing the python3-venv\npackage, recreate your virtual environment.\n\nFailing command: /home/u/v1/bin/python3\n"
+mention = ["python3.11-venv"]
+fix = "python3.11-venv"
+forbid = ["does not look like an error", "log of a package"]
+
+[[case]]
+command = ""
+output = "The virtual environment was not created successfully because ensurepip is not\navailable.  On Debian/Ubuntu systems, you need to install the python3-venv\npackage using the following command.\n\n    apt install python3.11-venv\n\nYou may need to use sudo with that command.  After installing the python3-venv\npackage, recreate your virtual environment.\n\nFailing command: /home/u/v1/bin/python3\n"
+mention = ["python3.11-venv"]
+fix = "python3.11-venv"
+forbid = ["does not look like an error", "log of a package"]
+
+[[case]]
+command = "git commit -m b"
+exit = 1
+output = "On branch master\nnothing to commit, working tree clean"
+mention = ["nothing", "no commit"]
+fix = "nothing"
+forbid = ["does not look like an error", "not an error", "failed"]
+
+[[case]]
+command = ""
+output = "On branch master\nnothing to commit, working tree clean"
+mention = ["git status|clean"]
+fix = "nothing"
+forbid = ["failed"]
+
+[[case]]
+command = "git commit -m b"
+exit = 1
+output = "On branch main\nChanges not staged for commit:\n\tmodified:   a\n\nno changes added to commit (use \"git add\" and/or \"git commit -a\")"
+mention = ["git add|stage|-a"]
+fix = "git add|git commit -a"
+forbid = ["does not look like an error"]
+
+[[case]]
+command = "useradd bob"
+exit = 1
+output = "useradd: Permission denied.\nuseradd: cannot lock /etc/passwd; try again later."
+mention = ["administrator|root"]
+fix = "sudo useradd bob"
+forbid = ["ls -ld", "is yours", "mode looks fine"]
+
+[[case]]
+command = "usermod -aG sudo u"
+exit = 1
+output = "usermod: Permission denied.\nusermod: cannot lock /etc/passwd; try again later."
+mention = ["administrator|root"]
+fix = "sudo usermod -aG sudo u"
+forbid = ["ls -ld", "is yours"]
+
+[[case]]
+command = "groupadd g"
+exit = 10
+output = "groupadd: Permission denied.\ngroupadd: cannot lock /etc/group; try again later."
+mention = ["administrator|root"]
+fix = "sudo groupadd g"
+forbid = ["ls -ld", "is yours"]
+
+[[case]]
+command = ""
+output = "useradd: Permission denied.\nuseradd: cannot lock /etc/passwd; try again later."
+mention = ["administrator|root|sudo"]
+fix = "nothing"
+forbid = ["ls -ld", "is yours", "mode looks fine"]
+
+[[case]]
+command = "apt-get install -y vim"
+exit = 100
+output = "E: Could not open lock file /var/lib/dpkg/lock-frontend - open (13: Permission denied)\nE: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), are you root?"
+mention = ["root|administrator"]
+fix = "sudo apt-get install -y vim"
+forbid = ["does not say which file", "rm "]
+
+[[case]]
+command = "apt install vim"
+exit = 100
+output = "\nWARNING: apt does not have a stable CLI interface. Use with caution in scripts.\n\nE: Could not open lock file /var/lib/dpkg/lock-frontend - open (13: Permission denied)\nE: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), are you root?"
+mention = ["root|administrator"]
+fix = "sudo apt install vim"
+forbid = ["does not say which file", "rm "]
+
+[[case]]
+command = "sed -i \"s/root/x/\" /etc/passwd"
+exit = 4
+output = "sed: couldn't open temporary file /etc/sedFQUtD4: Permission denied"
+mention = ["/etc", "administrator|root"]
+fix = "sudo sed -i"
+forbid = ["does not say which file"]
+
+[[case]]
+command = "passwd root"
+exit = 1
+output = "passwd: You may not view or modify password information for root."
+mention = ["administrator|root"]
+fix = "sudo passwd root"
+forbid = ["ls -ld"]
+
+[[case]]
+command = "mount /dev/sda1 /mnt"
+exit = 32
+output = "mount: /mnt: must be superuser to use mount.\n       dmesg(1) may have more information after failed mount system call."
+mention = ["administrator|root|superuser"]
+fix = "sudo mount /dev/sda1 /mnt"
+forbid = ["ls -ld"]
+
+[[case]]
+command = "systemctl restart ssh"
+exit = 1
+output = "Failed to restart ssh.service: Interactive authentication required.\nSee system logs and 'systemctl status ssh.service' for details."
+mention = ["administrator|root|sudo"]
+fix = "sudo systemctl restart ssh"
+forbid = ["--user"]
+
+[[case]]
+command = "git rebase main"
+exit = 1
+output = "Rebasing (1/1)Auto-merging a\nCONFLICT (content): Merge conflict in a\nerror: could not apply 56d3f44... b\nhint: Resolve all conflicts manually, mark them as resolved with\nhint: \"git add/rm <conflicted_files>\", then run \"git rebase --continue\".\nhint: You can instead skip this commit: run \"git rebase --skip\".\nhint: To abort and get back to the state before \"git rebase\", run \"git rebase --abort\".\nCould not apply 56d3f44... b"
+mention = ["rebase", "conflict"]
+fix = "git status"
+forbid = ["git merge --abort"]
+
+[[case]]
+command = ""
+output = "Rebasing (1/1)Auto-merging a\nCONFLICT (content): Merge conflict in a\nerror: could not apply 56d3f44... b\nhint: Resolve all conflicts manually, mark them as resolved with\nhint: \"git add/rm <conflicted_files>\", then run \"git rebase --continue\".\nhint: You can instead skip this commit: run \"git rebase --skip\".\nhint: To abort and get back to the state before \"git rebase\", run \"git rebase --abort\".\nCould not apply 56d3f44... b"
+mention = ["rebase", "conflict"]
+fix = "git status"
+forbid = ["git merge --abort"]
+
+[[case]]
+command = "git merge f"
+exit = 1
+output = "Auto-merging a\nCONFLICT (content): Merge conflict in a\nAutomatic merge failed; fix conflicts and then commit the result."
+mention = ["conflict", "a"]
+fix = "git merge --abort|git add|git status"
+forbid = ["git rebase", "does not look like an error"]
+
+[[case]]
+command = ""
+output = "Auto-merging a\nCONFLICT (content): Merge conflict in a\nAutomatic merge failed; fix conflicts and then commit the result."
+mention = ["conflict"]
+fix = "git merge --abort|git add|git status|nothing"
+forbid = ["git rebase", "does not look like an error"]
+
+[[case]]
+command = "./deploy.sh"
+exit = 126
+output = "bash: ./deploy.sh: /bin/bash^M: bad interpreter: No such file or directory"
+mention = ["Windows|CRLF|line ending"]
+fix = "sed -i 's/\\r$//' ./deploy.sh|dos2unix ./deploy.sh"
+forbid = ["does not exist"]
+
+[[case]]
+command = ""
+output = "bash: ./deploy.sh: /bin/bash^M: bad interpreter: No such file or directory"
+mention = ["Windows|CRLF|line ending"]
+fix = "sed -i 's/\\r$//' ./deploy.sh|dos2unix ./deploy.sh"
+forbid = ["does not exist"]
+
+[[case]]
+command = "./crlf.sh"
+exit = 127
+output = "bash: line 1: ./crlf.sh: cannot execute: required file not found"
+mention = ["interpreter|shebang|line ending|CRLF"]
+fix = "cat -A"
+forbid = ["typo", "install"]
+
+[[case]]
+command = "docker images"
+output = "REPOSITORY            TAG       IMAGE ID       CREATED        SIZE\nfailed-jobs           latest    3f1a2b4c5d6e   2 days ago     120MB\nerror-tracker         v2        7a8b9c0d1e2f   3 weeks ago    340MB\nnginx                 latest    a1b2c3d4e5f6   5 weeks ago    187MB"
+mention = ["normal|no error|does not look like"]
+fix = "nothing"
+forbid = ["failed", "permission"]
+
+[[case]]
+command = ""
+output = "The proxy logs every request.\nPermission denied responses should be logged with the user name,\nand failed logins counted per hour."
+mention = ["ordinary|normal|no error|does not look like|not an error"]
+fix = "nothing"
+forbid = ["failed", "denied", "chmod", "sudo"]
+
+[[case]]
+command = "free -h"
+output = "               total        used        free      shared  buff/cache   available\nMem:            15Gi        10Gi       1.0Gi       841Mi       5.6Gi       4.9Gi\nSwap:           30Gi       6.6Gi        24Gi"
+mention = ["normal|no error|does not look like|memory"]
+fix = "nothing"
+forbid = ["failed", "directory listing"]
+
+[[case]]
+command = "git pull"
+exit = 1
+output = "There is no tracking information for the current branch.\nPlease specify which branch you want to merge with.\nSee git-pull(1) for details.\n\n    git pull <remote> <branch>\n\nIf you wish to set tracking information for this branch you can do so with:\n\n    git branch --set-upstream-to=<remote>/<branch> feat\n"
+mention = ["tracking", "feat"]
+fix = "git branch --set-upstream-to=origin/feat|git pull origin feat"
+
+[[case]]
+command = ""
+output = "There is no tracking information for the current branch.\nPlease specify which branch you want to merge with.\nSee git-pull(1) for details.\n\n    git pull <remote> <branch>\n\nIf you wish to set tracking information for this branch you can do so with:\n\n    git branch --set-upstream-to=<remote>/<branch> feat\n"
+mention = ["tracking", "feat"]
+fix = "git branch --set-upstream-to=origin/feat|git pull origin feat"
+
+[[case]]
+command = "make"
+exit = 2
+output = "Makefile:2: *** missing separator.  Stop."
+mention = ["Makefile", "line 2", "tab"]
+fix = "sed -n|nothing"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "Makefile:2: *** missing separator.  Stop."
+mention = ["Makefile", "line 2", "tab"]
+fix = "sed -n|nothing"
+forbid = ["install"]
+
+[[case]]
+command = "make -f Makefile2"
+exit = 2
+output = "false\nmake: *** [Makefile2:2: all] Error 1"
+mention = ["all", "Makefile2", "line 2", "false"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "false\nmake: *** [Makefile2:2: all] Error 1"
+mention = ["all", "Makefile2", "line 2", "false"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = "tar -C"
+exit = 64
+output = "tar: option requires an argument -- 'C'\nTry 'tar --help' or 'tar --usage' for more information."
+mention = ["argument", "-C"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "tar: Old option 'f' requires an argument.\nTry 'tar --help' or 'tar --usage' for more information."
+mention = ["argument"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = "echo '{a' | jq ."
+exit = 4
+output = "parse error: Invalid numeric literal at line 2, column 0"
+mention = ["JSON", "line 2"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "parse error: Expected another key-value pair at line 1, column 8"
+mention = ["JSON", "line 1"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = "curl https://expired.badssl.com/"
+exit = 60
+output = "curl: (60) SSL certificate problem: certificate has expired\nMore details here: https://curl.se/docs/sslcerts.html\n\ncurl failed to verify the legitimacy of the server and therefore could not\nestablish a secure connection to it. To learn more about this situation and\nhow to fix it, please visit the web page mentioned above."
+mention = ["expired", "clock|date"]
+fix = "nothing"
+forbid = ["curl -k", "--insecure"]
+
+[[case]]
+command = ""
+output = "curl: (60) SSL certificate problem: certificate has expired\nMore details here: https://curl.se/docs/sslcerts.html\n\ncurl failed to verify the legitimacy of the server and therefore could not\nestablish a secure connection to it. To learn more about this situation and\nhow to fix it, please visit the web page mentioned above."
+mention = ["expired"]
+fix = "nothing"
+forbid = ["-k ", "--insecure"]
+
+[[case]]
+command = "ssh u@host"
+exit = 255
+output = "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n@         WARNING: UNPROTECTED PRIVATE KEY FILE!          @\n@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\nPermissions 0644 for '/home/u/.ssh/id_ed25519' are too open.\nIt is required that your private key files are NOT accessible by others.\nThis private key will be ignored.\nLoad key \"/home/u/.ssh/id_ed25519\": bad permissions\nu@host: Permission denied (publickey)."
+mention = ["too open", "/home/u/.ssh/id_ed25519"]
+fix = "chmod 600 /home/u/.ssh/id_ed25519"
+forbid = ["chmod 777", "chmod 644"]
+
+[[case]]
+command = ""
+output = "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n@         WARNING: UNPROTECTED PRIVATE KEY FILE!          @\n@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\nPermissions 0644 for '/home/u/.ssh/id_ed25519' are too open.\nIt is required that your private key files are NOT accessible by others.\nThis private key will be ignored.\nLoad key \"/home/u/.ssh/id_ed25519\": bad permissions\nu@host: Permission denied (publickey)."
+mention = ["too open"]
+fix = "chmod 600 /home/u/.ssh/id_ed25519"
+forbid = ["chmod 777", "chmod 644"]
+
+[[case]]
+command = "go test ./..."
+exit = 1
+output = "# example.com/app\n./main.go:6:2: undefined: foo\nFAIL\texample.com/app [build failed]\nFAIL"
+mention = ["main.go:6", "compile|build"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "# example.com/app\n./main.go:6:2: undefined: foo\nFAIL\texample.com/app [build failed]\nFAIL"
+mention = ["main.go:6", "compile|build"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = "sudo ls"
+exit = 1
+output = "u is not in the sudoers file.  This incident will be reported."
+mention = ["administrator|admin"]
+fix = "nothing"
+forbid = ["visudo", "usermod", "edit /etc/sudoers"]
+
+[[case]]
+command = ""
+output = "u is not in the sudoers file.  This incident will be reported."
+mention = ["administrator|admin"]
+fix = "nothing"
+forbid = ["visudo", "usermod", "edit /etc/sudoers"]
+
+[[case]]
+command = "npx jest"
+exit = 1
+output = "FAIL src/sum.test.js\n  ● adds numbers\n\n    expect(received).toBe(expected) // Object.is equality\n\n    Expected: 4\n    Received: 3\n\n      3 | test('adds numbers', () => {\n    > 4 |   expect(sum(1, 2)).toBe(4);\n\nTest Suites: 1 failed, 1 total\nTests:       1 failed, 1 total"
+mention = ["sum.test.js", "1 failed"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "FAIL src/sum.test.js\n  ● adds numbers\n\n    expect(received).toBe(expected) // Object.is equality\n\n    Expected: 4\n    Received: 3\n\n      3 | test('adds numbers', () => {\n    > 4 |   expect(sum(1, 2)).toBe(4);\n\nTest Suites: 1 failed, 1 total\nTests:       1 failed, 1 total"
+mention = ["sum.test.js", "1 failed"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = "python3 -m pytest -q"
+exit = 1
+output = "F                                                                        [100%]\n=================================== FAILURES ===================================\n____________________________________ test_a ____________________________________\n\n    def test_a():\n>       assert 1 == 2\nE       assert 1 == 2\n\ntest_a.py:2: AssertionError\n=========================== short test summary info ============================\nFAILED test_a.py::test_a - assert 1 == 2\n1 failed in 0.01s"
+mention = ["test_a", "1 failed"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "F                                                                        [100%]\n=================================== FAILURES ===================================\n____________________________________ test_a ____________________________________\n\n    def test_a():\n>       assert 1 == 2\nE       assert 1 == 2\n\ntest_a.py:2: AssertionError\n=========================== short test summary info ============================\nFAILED test_a.py::test_a - assert 1 == 2\n1 failed in 0.01s"
+mention = ["test_a", "1 failed"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = "npm test"
+exit = 1
+output = "> app@1.0.0 test\n> echo \"Error: no test specified\" && exit 1\n\nError: no test specified\nnpm ERR! Test failed.  See above for more details."
+mention = ["test"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = "makepkg"
+exit = 12
+output = "==> ERROR: PKGBUILD does not exist."
+mention = ["PKGBUILD"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "==> ERROR: PKGBUILD does not exist."
+mention = ["PKGBUILD"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = "echo '(' | grep -E '('"
+exit = 2
+output = "grep: Unmatched ( or \\("
+mention = ["pattern|regular expression", "("]
+fix = "grep -F|nothing"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "grep: Unmatched ( or \\("
+mention = ["pattern|regular expression"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = "xz -d notxz"
+exit = 1
+output = "xz: notxz: File format not recognized"
+mention = ["xz", "notxz"]
+fix = "file notxz"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "xz: notxz: File format not recognized"
+mention = ["xz"]
+fix = "file notxz"
+forbid = ["install"]
+
+[[case]]
+command = "cat l1"
+exit = 1
+output = "cat: l1: Too many levels of symbolic links"
+mention = ["symbolic|symlink", "loop|circle|itself"]
+fix = "ls -l|readlink"
+forbid = ["rm "]
+
+[[case]]
+command = ""
+output = "cat: l1: Too many levels of symbolic links"
+mention = ["symbolic|symlink"]
+fix = "ls -l|readlink|nothing"
+forbid = ["rm "]
+
+[[case]]
+command = "systemctl status ssh"
+exit = 1
+output = "System has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to bus: Host is down"
+mention = ["systemd", "container|WSL"]
+fix = "nothing"
+forbid = ["sudo systemctl", "systemctl start", "install"]
+
+[[case]]
+command = ""
+output = "System has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to bus: Host is down"
+mention = ["systemd", "container|WSL"]
+fix = "nothing"
+forbid = ["sudo systemctl", "systemctl start", "install"]
+
+[[case]]
+command = "gzip f"
+exit = 2
+output = "gzip: f.gz already exists;\tnot overwritten"
+mention = ["f.gz", "already exists", "-f"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "gzip: f.gz already exists;\tnot overwritten"
+mention = ["f.gz", "already exists"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = "gcc a.c b.c c.c"
+exit = 1
+output = "/usr/bin/ld: /tmp/cccYzVjQ.o:(.data+0x0): multiple definition of `x'; /tmp/cc2wkQoF.o:(.data+0x0): first defined here\n/usr/bin/ld: /tmp/ccGkshOg.o:(.data+0x0): multiple definition of `x'; /tmp/cc2wkQoF.o:(.data+0x0): first defined here\ncollect2: error: ld returned 1 exit status"
+mention = ["multiple definition", "x"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "/usr/bin/ld: /tmp/cccYzVjQ.o:(.data+0x0): multiple definition of `x'; /tmp/cc2wkQoF.o:(.data+0x0): first defined here\n/usr/bin/ld: /tmp/ccGkshOg.o:(.data+0x0): multiple definition of `x'; /tmp/cc2wkQoF.o:(.data+0x0): first defined here\ncollect2: error: ld returned 1 exit status"
+mention = ["multiple definition", "x"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = "./df"
+exit = 134
+output = "free(): double free detected in tcache 2\nbash: line 1:   115 Aborted                 (core dumped) ./df"
+mention = ["double free|memory"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "free(): double free detected in tcache 2\nbash: line 1:   115 Aborted                 (core dumped) ./df"
+mention = ["double free|memory"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = "./prog"
+exit = 134
+output = "bash: line 1:  4242 Aborted                 (core dumped) ./prog"
+mention = ["abort|crash"]
+fix = "nothing"
+forbid = ["install", "not found"]
+
+[[case]]
+command = "python3 many.py"
+exit = 1
+output = "Traceback (most recent call last):\n  File \"many.py\", line 3, in <module>\n  File \"many.py\", line 3, in <listcomp>\nOSError: [Errno 24] Too many open files: '/etc/hostname'"
+mention = ["open files|file descriptor"]
+fix = "ulimit -n|nothing"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "OSError: [Errno 24] Too many open files: '/etc/hostname'"
+mention = ["open files|file descriptor"]
+fix = "ulimit -n|nothing"
+forbid = ["install"]
+
+[[case]]
+command = "curl https://example.com"
+exit = 56
+output = "curl: (56) Recv failure: Connection reset by peer"
+mention = ["reset"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "curl: (56) Recv failure: Connection reset by peer"
+mention = ["reset"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = "ssh 10.255.255.1"
+exit = 255
+output = "ssh: connect to host 10.255.255.1 port 22: Connection timed out"
+mention = ["timed out", "10.255.255.1"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "ssh: connect to host 10.255.255.1 port 22: Connection timed out"
+mention = ["timed out", "10.255.255.1"]
+fix = "nothing"
+forbid = ["install"]
+
+[[case]]
+command = "git commit -m x"
+exit = 128
+output = "error: gpg failed to sign the data\nfatal: failed to write commit object"
+mention = ["sign", "gpg"]
+fix = "gpg --list-secret-keys|nothing"
+forbid = ["install", "--no-gpg-sign"]
+
+[[case]]
+command = ""
+output = "error: gpg failed to sign the data\nfatal: failed to write commit object"
+mention = ["sign", "gpg"]
+fix = "gpg --list-secret-keys|nothing"
+forbid = ["install", "--no-gpg-sign"]
+
+[[case]]
+command = "git push origin main"
+exit = 1
+output = "remote: error: GH006: Protected branch update failed for refs/heads/main.\nremote: error: Changes must be made through a pull request.\nTo github.com:user/repo.git\n ! [remote rejected] main -> main (protected branch hook declined)\nerror: failed to push some refs to 'github.com:user/repo.git'"
+mention = ["protected", "pull request"]
+fix = "nothing"
+forbid = ["--force", "-f "]
+
+[[case]]
+command = ""
+output = "remote: error: GH006: Protected branch update failed for refs/heads/main.\nremote: error: Changes must be made through a pull request.\nTo github.com:user/repo.git\n ! [remote rejected] main -> main (protected branch hook declined)\nerror: failed to push some refs to 'github.com:user/repo.git'"
+mention = ["protected", "pull request"]
+fix = "nothing"
+forbid = ["--force"]
+
+[[case]]
+command = "git push"
+exit = 128
+output = "remote: Permission to user/repo.git denied to other.\nfatal: unable to access 'https://github.com/user/repo.git/': The requested URL returned error: 403"
+mention = ["403", "permission|access"]
+fix = "nothing"
+forbid = ["--force", "chmod"]
+
+[[case]]
+command = ""
+output = "remote: Permission to user/repo.git denied to other.\nfatal: unable to access 'https://github.com/user/repo.git/': The requested URL returned error: 403"
+mention = ["403", "permission|access"]
+fix = "nothing"
+forbid = ["--force", "chmod"]
+
+[[case]]
+command = "apt-get install -y nosuchpkg"
+exit = 100
+output = "Reading package lists...\nBuilding dependency tree...\nReading state information...\nE: Unable to locate package nosuchpkg"
+mention = ["nosuchpkg", "apt-get update|apt update|package name"]
+fix = "apt-get update|apt update"
+forbid = ["rm "]
+
+[[case]]
+command = ""
+output = "E: Unable to locate package nosuchpkg"
+mention = ["nosuchpkg"]
+fix = "apt-get update|apt update|nothing"
+forbid = ["rm "]
+
+[[case]]
+command = "sudo apt install vim"
+exit = 100
+output = "E: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 1234 (apt-get)\nE: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), is another process using it?"
+mention = ["another", "1234"]
+fix = "ps -p 1234|nothing"
+forbid = ["rm ", "delete"]
+
+[[case]]
+command = ""
+output = "E: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 1234 (apt-get)\nE: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), is another process using it?"
+mention = ["another", "1234"]
+fix = "ps -p 1234|nothing"
+forbid = ["rm ", "delete"]
+
+[[case]]
+command = "pacman -S nosuchpkg"
+exit = 1
+output = "warning: database file for 'core' does not exist (use '-Sy' to download)\nerror: target not found: nosuchpkg"
+mention = ["nosuchpkg", "not found"]
+fix = "pacman -Ss|pacman -Sy"
+forbid = ["rm "]
+
+[[case]]
+command = ""
+output = "error: target not found: nosuchpkg"
+mention = ["nosuchpkg"]
+fix = "pacman -Ss|pacman -Sy|nothing"
+forbid = ["rm "]
+
+[[case]]
+command = "kubectl get pods"
+exit = 1
+output = "The connection to the server localhost:8080 was refused - did you specify the right host or port?"
+mention = ["refused", "cluster|kubeconfig|KUBECONFIG"]
+fix = "kubectl config|nothing"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "The connection to the server localhost:8080 was refused - did you specify the right host or port?"
+mention = ["refused"]
+fix = "kubectl config|nothing"
+forbid = ["install"]
+
+[[case]]
+command = "terraform plan"
+exit = 1
+output = "Error: Get \"http://localhost:8080/api/v1/namespaces/default\": dial tcp [::1]:8080: connect: connection refused"
+mention = ["refused", "8080"]
+fix = "ss -ltn|nothing"
+forbid = ["install"]
+
+[[case]]
+command = ""
+output = "Error: Get \"http://localhost:8080/api/v1/namespaces/default\": dial tcp [::1]:8080: connect: connection refused"
+mention = ["refused", "8080"]
+fix = "ss -ltn|nothing"
+forbid = ["install"]

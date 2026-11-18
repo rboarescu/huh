@@ -68,6 +68,19 @@ Known limits: stdout and stderr arrive mixed in the terminal, so the tutor goes 
 
 The next step is a fresh measurement round (error tests inside a container) against the targets: beginner ≥ 85%, sysadmin ≥ 65%, `huh why` useful fix ≥ 65%, ≤ 5 misleading, 0 non-errors called errors, 0 dangerous suggestions without a WARNING.
 
+## Completed: never mislead (`huh why`, round 3, 2026-11-18)
+
+Findings of 244 real failures from fresh testers. New suite `evals/errors-round3.toml` (100 cases; outputs produced in Debian 12 and Arch containers as a normal user with core dumps disabled; pasted text for systemd-less containers, sshd key checks, Go, jest, GitHub, kubectl/terraform, a held dpkg lock and a core dump), registered in `src/eval.rs`. Before the fixes: causes 29/100, fixes 63/100. After: 100/100 and 100/100; the other four error suites stay at 100%.
+
+- **Dangerous answers removed**: a refused `>>` gets `sudo tee -a` and says it appends, a `>` or plain `tee` says it replaces the whole file; piped without a command it says what the output does not tell and gives no Try line. `tee: file: Permission denied` is a write, not "cannot read".
+- **Typos only when they are typos**: a name that is a known program, a package-manager tool or a common command (`ping`, `sudo`) is "not installed" with the install command; a file of that name in the current folder gets "run it as `./x`" (or `chmod +x x && ./x`); file-like names (`t.sh`) are never typos; a typo needs distance 1-2 and an installed candidate. A one-edit match to a common command that is not installed is worded as such.
+- **Python**: `python3 -m pip` with no pip installs the distro's pip package; a failing `python3 -m venv` names the venv package from the message (`python3.11-venv`).
+- **git**: `git commit` with nothing to commit and exit 1 is "made no commit", not "not an error"; a conflicting rebase is a rebase (`--continue`, `--skip`, `--abort`), not a merge; `git pull` without tracking information names the branch.
+- **Admin tools** (`useradd`, `usermod`, `groupadd`, `passwd`, `mount`, `apt`, `apt-get`, `dpkg`, `systemctl`, ...) refused for lack of privileges get `sudo <your command>` instead of an `ls -ld` on the program name; `sed -i` on a file in `/etc` is explained from its temporary-file path. CRLF scripts (`bad interpreter ... ^M`, `required file not found`) get `sed -i 's/\r$//'`.
+- **Non-errors**: table rows (`docker images` with repositories named `failed-jobs`) and prose sentences ("Permission denied responses should be logged") are not error lines; `free -h` is recognised as a memory table.
+- **New coverage**: make `missing separator` and recipe `Error N`, `tar` option without value, jq parse errors, curl 60 (expired) and 56, ssh key permissions too open (`chmod 600`), Go `[build failed]`, jest and pytest failure summaries, `npm test` failures, "not in the sudoers file" (ask an administrator; never edit sudoers), `makepkg` without PKGBUILD, `grep: Unmatched (`, xz format, symlink loops, systemd not booted (containers, WSL), gzip not overwriting, `multiple definition`, double free and `Aborted (core dumped)`, `Too many open files`, protected branch and 403 pushes, apt `Unable to locate package`, a held dpkg lock (never delete lock files), kubectl connection refused.
+- **Not handled**: the explanations of the coverage items are generic (no exit-code-specific advice for other curl codes, other Go build errors, or the many pytest failures beyond the first five names); `systemctl` without a system bus inside WSL1 is not told apart; the typo list only knows commands installed on this machine.
+
 ## Completed: Intent and catalog gaps (2026-11-18)
 
 Items 4 and 5 of "Next (from that measurement)".

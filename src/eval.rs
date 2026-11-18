@@ -300,9 +300,13 @@ mod tests {
 
     #[test]
     fn recorded_failures_are_all_explained() {
-        for file in
-            ["evals/errors.toml", "evals/errors-heldout.toml", "evals/errors-real.toml", "evals/errors-measured.toml"]
-        {
+        for file in [
+            "evals/errors.toml",
+            "evals/errors-heldout.toml",
+            "evals/errors-real.toml",
+            "evals/errors-measured.toml",
+            "evals/errors-round3.toml",
+        ] {
             let (cause, fix) = score_errors(Path::new(file), false).unwrap();
             assert_eq!(cause.percent(), 100, "{file}: causes {cause}");
             assert_eq!(fix.percent(), 100, "{file}: fixes {fix}");
