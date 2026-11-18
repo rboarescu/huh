@@ -36,6 +36,10 @@ struct Case {
     values: Vec<String>,
     /// Text the answer's hint ("No suggestion: ...") must contain (optional).
     hint: Option<String>,
+    /// Text the "hint:" pointer must contain ("a|b" accepts either); nothing is suggested.
+    pointer: Option<String>,
+    /// `true`: the answer must be a plain "No suggestion" with no pointer at all.
+    no_pointer: Option<bool>,
     /// The confidence of the first suggestion must not exceed this (optional).
     max_confidence: Option<f64>,
 }
@@ -143,7 +147,14 @@ fn score_cases(matcher: &LocalMatcher, path: &Path, platforms: &[String]) -> Res
 
         let ok = if case.command == "none" {
             let ok = outcome.suggestions.is_empty()
-                && case.hint.as_ref().is_none_or(|h| outcome.hint.as_ref().is_some_and(|got| got.contains(h.as_str())));
+                && case.hint.as_ref().is_none_or(|h| outcome.hint.as_ref().is_some_and(|got| got.contains(h.as_str())))
+                && case.pointer.as_ref().is_none_or(|p| {
+                    outcome.pointer.as_ref().is_some_and(|got| {
+                        let got = got.to_lowercase();
+                        p.split('|').any(|alt| got.contains(&alt.to_lowercase()))
+                    })
+                })
+                && case.no_pointer.is_none_or(|none| none == outcome.pointer.is_none());
             rejected.add(ok);
             ok
         } else {
@@ -342,6 +353,24 @@ mod tests {
         }
         assert!(report.lines.len() >= 30, "expert.toml should hold 30+ cases");
         assert!(misses.is_empty(), "expert evals must be at 100%: {} misses", misses.len());
+    }
+
+    /// Hints (evals/hints.toml): a request with no confident command but an honest closest tool gets
+    /// a pointer naming it; off-topic requests get a plain "No suggestion".
+    #[test]
+    fn hint_evals_all_pass() {
+        let arch = vec!["arch".to_string(), "omarchy".to_string()];
+        let catalog = crate::catalog::usable(crate::catalog::load_embedded().unwrap(), &arch, false);
+        let matcher = LocalMatcher::new(&catalog);
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals/hints.toml");
+        let report = score_for(&matcher, &file, &arch).unwrap();
+        let misses: Vec<&String> = report.lines.iter().filter(|line| line.starts_with("MISS")).collect();
+        for line in &misses {
+            println!("{line}");
+        }
+        println!("{} cases, {} misses", report.lines.len(), misses.len());
+        assert!(report.lines.len() >= 55, "hints.toml should hold 40+ hint and 15 off-topic cases");
+        assert!(misses.is_empty(), "hint evals must be at 100%: {} misses", misses.len());
     }
 
     #[test]

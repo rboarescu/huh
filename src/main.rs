@@ -8,6 +8,7 @@ mod eval;
 mod explain;
 mod extract;
 mod guard;
+mod hint;
 mod knowledge;
 mod manpage;
 mod matcher;
@@ -122,6 +123,8 @@ pub struct Outcome {
     /// Set instead of suggestions when the request asks what a command does ("what does rm -rf do"):
     /// the answer is `huh explain`, and suggesting the command itself would be backwards.
     pub hint: Option<String>,
+    /// "hint: ..." when nothing fits: the closest tool and where to read about it. Never a command line.
+    pub pointer: Option<String>,
 }
 
 /// Programs people ask about that the catalog may not hold.
@@ -257,6 +260,7 @@ pub fn suggest_in(
             ranked: vec![],
             millis: started.elapsed().as_millis(),
             hint: Some(hint),
+            pointer: None,
         });
     }
     let known = |word: &str| matcher.knows_program(word) || COMMON_PROGRAMS.contains(&word);
@@ -288,15 +292,18 @@ pub fn suggest_in(
             ranked: vec![],
             millis: started.elapsed().as_millis(),
             hint: Some(hint),
+            pointer: None,
         });
     }
-    let shortlist = assemble::shortlist(matcher.rank(request));
+    let all_ranked = matcher.rank(request);
+    let shortlist = assemble::shortlist(all_ranked.clone());
     let candidates = Candidates::new(request, files);
     let about_state = matcher.asks_about_state(request);
 
     let mut suggestions = Vec::new();
     let mut demoted = Vec::new();
     let mut hint = None;
+    let mut refused_for_want_of_an_object = None;
     for &(command, probability) in &shortlist {
         // A question about state is answered by a query or not at all: never by an action.
         if about_state && !expert && matcher.is_action(&command.name) {
@@ -351,6 +358,7 @@ pub fn suggest_in(
                     hint = Some(
                         "that would change or delete something, but the request does not name what. Say which file, folder or item.",
                     );
+                    refused_for_want_of_an_object = Some((command, probability));
                     break;
                 }
                 continue;
@@ -388,8 +396,15 @@ pub fn suggest_in(
     }
     suggestions.append(&mut demoted);
     let ranked = shortlist.iter().map(|(command, p)| (command.name.clone(), *p)).collect();
-    let hint = if suggestions.is_empty() { hint.map(str::to_string) } else { None };
-    Ok(Outcome { suggestions, ranked, millis: started.elapsed().as_millis(), hint })
+    let nothing = suggestions.is_empty();
+    let pointer = if nothing {
+        let commands: Vec<&Command> = matcher.commands().collect();
+        hint::pointer(request, &all_ranked, &commands, refused_for_want_of_an_object)
+    } else {
+        None
+    };
+    let hint = if nothing { hint.map(str::to_string) } else { None };
+    Ok(Outcome { suggestions, ranked, millis: started.elapsed().as_millis(), hint, pointer })
 }
 
 /// Re-quotes multi-word arguments when multiple CLI tokens are supplied so
@@ -423,10 +438,16 @@ fn print(outcome: &Outcome, catalog: &[Command], brief: bool) {
     }
     if let Some(hint) = &outcome.hint {
         println!("No suggestion: {hint}");
+        if let Some(pointer) = &outcome.pointer {
+            println!("{pointer}");
+        }
         return;
     }
     if outcome.suggestions.is_empty() {
-        println!("No suggestion: nothing in the catalog fits that request.");
+        match &outcome.pointer {
+            Some(pointer) => println!("{pointer}"),
+            None => println!("No suggestion: nothing in the catalog fits that request."),
+        }
         return;
     }
     let platforms = catalog::this_platform();

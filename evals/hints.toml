@@ -1,0 +1,332 @@
+# Requests with no confident command but an honest closest tool.
+
+[[case]]
+request = "convert video.mp4 to a gif"
+command = "none"
+pointer = "ffmpeg"
+
+[[case]]
+request = "convert this video to mp4"
+command = "none"
+pointer = "ffmpeg"
+
+[[case]]
+request = "convert this video with ffmpeg"
+command = "none"
+pointer = "ffmpeg"
+
+[[case]]
+request = "extract the audio from a video"
+command = "none"
+pointer = "ffmpeg"
+
+[[case]]
+request = "turn an mkv into an mp4"
+command = "none"
+pointer = "ffmpeg"
+
+[[case]]
+request = "convert a wav recording to mp3"
+command = "none"
+pointer = "ffmpeg"
+
+[[case]]
+request = "shrink the size of this webm video"
+command = "none"
+pointer = "ffmpeg"
+
+[[case]]
+request = "resize image.png to 800 pixels wide"
+command = "none"
+pointer = "convert"
+
+[[case]]
+request = "convert photo.png to jpg"
+command = "none"
+pointer = "convert"
+
+[[case]]
+request = "rotate an image 90 degrees"
+command = "none"
+pointer = "convert"
+
+[[case]]
+request = "make a thumbnail of picture.jpg"
+command = "none"
+pointer = "convert"
+
+[[case]]
+request = "crop a picture to a square"
+command = "none"
+pointer = "convert"
+
+[[case]]
+request = "merge two pdf files into one"
+command = "none"
+pointer = "pdfunite"
+
+[[case]]
+request = "combine these pdfs"
+command = "none"
+pointer = "pdfunite"
+
+[[case]]
+request = "convert a markdown file to pdf"
+command = "none"
+pointer = "pandoc"
+
+[[case]]
+request = "convert a docx to html"
+command = "none"
+pointer = "pandoc"
+
+[[case]]
+request = "turn my markdown notes into a word document"
+command = "none"
+pointer = "pandoc"
+
+[[case]]
+request = "convert an epub to markdown"
+command = "none"
+pointer = "pandoc"
+
+[[case]]
+request = "check the md5 of a download"
+command = "none"
+pointer = "md5sum"
+
+[[case]]
+request = "check the sha1 of a download"
+command = "none"
+pointer = "sha1sum"
+
+[[case]]
+request = "set the system locale to en_US.UTF-8"
+command = "none"
+pointer = "localectl"
+
+[[case]]
+request = "explain this cron expression 0 3 * * 1"
+command = "none"
+pointer = "crontab"
+
+[[case]]
+request = "run this job once later tonight"
+command = "none"
+pointer = "at"
+
+[[case]]
+request = "make a random string of 32 characters"
+command = "none"
+pointer = "openssl"
+
+[[case]]
+request = "check when an ssl certificate expires"
+command = "none"
+pointer = "openssl"
+
+[[case]]
+request = "test throughput to another server"
+command = "none"
+pointer = "iperf3"
+
+[[case]]
+request = "download a youtube video"
+command = "none"
+pointer = "yt-dlp"
+
+[[case]]
+request = "save a vimeo video"
+command = "none"
+pointer = "yt-dlp"
+
+[[case]]
+request = "why is startup slow"
+command = "none"
+pointer = "systemd-analyze"
+
+[[case]]
+request = "record my voice into a wav file"
+command = "none"
+pointer = "arecord"
+
+[[case]]
+request = "who registered this domain"
+command = "none"
+pointer = "whois"
+
+[[case]]
+request = "put two files side by side"
+command = "none"
+pointer = "paste"
+
+[[case]]
+request = "show the lines two files have in common"
+command = "none"
+pointer = "comm"
+
+[[case]]
+request = "wrap long lines to 80 characters"
+command = "none"
+pointer = "fold"
+
+[[case]]
+request = "deploy a helm chart"
+command = "none"
+pointer = "helm"
+
+[[case]]
+request = "connect to a postgres database"
+command = "none"
+pointer = "psql"
+
+[[case]]
+request = "open a sqlite database"
+command = "none"
+pointer = "sqlite3"
+
+[[case]]
+request = "open a pull request on github"
+command = "none"
+pointer = "gh"
+
+[[case]]
+request = "convert svg to png"
+command = "none"
+pointer = "convert"
+
+[[case]]
+request = "add a watermark to an image"
+command = "none"
+pointer = "convert"
+
+[[case]]
+request = "convert flac files to mp3"
+command = "none"
+pointer = "ffmpeg"
+
+[[case]]
+request = "convert html to pdf"
+command = "none"
+pointer = "pandoc"
+
+[[case]]
+request = "convert html to markdown"
+command = "none"
+pointer = "pandoc"
+
+[[case]]
+request = "build my project from its makefile"
+command = "none"
+pointer = "make"
+
+# Off-topic: a plain "No suggestion", no tool invented.
+
+[[case]]
+request = "order a pizza"
+command = "none"
+no_pointer = true
+
+[[case]]
+request = "write a poem"
+command = "none"
+no_pointer = true
+
+[[case]]
+request = "tell me a joke"
+command = "none"
+no_pointer = true
+
+[[case]]
+request = "what is the capital of France"
+command = "none"
+no_pointer = true
+
+[[case]]
+request = "book a hotel in Rome"
+command = "none"
+no_pointer = true
+
+[[case]]
+request = "translate this sentence to German"
+command = "none"
+no_pointer = true
+
+[[case]]
+request = "play some jazz"
+command = "none"
+no_pointer = true
+
+[[case]]
+request = "send an email to my boss"
+command = "none"
+no_pointer = true
+
+[[case]]
+request = "what will the weather be tomorrow"
+command = "none"
+no_pointer = true
+
+[[case]]
+request = "help me write a cover letter"
+command = "none"
+no_pointer = true
+
+[[case]]
+request = "recommend a good movie"
+command = "none"
+no_pointer = true
+
+[[case]]
+request = "what is the meaning of life"
+command = "none"
+no_pointer = true
+
+[[case]]
+request = "make me a sandwich"
+command = "none"
+no_pointer = true
+
+[[case]]
+request = "how do i make coffee"
+command = "none"
+no_pointer = true
+
+[[case]]
+request = "who won the world cup in 2022"
+command = "none"
+no_pointer = true
+
+[[case]]
+request = "plan a trip to Japan"
+command = "none"
+no_pointer = true
+
+# Honest refusals and drive writes: no tool is pointed out.
+[[case]]
+request = "burn an iso to a usb stick"
+command = "none"
+no_pointer = true
+
+[[case]]
+request = "format the usb drive"
+command = "none"
+no_pointer = true
+
+[[case]]
+request = "crack my neighbour's wifi password"
+command = "none"
+no_pointer = true
+
+# Refused for want of an object: the refusal stays and the closest tool is added.
+[[case]]
+request = "delete it"
+command = "none"
+hint = "does not name what"
+pointer = "rm"
+
+# Expert mode shows the command a beginner safeguard held back.
+[[case]]
+request = "delete it"
+mode = "expert"
+command = "rm"

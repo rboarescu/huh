@@ -179,6 +179,11 @@ impl LocalMatcher {
         self.by_name.get(name).is_some_and(|&i| self.entries[i].kind == Kind::Action)
     }
 
+    /// Every command of the catalog this matcher was made from.
+    pub fn commands(&self) -> impl Iterator<Item = &Command> {
+        self.entries.iter().map(|entry| &entry.command)
+    }
+
     /// Whether some catalog command runs a program of this name.
     pub fn knows_program(&self, name: &str) -> bool {
         self.entries.iter().any(|entry| entry.command.program() == name)
