@@ -109,18 +109,48 @@ const COMMON_PROGRAMS: &[&str] = &[
     "mkswap", "swapon", "fuser", "lsof", "strace", "ldd", "ln", "truncate", "split", "install", "mkdir", "rmdir",
 ];
 
+/// Whole-folder targets a destructive line must never get unless the request typed them.
+const BROAD_TARGETS: &[&str] = &[".", "./", "./*", "*", "~", "~/", "~/*", "/", "/*", "$HOME", "$HOME/", "$HOME/*"];
+
+/// A destructive suggestion that would act on a whole folder the user never named (`rm -r ~`
+/// for "delete user bob and home directory"), or a `find ... -delete` with no name or age filter
+/// (every file under the folder), is worse than no suggestion: drop it.
+fn destroys_more_than_named(suggestion: &Suggestion, request: &str) -> bool {
+    if !suggestion.destructive {
+        return false;
+    }
+    let typed: Vec<&str> = request.split_whitespace().map(|w| w.trim_matches(['"', '\'', ',', '?'])).collect();
+    if suggestion.line.ends_with("-delete") && suggestion.line.starts_with("find ") {
+        return !(suggestion.line.contains(" -name ")
+            || suggestion.line.contains(" -mtime ")
+            || suggestion.line.contains(" -size "));
+    }
+    suggestion
+        .line
+        .split_whitespace()
+        .map(|w| w.trim_matches(['"', '\'']))
+        .any(|w| BROAD_TARGETS.contains(&w) && !typed.contains(&w))
+}
+
 /// "what does rm -rf do": the command being asked about, as written in the request.
 fn command_in_question<'a>(request: &'a str, matcher: &LocalMatcher) -> Option<&'a str> {
     let trimmed = request.trim().trim_end_matches(['?', '.', '!']).trim();
     let lower = trimmed.to_ascii_lowercase();
-    let rest = lower.strip_prefix("what does ").or_else(|| lower.strip_prefix("what do "))?;
+    // "explain X" and "what is X" ask about X as much as "what does X do".
+    let (rest, tail_len) = if let Some(rest) = lower.strip_prefix("explain ").or_else(|| lower.strip_prefix("what is "))
+    {
+        (rest, 0)
+    } else {
+        let rest = lower.strip_prefix("what does ").or_else(|| lower.strip_prefix("what do "))?;
+        let tail = [" actually do", " do", " mean", " means", " actually mean", " stand for"]
+            .iter()
+            .find(|tail| rest.ends_with(**tail))?;
+        (rest, tail.len())
+    };
     let start = lower.len() - rest.len();
-    let tail = [" actually do", " do", " mean", " means", " actually mean", " stand for"]
-        .iter()
-        .find(|tail| rest.ends_with(**tail))?;
-    let inner = trimmed[start..start + rest.len() - tail.len()].trim();
+    let inner = trimmed[start..start + rest.len() - tail_len].trim();
     let mut words = inner.split_whitespace().peekable();
-    if words.peek() == Some(&"sudo") {
+    if words.peek() == Some(&"sudo") && inner.split_whitespace().count() > 1 {
         words.next();
     }
     let first = words.next()?;
@@ -162,6 +192,9 @@ pub fn suggest(
         let mut silent = |_: &str| None;
         let ask: &mut dyn FnMut(&str) -> Option<bool> = if suggestions.is_empty() { &mut *decide } else { &mut silent };
         if let Some(mut suggestion) = assemble::build(command, probability, &details, ask)? {
+            if destroys_more_than_named(&suggestion, request) {
+                continue;
+            }
             // A stated modifier the line has no place for must not vanish silently.
             for (phrase, value) in candidates::modifier_phrases(request) {
                 if !suggestion.line.to_lowercase().contains(&value) {
@@ -429,6 +462,9 @@ mod tests {
             ("What does chmod 777 do?", "chmod 777"),
             ("what does sudo dd if=/dev/zero of=/dev/sda do", "sudo dd if=/dev/zero of=/dev/sda"),
             ("what does tar -xzf mean", "tar -xzf"),
+            ("explain sudo", "sudo"),
+            ("what is grep", "grep"),
+            ("explain cat notes.txt | wc -l", "cat notes.txt | wc -l"),
         ] {
             let out = suggest(&matcher, request, vec![], &mut |_| None).unwrap();
             assert!(out.suggestions.is_empty(), "{request}");

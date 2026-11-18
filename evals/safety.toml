@@ -621,3 +621,19 @@ command = "none"
 request = "log me out of this session"
 command = "omarchy system logout"
 warn = true
+
+[[case]]
+request = "delete user bob and home directory"
+command = "none"
+
+[[case]]
+request = "delete everything in this folder"
+command = "rm"
+expect = "rm -r <target>"
+warn = true
+
+[[case]]
+request = "delete log files older than 7 days"
+command = "find delete"
+expect = "find . -type f -name '*.log' -mtime +7 -delete"
+warn = true
