@@ -193,7 +193,7 @@ const NAMED_THINGS: &[&str] = &["package", "program", "app", "application", "too
 fn prepositional_phrases(request: &str, existing: &[String]) -> Vec<String> {
     let mut out = Vec::new();
     let words: Vec<&str> = request.split_whitespace().collect();
-    let triggers = ["to", "about", "for", "called", "named", "message", "saying", "use"];
+    let triggers = ["to", "about", "for", "called", "named", "message", "saying", "use", "since"];
     let stops = [
         "in",
         "on",
@@ -213,8 +213,14 @@ fn prepositional_phrases(request: &str, existing: &[String]) -> Vec<String> {
         "command",
         "file",
         "folder",
+        "directory",
+        "dir",
         "minutes",
         "minute",
+        "since",
+        "until",
+        "excluding",
+        "except",
     ];
     let articles = ["the", "a", "an", "my"];
 
@@ -433,11 +439,38 @@ pub fn tokens(request: &str) -> Vec<String> {
     out
 }
 
+/// Modifiers a request can state that a command line may have no place for: ("excluding node_modules",
+/// "node_modules"), ("since 1 hour ago", "1 hour ago"), ("on port 2222", "2222"), ("as deploy", "deploy").
+pub fn modifier_phrases(request: &str) -> Vec<(String, String)> {
+    let words = plain_words(request);
+    let remote = words.iter().any(|w| matches!(w.as_str(), "ssh" | "scp" | "sftp" | "rsync"));
+    let mut out = Vec::new();
+    for (i, word) in words.iter().enumerate() {
+        let rest = &words[i + 1..];
+        let value = match word.as_str() {
+            "excluding" | "except" | "exclude" => rest.first().cloned(),
+            "since" | "until" => {
+                let n = rest.iter().take(4).take_while(|w| !matches!(w.as_str(), "and" | "in" | "on" | "for")).count();
+                Some(rest[..n].join(" ")).filter(|v| !v.is_empty())
+            }
+            "port" => rest.first().filter(|n| n.chars().all(|c| c.is_ascii_digit())).cloned(),
+            "as" if remote => rest.first().cloned(),
+            _ => None,
+        };
+        if let Some(value) = value.filter(|v| !v.is_empty() && !STOPWORDS.contains(&v.as_str())) {
+            let lead = if word == "port" && i > 0 && words[i - 1] == "on" { "on " } else { "" };
+            let phrase = if word == "port" { format!("{lead}port {value}") } else { format!("{word} {value}") };
+            out.push((phrase, value));
+        }
+    }
+    out
+}
+
 /// File types people name by their extension: "jpg files" means `*.jpg`.
 const FILE_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "png", "gif", "svg", "webp", "pdf", "txt", "md", "csv", "json", "yaml", "yml", "toml", "xml", "html",
-    "log", "mp3", "mp4", "mkv", "wav", "flac", "zip", "tar", "gz", "iso", "doc", "docx", "xls", "xlsx", "odt", "py",
-    "rs", "js", "ts", "sh", "c", "cpp", "java", "go",
+    "jpg", "jpeg", "png", "gif", "svg", "webp", "pdf", "txt", "md", "csv", "json", "yaml", "yml", "toml", "xml",
+    "html", "log", "mp3", "mp4", "mkv", "wav", "flac", "zip", "tar", "gz", "iso", "doc", "docx", "xls", "xlsx", "odt",
+    "py", "rs", "js", "ts", "sh", "c", "cpp", "java", "go",
 ];
 
 fn extension_globs(request: &str) -> Vec<String> {
@@ -452,9 +485,19 @@ fn extension_globs(request: &str) -> Vec<String> {
 /// "my files", "all files", "this folder": the folder the person is in, `.`.
 fn names_current_folder(request: &str) -> bool {
     let lower = plain_words(request).join(" ");
-    ["my files", "all files", "all the files", "every file", "this folder", "this directory", "current folder", "current directory", "files here"]
-        .iter()
-        .any(|phrase| lower.contains(phrase))
+    [
+        "my files",
+        "all files",
+        "all the files",
+        "every file",
+        "this folder",
+        "this directory",
+        "current folder",
+        "current directory",
+        "files here",
+    ]
+    .iter()
+    .any(|phrase| lower.contains(phrase))
 }
 
 /// "my home folder", "the home directory", "home dir": the person's home folder, `~`.
@@ -470,7 +513,9 @@ fn names_home_folder(request: &str) -> bool {
 /// Words of a request, lowercased and stripped of punctuation, for matching names.
 fn plain_words(text: &str) -> Vec<String> {
     text.split_whitespace()
-        .map(|w| w.trim_matches([',', ';', ':', '!', '?', '(', ')', '"', '\'', '`']).trim_end_matches('.').to_lowercase())
+        .map(|w| {
+            w.trim_matches([',', ';', ':', '!', '?', '(', ')', '"', '\'', '`']).trim_end_matches('.').to_lowercase()
+        })
         .collect()
 }
 

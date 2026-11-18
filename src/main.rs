@@ -118,7 +118,13 @@ pub fn suggest(
         // Only the first suggestion is worth interrupting the user for.
         let mut silent = |_: &str| None;
         let ask: &mut dyn FnMut(&str) -> Option<bool> = if suggestions.is_empty() { &mut *decide } else { &mut silent };
-        if let Some(suggestion) = assemble::build(command, probability, &details, ask)? {
+        if let Some(mut suggestion) = assemble::build(command, probability, &details, ask)? {
+            // A stated modifier the line has no place for must not vanish silently.
+            for (phrase, value) in candidates::modifier_phrases(request) {
+                if !suggestion.line.to_lowercase().contains(&value) {
+                    suggestion.notes.push(format!("not included: `{phrase}`"));
+                }
+            }
             suggestions.push(suggestion);
         }
     }

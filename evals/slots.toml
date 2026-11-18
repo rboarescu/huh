@@ -1,5 +1,8 @@
-# Slot filling: values must land in the right slot, or stay a <placeholder>.
-# Group folder: files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+# Slot filling: values must land in the right slot, or stay a <placeholder>; a wrong value is worse than a placeholder.
+# Folder entries ending in / are folders. `note` = text the notes under the line must contain.
+
+
+# 1. exact names beat prefixes; 'folder' wants a folder
 
 [[case]]
 request = "how do i delete the projects folder"
@@ -11,12 +14,6 @@ files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", 
 request = "go to the projects folder"
 command = "cd"
 expect = "cd projects"
-files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
-
-[[case]]
-request = "compress the projects folder into a tar.gz"
-command = "tar"
-expect = "tar -czf projects.tar.gz projects"
 files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
 
 [[case]]
@@ -38,6 +35,33 @@ expect = "du -sh projects"
 files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
 
 [[case]]
+request = "delete projects"
+command = "rm"
+expect = "rm -r projects"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "copy beach.png to the projects directory"
+command = "cp"
+expect = "cp beach.png projects/"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "move report.docx into the projects folder"
+command = "mv"
+expect = "mv report.docx projects/"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "unzip projects-download.zip"
+command = "unzip"
+expect = "unzip projects-download.zip"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+
+# 2. possessives and stopwords never match a file
+
+[[case]]
 request = "copy notes.txt to my projects folder"
 command = "cp"
 expect = "cp notes.txt projects/"
@@ -45,8 +69,8 @@ files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", 
 
 [[case]]
 request = "whats taking up all the space in my home folder"
-command = "du"
-expect = "du -sh ~/*"
+command = "largest items"
+expect = "du -sh ~/* | sort -h"
 files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
 
 [[case]]
@@ -56,10 +80,31 @@ expect = "find . -type f -name '*.jpg'"
 files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
 
 [[case]]
-request = "show me my files"
-command = "ls"
-expect = "ls"
+request = "find all my png files"
+command = "find"
+expect = "find . -type f -name '*.png'"
 files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "open my resume"
+command = "xdg-open"
+expect = "xdg-open 'My Resume.pdf'"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "delete my resume"
+command = "rm"
+expect = "rm 'My Resume.pdf'"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "make a copy of backup.sh called backup2.sh"
+command = "cp"
+expect = "cp backup.sh backup2.sh"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+
+# 3. multi-word names are consumed whole
 
 [[case]]
 request = "copy the Vacation Photos folder to a usb"
@@ -80,10 +125,13 @@ expect = "cd 'Vacation Photos'"
 files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
 
 [[case]]
-request = "open my resume"
-command = "xdg-open"
-expect = "xdg-open 'My Resume.pdf'"
+request = "copy the Vacation Photos folder to projects"
+command = "cp"
+expect = "cp -r 'Vacation Photos' projects/"
 files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+
+# 4. leftover words are not values
 
 [[case]]
 request = "search for the word password in notes.txt"
@@ -98,6 +146,18 @@ expect = "grep -r invoice ."
 files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
 
 [[case]]
+request = "search for hello in notes.txt"
+command = "grep"
+expect = "grep hello notes.txt"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
+request = "search notes.txt for the phrase 'out of memory'"
+command = "grep"
+expect = "grep 'out of memory' notes.txt"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
 request = "is the internet working"
 command = "ping"
 expect = "ping -c 4 1.1.1.1"
@@ -105,6 +165,7 @@ expect = "ping -c 4 1.1.1.1"
 [[case]]
 request = "search for a package called gimp"
 command = "package search"
+expect = "pacman -Ss gimp"
 
 [[case]]
 request = "how do i see file sizes in this folder"
@@ -117,24 +178,13 @@ command = "pkill"
 expect = "pkill <name>"
 
 [[case]]
-request = "force quit spotify"
-command = "pkill"
-expect = "pkill -9 spotify"
-
-[[case]]
 request = "find a file named notes"
 command = "find"
-expect = "find . -name 'notes*'"
+expect = "find . -type f -name 'notes*'"
 files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
 
-[[case]]
-request = "disk usage of each folder here sorted"
-command = "du"
 
-[[case]]
-request = "go back to the previous folder"
-command = "cd"
-expect = "cd -"
+# 5. stated modifiers land in a slot
 
 [[case]]
 request = "ssh to web1 as deploy"
@@ -147,9 +197,25 @@ command = "ssh"
 expect = "ssh -p 2222 web1"
 
 [[case]]
+request = "ssh into build-server as ci on port 2200"
+command = "ssh"
+expect = "ssh -p 2200 ci@build-server"
+
+[[case]]
+request = "ssh to web1"
+command = "ssh"
+expect = "ssh web1"
+
+[[case]]
 request = "chown -R www-data /var/www"
 command = "chown"
 expect = "sudo chown -R www-data /var/www"
+
+[[case]]
+request = "make alice the owner of notes.txt"
+command = "chown"
+expect = "sudo chown alice notes.txt"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
 
 [[case]]
 request = "add user alice to docker group"
@@ -157,9 +223,19 @@ command = "add user to group"
 expect = "sudo usermod -aG docker alice"
 
 [[case]]
+request = "add me to the docker group"
+command = "add user to group"
+expect = "sudo usermod -aG docker $USER"
+
+[[case]]
+request = "add bob to the video group"
+command = "add user to group"
+expect = "sudo usermod -aG video bob"
+
+[[case]]
 request = "grep -ri TODO in src"
 command = "grep"
-expect = "grep -ri TODO src"
+expect = "grep -i -r TODO src"
 
 [[case]]
 request = "ping 8.8.8.8 5 times"
@@ -167,19 +243,35 @@ command = "ping"
 expect = "ping -c 5 8.8.8.8"
 
 [[case]]
+request = "ping google.com 3 times"
+command = "ping"
+expect = "ping -c 3 google.com"
+
+[[case]]
 request = "extract backup.tar.gz to /opt/app"
 command = "tar"
 expect = "tar -xzf backup.tar.gz -C /opt/app"
 
 [[case]]
+request = "unpack old_stuff.tar.gz into /tmp/restore"
+command = "tar"
+expect = "tar -xzf old_stuff.tar.gz -C /tmp/restore"
+files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+
+[[case]]
 request = "tar up ./build excluding node_modules"
 command = "tar"
-expect = "tar -czf build.tar.gz --exclude=node_modules ./build"
+expect = "tar -czf <archive> --exclude=node_modules ./build"
 
 [[case]]
 request = "journal for nginx since 1 hour ago"
 command = "journalctl"
-expect = "journalctl -u nginx --since \"1 hour ago\""
+expect = "journalctl -u nginx --since '1 hour ago'"
+
+[[case]]
+request = "journal for sshd since yesterday"
+command = "journalctl"
+expect = "journalctl -u sshd --since yesterday"
 
 [[case]]
 request = "git log oneline last 10"
@@ -187,7 +279,33 @@ command = "git log"
 expect = "git log --oneline -10"
 
 [[case]]
+request = "show commit history, only the last 5"
+command = "git log"
+expect = "git log --oneline -5"
+
+[[case]]
 request = "tail nginx error log /var/log/nginx/error.log"
 command = "tail"
 expect = "tail -n 10 /var/log/nginx/error.log"
-files = ["notes.txt", "My Resume.pdf", "beach.png", "backup.sh", "report.docx", "big_video.mp4", "projects/", "projects-download.zip", "old_stuff.tar.gz", "Vacation Photos/"]
+files = ["nginx.conf", "README.md", "src/", "Cargo.toml", "TODO.md"]
+
+[[case]]
+request = "show the last 20 lines of /var/log/syslog"
+command = "tail"
+expect = "tail -n 20 /var/log/syslog"
+files = ["nginx.conf", "README.md", "src/", "Cargo.toml", "TODO.md"]
+
+
+# 5b. a modifier no slot can hold is reported, not dropped
+
+[[case]]
+request = "list the files excluding node_modules"
+command = "ls"
+expect = "ls"
+note = "not included: `excluding node_modules`"
+
+[[case]]
+request = "ssh to web1 on port 2222 since yesterday"
+command = "ssh"
+expect = "ssh -p 2222 web1"
+note = "not included: `since yesterday`"

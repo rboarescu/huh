@@ -19,9 +19,11 @@ struct Case {
     command: String,
     /// Expected full command line of the first suggestion (optional).
     expect: Option<String>,
-    /// Pretend these are the entries of the current folder.
+    /// Pretend these are the entries of the current folder; folders end in `/`.
     #[serde(default)]
     files: Vec<String>,
+    /// Text the notes under the first suggestion must contain (optional).
+    note: Option<String>,
     /// Package manager family ("debian", "alpine|void", ...) this case is about. Such a case runs
     /// only when scoring as that family (`huh eval --platform`); other cases run everywhere.
     platform: Option<String>,
@@ -133,7 +135,10 @@ fn score_cases(matcher: &LocalMatcher, path: &Path, platforms: &[String]) -> Res
             top3.add(outcome.ranked.iter().any(|(name, _)| accepted.contains(&name.as_str())));
             match &case.expect {
                 Some(expect) => {
-                    let line_ok = first.is_some_and(|s| s.line == *expect);
+                    let line_ok = first.is_some_and(|s| {
+                        s.line == *expect
+                            && case.note.as_ref().is_none_or(|note| s.notes.iter().any(|n| n.contains(note.as_str())))
+                    });
                     exact.add(line_ok);
                     line_ok
                 }

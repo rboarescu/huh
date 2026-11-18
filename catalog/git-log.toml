@@ -1,4 +1,11 @@
 name = "git log"
 description = "Show the history of git commits"
-template = "git log --oneline"
+template = "git log --oneline {count}"
 keywords = ["commit history", "recent commits", "git history", "past commits"]
+
+[[slots]]
+id = "count"
+kind = "text"
+what = "how many of the latest commits to show"
+default = ""
+format = "-{}"
