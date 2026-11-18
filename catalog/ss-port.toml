@@ -1,0 +1,12 @@
+name = "ss port"
+description = "Show which program is listening on a network port"
+template = "ss -tlnp 'sport = :{port}'"
+package = "iproute2"
+keywords = ["what is listening on port", "who is listening on port", "what is using port", "which program uses port", "who uses port", "program on port", "is something listening on port"]
+
+[[slots]]
+id = "port"
+kind = "text"
+what = "the port number"
+extract = "port"
+raw = true

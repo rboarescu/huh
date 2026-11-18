@@ -1,5 +1,15 @@
 # huh: roadmap and status
 
+## Completed: Safety (2026-11-18)
+
+- **Evals**: `evals/safety.toml` (110 cases, each with the expected command line and, where it matters, `warn = true/false`); 89 of the first 100 failed on the old matcher, all pass now and `cargo test` requires 100%.
+- **WARNING**: a command, option or flag can carry its own `warning` text (`catalog.rs`, `assemble::build`); per-option warnings make `systemctl stop/disable/restart`, `git reset --soft/--hard`, `git push --force`, `docker system prune --volumes` and `chmod/chown -R` warn while `status`, `start` and plain `push` stay quiet. Marked destructive: `reboot`, `shutdown`, `kill`, `pkill`, `docker stop`, `docker compose down`, `tmux kill-session`, `virsh destroy/shutdown/reboot`, `package remove`, `omarchy refresh`, `omarchy system logout`, `append to system file`, `modprobe`, plus the new `find delete`, `kill port`, `git restore`, `git clean`, `docker image/container/system prune`, `gio trash empty`.
+- **Slot readers** (`src/extract.rs`, `extract = "..."` on a slot): `shutdown_time` (`+10`, `23:00`), `file_age` (`+7` older than 7 days, `-7` last 7 days / this week, `-1` today), `file_glob`, `port`, `host`, `domain`, `service`, `count`. A number after "port" can no longer fill a PID slot.
+- **New catalog entries**: `shutdown cancel`, `systemctl status`, `systemctl failed`, `find delete`, `kill port` (`fuser -k N/tcp`), `ss port`, `nc`, `git restore/stash/reset/clean`, `git push -u origin HEAD`/`--force` flags, `git diff --staged`, `git log -n N`, `docker image prune`, `docker container prune`, `docker system df`, `gio trash empty`, `gio list trash`, `cd -`, `who`, `iostat`, `useradd`, `dig`, `curl -I`.
+- **Matcher**: reboot/shutdown only when the request is about the computer (never a service, VM or device); a service name beats `omarchy restart`; recovery wording (undo, recover, restore, accidentally) rejects every deleting command; a flag written in the request (`tail -f`) is always applied; printer, scanner, playlist and "print a document" are off topic; `xdg-open` needs something to open; `omarchy restart/refresh` need a named part. "What does <command> do" is answered with a `huh explain` hint.
+- **Existing eval expectations changed**: `shutdown now`/`reboot` became `sudo shutdown -h now`/`sudo shutdown -r now` (they were unsafe: no sudo, no time).
+- **Not done**: `mv`, `cp`, `tar -x` and `unzip` can overwrite files and still print no WARNING; there are no `dd`/`mkfs` entries; the binder still mis-fills some bare names ("disable docker at boot" needs the word "service").
+
 ## Completed: Slot filling (2026-11-18)
 
 - **Entries**: the current folder now marks folders (`projects/`), so "the projects folder" is the folder, never `projects-download.zip`. An entry matches only when the request says all its distinctive words (stopwords and "my" never count) and an exact name beats a partial one. A multi-word name ("Vacation Photos") is consumed whole; a folder that receives a copy gets a trailing `/`.
@@ -78,7 +88,7 @@ Not done: `huh` panics on a closed pipe (`huh ... | head`); NixOS has no "which 
 
 The evals score 100%, but four simulated users (beginner on Omarchy, sysadmin, failing-command diagnosis, other distros in Docker) found the evals overfit. Fix in this order:
 
-1. **Safety**
+1. ~~**Safety**~~ Done 2026-11-18 (see "Completed: Safety"). Original findings:
    - `reboot` and `shutdown` carry no WARNING and drop the time ("reboot in 10 minutes" gives `reboot`).
    - "restart nginx" gives `omarchy restart audio`, then `reboot`, even though `systemctl` is in the catalog.
    - "older than 7 days" gives `find -mtime -7`, which is the wrong sign.

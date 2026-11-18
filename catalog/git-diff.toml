@@ -1,7 +1,12 @@
 name = "git diff"
 description = "Show what has changed in the files since the last git commit"
-template = "git diff {target}"
+template = "git diff {staged} {target}"
 keywords = ["uncommitted changes", "what changed in file", "git changes", "inspect diff"]
+
+[[flags]]
+id = "staged"
+value = "--staged"
+question = "Does the user want only the changes already staged for the next commit?"
 
 [[slots]]
 id = "target"

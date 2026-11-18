@@ -1,6 +1,8 @@
 name = "virsh shutdown"
 description = "Shut a virtual machine down cleanly"
 template = "virsh shutdown {vm}"
+destructive = true
+warning = "the virtual machine is shut down; unsaved work in it may be lost."
 package = "libvirt"
 keywords = ["shut down vm", "graceful shutdown vm", "stop vm cleanly", "power off vm"]
 

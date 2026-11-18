@@ -1,0 +1,4 @@
+name = "gio list trash"
+description = "List what is in the trash, where an accidentally deleted file can be found"
+template = "gio list trash://"
+keywords = ["recover deleted file", "get back a deleted file", "restore deleted file", "undo delete", "accidentally deleted", "deleted by accident", "recover deleted files", "what is in the trash", "list the trash", "look in the trash", "undelete"]

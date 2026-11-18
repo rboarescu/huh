@@ -19,6 +19,8 @@ struct Case {
     command: String,
     /// Expected full command line of the first suggestion (optional).
     expect: Option<String>,
+    /// Whether the first suggestion must carry the WARNING line (`true`) or must not (`false`).
+    warn: Option<bool>,
     /// Pretend these are the entries of the current folder; folders end in `/`.
     #[serde(default)]
     files: Vec<String>,
@@ -133,6 +135,7 @@ fn score_cases(matcher: &LocalMatcher, path: &Path, platforms: &[String]) -> Res
             let command_ok = first.is_some_and(|s| accepted.contains(&s.command.as_str()));
             top1.add(command_ok);
             top3.add(outcome.ranked.iter().any(|(name, _)| accepted.contains(&name.as_str())));
+            let warn_ok = case.warn.is_none_or(|wanted| first.is_some_and(|s| s.destructive == wanted));
             match &case.expect {
                 Some(expect) => {
                     let line_ok = first.is_some_and(|s| {
@@ -140,9 +143,9 @@ fn score_cases(matcher: &LocalMatcher, path: &Path, platforms: &[String]) -> Res
                             && case.note.as_ref().is_none_or(|note| s.notes.iter().any(|n| n.contains(note.as_str())))
                     });
                     exact.add(line_ok);
-                    line_ok
+                    line_ok && warn_ok
                 }
-                None => command_ok,
+                None => command_ok && warn_ok,
             }
         };
         let wanted = case.expect.as_deref().unwrap_or(&case.command);

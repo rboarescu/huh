@@ -1,6 +1,8 @@
 name = "virsh reboot"
 description = "Restart a virtual machine"
 template = "virsh reboot {vm}"
+destructive = true
+warning = "the virtual machine is restarted; unsaved work in it may be lost."
 package = "libvirt"
 keywords = ["restart vm", "reboot virtual machine"]
 

@@ -276,12 +276,12 @@ expect = "journalctl -u sshd --since yesterday"
 [[case]]
 request = "git log oneline last 10"
 command = "git log"
-expect = "git log --oneline -10"
+expect = "git log --oneline -n 10"
 
 [[case]]
 request = "show commit history, only the last 5"
 command = "git log"
-expect = "git log --oneline -5"
+expect = "git log --oneline -n 5"
 
 [[case]]
 request = "tail nginx error log /var/log/nginx/error.log"

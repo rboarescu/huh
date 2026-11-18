@@ -1,0 +1,4 @@
+name = "who"
+description = "Show who is logged in to this computer right now"
+template = "who"
+keywords = ["who is logged in", "logged in users", "users logged in", "who is on this machine", "current sessions", "active logins", "who is online"]

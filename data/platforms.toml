@@ -96,6 +96,8 @@ gh = "github-cli"
 btrfs = "btrfs-progs"
 man = "man-db"
 xdg-open = "xdg-utils"
+fuser = "psmisc"
+iostat = "sysstat"
 
 # package key -> family -> package name. `*` is the name on every family without its own
 # entry; "" means the family has no such package (so huh stays quiet instead of guessing).
@@ -134,6 +136,8 @@ github-cli = { arch = "github-cli", debian = "gh", fedora = "gh", suse = "gh", a
 man-db = { arch = "man-db", debian = "man-db", fedora = "man-db", suse = "man", alpine = "mandoc", void = "man-db" }
 docker = { arch = "docker", debian = "docker.io", fedora = "docker", suse = "docker", alpine = "docker", void = "docker", nixos = "docker", gentoo = "app-containers/docker" }
 btrfs-progs = { "*" = "btrfs-progs", suse = "btrfsprogs", gentoo = "sys-fs/btrfs-progs" }
+psmisc = { "*" = "psmisc", gentoo = "sys-process/psmisc" }
+sysstat = { "*" = "sysstat", gentoo = "app-admin/sysstat" }
 xdg-utils = { "*" = "xdg-utils", gentoo = "x11-misc/xdg-utils" }
 unrar = { arch = "unrar", suse = "unrar", alpine = "", nixos = "unrar" }
 tailscale = { arch = "tailscale", alpine = "tailscale", void = "tailscale", nixos = "tailscale" }

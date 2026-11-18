@@ -7,6 +7,7 @@ keywords = ["change owner", "ownership", "make owner", "give file to user", "fil
 id = "recursive"
 value = "-R"
 question = "Does the user want the change applied to everything inside a folder?"
+warning = "this changes every file inside the folder; on a system folder that can break the system."
 
 [[slots]]
 id = "owner"

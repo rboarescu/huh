@@ -1,0 +1,10 @@
+name = "systemctl status"
+description = "Show whether a background service is running and what it last reported"
+template = "systemctl status {service}"
+keywords = ["service status", "status of service", "is the service running", "is nginx running", "show status of a daemon", "check a service", "is the daemon up", "systemd unit status"]
+
+[[slots]]
+id = "service"
+kind = "text"
+what = "the service"
+extract = "service"
