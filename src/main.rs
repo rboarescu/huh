@@ -13,6 +13,7 @@ mod knowledge;
 mod manpage;
 mod matcher;
 mod mode;
+mod outputs;
 mod platform;
 mod readers;
 mod render;
@@ -23,6 +24,7 @@ mod session;
 mod shell;
 mod sysinfo;
 mod tools;
+mod tutor;
 mod values;
 
 use anyhow::{Result, bail};
@@ -112,6 +114,17 @@ enum Action {
     EvalErrors {
         #[arg(long, default_value = "evals/errors.toml")]
         cases: PathBuf,
+    },
+    /// Follow the recorded terminal next to this one and explain each command and its output
+    ///
+    /// Run it in a second pane. It only reads the recording (see `huh shell-init`); it never runs anything.
+    Tutor {
+        /// Hide the explanation of a program already explained in this run
+        #[arg(long)]
+        quiet: bool,
+        /// Follow the recording of this terminal (e.g. /dev/pts/3) instead of the newest one
+        #[arg(long)]
+        tty: Option<String>,
     },
     #[command(hide = true)]
     RecordSink { file: PathBuf, pipe: PathBuf },
@@ -501,7 +514,12 @@ fn why() -> Result<()> {
     } else {
         let mut piped = Vec::new();
         std::io::stdin().read_to_end(&mut piped)?;
-        let output = session::tail(&session::clean(&String::from_utf8_lossy(&piped)));
+        let text = String::from_utf8_lossy(&piped);
+        if let Some(described) = outputs::describe(&text) {
+            print!("{}\n(huh only read this text. Nothing was run.)\n", described.text);
+            return Ok(());
+        }
+        let output = session::tail(&session::clean(&text));
         session::Last { command: String::new(), exit: None, output }
     };
     why_last(last)
@@ -582,6 +600,7 @@ fn main() -> Result<()> {
         Some(Action::Why | Action::ShellInit { .. } | Action::EvalErrors { .. } | Action::RecordSink { .. }) => {
             unreachable!("handled above")
         }
+        Some(Action::Tutor { quiet, tty }) => tutor::run(&everything, quiet, tty.as_deref())?,
         Some(Action::Check) => {
             let everything = catalog::matchable(everything);
             let total = everything.len();
@@ -612,6 +631,10 @@ fn main() -> Result<()> {
             };
             if cmd_str.trim().is_empty() {
                 bail!("provide a command to explain, e.g. `huh explain \"du -sh * | sort -h\"`");
+            }
+            if from_stdin && let Some(described) = outputs::describe(&cmd_str) {
+                print!("{}\n(huh only read this text. Nothing was run.)\n", described.text);
+                return Ok(());
             }
             if from_stdin && let Some((plausible, total)) = explain::looks_like_program_output(&cmd_str, &everything) {
                 println!(

@@ -1,0 +1,314 @@
+# What the output of common commands means, for `cmd | huh` and `huh tutor`. Parsed by src/outputs.rs.
+#
+#   @name | what the output is           starts an entry (name is the command, as people type it)
+#   first: A B | C D                     the first line starts with these words (any one alternative)
+#   line: text                           some line starts with this text (after leading spaces)
+#   has: text                            the output contains this text
+#   shape: name                          a hand-coded check in outputs.rs (list at the top of it)
+#   columns: header                      show a row only when its key appears in the first line
+#   KEY | meaning                        one field or column
+#   [word] KEY | meaning                 shown only when `word` appears in the output
+#   dyn: perms                           decoded permission string of the first line (ls -l)
+#   note: text                           a "worth knowing" line (at most 2 per entry)
+#
+# All rule lines of an entry must hold. When unsure, leave the rules strict: saying nothing is fine.
+
+@ls -l | a long folder listing
+shape: longlisting
+dyn: perms
+permissions | 10 characters: the type (- file, d folder, l link), then read/write/run for owner, group, everyone else
+links | how many names point at this file (for a folder: its sub-folders + 2)
+owner | the user who owns it
+group | the group that owns it
+size | in bytes (add -h for 1K, 2M, 3G)
+date | when it was last changed
+name | the file or folder (a link shows -> its target)
+note: "total" is the disk space used by the listed files, in 1K blocks.
+note: a name starting with a dot is hidden; ls -a shows those.
+
+@df | free space on each mounted disk
+first: Filesystem Size Used Avail Use% Mounted on | Filesystem 1K-blocks Used Available Use% Mounted on | Filesystem Type Size Used Avail Use% Mounted on
+columns: header
+Filesystem | the disk or partition (tmpfs, dev, run are in-memory, not real disks)
+Type | the kind of filesystem (ext4, btrfs, tmpfs ...)
+Size | total size
+1K-blocks | total size, in 1K blocks
+Used | space taken
+Avail | space you can still use
+Available | space you can still use
+Use% | how full it is
+Mounted on | the folder where this disk appears
+note: Use% near 100% means the disk is full: things start failing to save.
+note: only the line for the disk holding your files (often "/" or /home) matters most.
+
+@du | how much space each item takes
+shape: du
+size | the first column: disk space used (K, M, G; -h makes these readable)
+path | the file or folder it is the size of
+note: du -sh * | sort -h puts the biggest last.
+
+@lsblk | disks and partitions
+first: NAME MAJ:MIN | NAME FSTYPE FSVER | NAME FSTYPE LABEL
+columns: header
+NAME | device name; ├─ and └─ show partitions or layers inside the disk above
+MAJ:MIN | device numbers the kernel uses; you rarely need them
+RM | 1 = removable (USB stick, card), 0 = fixed
+SIZE | capacity
+RO | 1 = read-only
+TYPE | what kind of device it is
+FSTYPE | the filesystem on it (ext4, btrfs, vfat, crypto_LUKS ...)
+LABEL | the name given to the filesystem
+UUID | a unique id; fstab and mount can use it
+FSUSE% | how full the filesystem is
+MOUNTPOINTS | where it is attached in the folder tree; empty means not mounted
+MOUNTPOINT | where it is attached in the folder tree; empty means not mounted
+[disk] disk | a whole drive
+[part] part | a partition: a slice of a disk
+[crypt] crypt | an encrypted volume that has been unlocked; its contents appear under the mount points
+[rom] rom | an optical drive
+[loop] loop | a file or image treated as a disk (snaps, ISO images)
+[zram] zram | a compressed block of RAM used as swap
+[SWAP] [SWAP] | used as swap space (overflow memory), not as a folder
+note: to unmount something, use a path from MOUNTPOINTS, not from NAME.
+
+@stat | the details of one file
+line: File:
+has: Inode:
+has: Blocks:
+File | the path
+Size | bytes
+Blocks | disk blocks used
+Inode | the file's internal id on the disk
+Links | how many names point at it
+Access: ( | the permissions, as number and as rwx text
+Uid | the owner
+Gid | the group
+Access: 2 | when it was last read
+Modify | when its content last changed
+Change | when its details (permissions, owner) last changed
+Birth | when it was created
+
+@findmnt | what is mounted where
+first: TARGET SOURCE FSTYPE OPTIONS
+TARGET | the folder where it appears; the tree shape shows what is mounted inside what
+SOURCE | the device or other source (a disk, tmpfs, proc ...)
+FSTYPE | the filesystem kind
+OPTIONS | how it is mounted: rw read-write, ro read-only, and tuning flags
+
+@free | memory and swap
+first: total used free shared buff/cache available
+columns: header
+[Mem:] Mem | the real memory (RAM)
+[Swap:] Swap | overflow space on disk, used when RAM is short
+total | installed size
+used | in use by programs
+free | completely unused (often small, and that is normal)
+shared | memory shared between programs
+buff/cache | disk data kept in RAM to be fast; it is given back when needed
+available | what programs could really get: the number to watch
+note: "available" matters more than "free": Linux fills spare RAM with cache on purpose.
+note: little available memory plus a growing Swap "used" means the machine is short of RAM.
+
+@ps aux | the running processes
+first: USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND
+columns: header
+USER | who runs it
+PID | process number (what kill takes)
+%CPU | share of one CPU it uses
+%MEM | share of RAM it uses
+VSZ | virtual memory, a loose upper bound
+RSS | real memory in use, in KB
+TTY | the terminal it is attached to; ? means none
+STAT | state: R running, S sleeping, D waiting on disk, T stopped, Z zombie; s session leader, + foreground, < high priority
+START | when it started
+TIME | CPU time used so far
+COMMAND | the program and its arguments; [names in brackets] are kernel threads
+
+@ps -ef | the running processes
+first: UID PID PPID C STIME TTY TIME CMD
+columns: header
+UID | who runs it
+PID | process number (what kill takes)
+PPID | the process that started it (its parent)
+C | recent CPU use
+STIME | when it started
+TTY | the terminal it is attached to; ? means none
+TIME | CPU time used so far
+CMD | the program and its arguments
+
+@top | a live view of load, memory and processes
+first: top -
+line: Tasks:
+top - | the time, how long the machine has been up, users, and load average
+load average | work waiting to run over the last 1, 5 and 15 minutes
+Tasks | processes by state; zombie = finished but not yet cleaned up by its parent
+%Cpu(s) | where CPU time goes: us programs, sy kernel, id idle, wa waiting for disk
+Mem | memory in MiB; "avail Mem" is what programs can still get
+PID | the process list, busiest first (%CPU, %MEM columns)
+note: q quits top. htop shows the same thing with bars.
+note: load average above your number of CPU cores means the machine is overloaded.
+
+@ip addr | the network interfaces and their addresses
+shape: ipaddr
+2: wlp9s0 | the number and name of the interface (lo = loopback, wlp.. = Wi-Fi, enp.. = cable)
+<FLAGS> | UP = switched on, LOWER_UP = a link exists, NO-CARRIER = nothing plugged in
+mtu | the largest packet size
+state | UP, DOWN or UNKNOWN (normal for lo and tunnels)
+link/ether | the hardware (MAC) address
+inet | the IPv4 address, /24 is the network size
+inet6 | the IPv6 address
+scope | host = this machine only, global = reachable beyond, link = the local network only
+note: your address on the network is the "inet" line of the UP interface (not 127.0.0.1).
+
+@ip -br addr | a short list of network interfaces
+shape: ipbr
+name | the first column: the interface (lo = loopback, wlp.. = Wi-Fi, enp.. = cable)
+UP | switched on and connected
+DOWN | no link (cable out, Wi-Fi off)
+UNKNOWN | no link state to report: normal for lo and tunnels such as VPNs
+addresses | the rest: IPv4 and IPv6 addresses, /24 is the network size
+note: your address on the network is the IPv4 one on the UP interface.
+
+@ss | open network connections and listening ports
+first: Netid State Recv-Q Send-Q Local Address:Port | State Recv-Q Send-Q Local Address:Port
+Netid | the protocol: tcp, udp, or a local socket
+State | LISTEN = waiting for connections, ESTAB = connected, UNCONN = udp socket, nothing connected
+Recv-Q | bytes received and not yet read by the program
+Send-Q | bytes sent and not yet acknowledged
+Local Address:Port | this machine's side; 127.0.0.1 = only this machine, 0.0.0.0 or * = from anywhere
+Peer Address:Port | the other side; * = anyone
+Process | which program holds it (shown for your own processes, or with sudo)
+note: a LISTEN line on 0.0.0.0 or [::] is reachable from the network; on 127.0.0.1 it is not.
+
+@ping | whether another computer answers, and how fast
+has: packets transmitted
+has: packet loss
+transmitted | packets sent
+received | replies that came back
+packet loss | the percentage with no reply: 0% is healthy, 100% means unreachable or blocked
+rtt min/avg/max | round-trip time in milliseconds: lower is faster
+note: a few percent of loss on Wi-Fi is common; steady loss means a bad link.
+
+@git status | where your repository stands
+first: On branch | HEAD detached at | Not currently on any branch.
+On branch | the branch you are on
+[up to date with] up to date with | in sync with the remote branch
+[ahead of] ahead of | you have commits the remote lacks: git push sends them
+[behind] behind | the remote has commits you lack: git pull fetches them
+[Changes to be committed] Changes to be committed | staged (git add): will go into the next commit
+[Changes not staged] Changes not staged for commit | edited files not yet added
+[Untracked files] Untracked files | new files git does not know yet
+[nothing to commit] nothing to commit | no changes at all
+[both modified] both modified | a merge conflict: edit the file, then git add it
+note: git status only reads; nothing is changed.
+
+@git log --oneline | the commit history, newest first
+shape: gitoneline
+hash | the first column: a short id of the commit
+message | the commit's one-line description
+(HEAD -> main) | HEAD is where you are now; names in brackets are branches and tags at that commit
+note: q leaves the viewer if the output does not fit the screen.
+
+@git log | the commit history, newest first
+shape: gitlog
+commit | the full id of the commit
+Author | who made it
+Date | when
+message | the indented text: why it was made
+
+@git branch -vv | your branches and what they follow
+shape: gitbranch
+* | the branch you are on
+name | the branch name
+hash | the commit it points to
+[origin] [origin/main] | the remote branch it follows; ahead N / behind M count commits not shared
+message | the last commit's description
+note: a branch with no [origin/...] has no remote counterpart.
+
+@systemctl status | one service's state
+line: Loaded:
+line: Active:
+Loaded | where its definition file is, and whether it starts at boot (enabled) or not (disabled)
+Active | active (running) = up; inactive (dead) = stopped; failed = it crashed or exited with an error
+Main PID | the process number of the service
+Tasks | how many processes and threads it has
+Memory | memory it uses
+CGroup | the group of processes it owns
+note: the latest log lines are at the bottom. If it says "failed", journalctl -u <service> shows why.
+
+@journalctl | system log lines
+shape: journal
+date time | when the line was logged
+host | the computer's name
+unit[pid] | the program that wrote it and its process number
+message | what it said
+note: journalctl -u <service> shows one service; -b only this boot; -f follows live.
+
+@docker ps | running containers
+first: CONTAINER ID IMAGE COMMAND CREATED STATUS PORTS NAMES
+columns: header
+CONTAINER ID | a short unique id
+IMAGE | the image it was made from
+COMMAND | the program started inside
+CREATED | when
+STATUS | Up = running, Exited (0) = stopped fine, Exited (non-zero) = it failed
+PORTS | host:port->container/port is a published port; none means not reachable from outside
+NAMES | the container's name
+note: docker ps -a also lists stopped containers.
+
+@uname -a | which system this is
+shape: uname
+Linux | the kernel name
+2nd word | the computer's name
+release | the kernel version, e.g. 6.x.y
+#1 SMP ... | the kernel build number and date
+x86_64 | the processor type (aarch64 = ARM)
+
+@uptime | how long the machine has been on, and its load
+shape: uptime
+up | how long it has been running
+users | how many are logged in
+load average | work waiting to run, averaged over the last 1, 5 and 15 minutes
+note: a load average below your number of CPU cores is fine.
+
+@who | who is logged in
+shape: who
+user | the account
+terminal | tty = a text console, pts = a terminal window or SSH, : = a graphical session
+date time | when they logged in
+(host) | where they came from (remote logins)
+
+@last | recent logins and reboots
+has: wtmp begins | btmp begins
+user | the account; "reboot" lines mark system starts
+terminal | pts = terminal window or SSH, tty = console
+host | where it came from, or the kernel version for reboots
+times | login time - logout time, and in brackets how long it lasted
+still logged in | a session that is still open
+
+@id | who you are and which groups you are in
+line: uid=
+has: gid=
+has: groups=
+uid | your user number and name
+gid | your main group
+groups | all your groups; they decide what you may use (docker, wheel = administrator, ...)
+note: a new group only takes effect after you log out and in again.
+
+@sensors | temperatures, fans and voltages
+has: Adapter:
+has: °C
+Adapter | the chip or bus the readings come from
+temp / CPU / Core | temperatures in °C
+fan | fan speed in RPM
+(high = ...) | warning limits the chip reports
+note: a CPU above ~90 °C under load is too hot; idle is typically 35-60 °C.
+
+@nmcli dev | the network devices NetworkManager sees
+first: DEVICE TYPE STATE
+columns: header
+DEVICE | the interface name
+TYPE | wifi, ethernet, bridge, loopback, tun ...
+STATE | connected = in use; disconnected = available; unavailable = no cable or radio off
+CONNECTION | the saved connection profile in use; -- means none
+note: nmcli dev wifi list shows the Wi-Fi networks around you.

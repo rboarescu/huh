@@ -82,7 +82,7 @@ fi
 /// Goes at the end of ~/.bashrc: marks where each command's output starts and
 /// ends, notes its exit code (skipping `huh ...` commands),
 /// and binds a key (default Alt+h and Alt+f, or `$HUH_KEY`) to replace the prompt
-/// line with `huh`'s top suggestion without running it.
+/// line with `huh`'s top suggestion without running it, and Alt+e to explain the prompt line.
 pub fn hooks_script() -> String {
     r#"# huh: mark each command's output (only in a recorded terminal) and bind prompt suggestion.
 if [[ $- == *i* && -n ${HUH_SESSION_LOG-} && ${HUH_SESSION_TTY-} == "$(tty)" && -z ${__huh_hooked-} ]]; then
@@ -130,6 +130,13 @@ if [[ $- == *i* && -z ${__huh_key_bound-} ]]; then
       READLINE_POINT=${#READLINE_LINE}
     fi
   }
+  # Alt+e: explain the line being typed, below the prompt, without running it.
+  __huh_explain() {
+    [[ -n ${READLINE_LINE//[[:space:]]/} ]] || return 0
+    builtin printf '\n'
+    huh explain "$READLINE_LINE" 2>&1
+  }
+  builtin bind -x '"\ee": __huh_explain'
   if [[ -n ${HUH_KEY+x} ]]; then
     if [[ -n $HUH_KEY ]]; then
       builtin bind -x "\"$HUH_KEY\": __huh_complete"
@@ -179,10 +186,19 @@ pub fn sink(path: &Path, pipe: &Path) -> Result<()> {
 }
 
 /// The text between the last start marker and the end marker after it.
-fn last_region(log: &str) -> &str {
+pub(crate) fn last_region(log: &str) -> &str {
     let from = log.rfind(START).map_or(0, |at| at + START.len());
     let rest = &log[from..];
     &rest[..rest.find(END).unwrap_or(rest.len())]
+}
+
+/// Has the last command in the log finished (an end marker after the last start marker)?
+pub(crate) fn region_closed(log: &str) -> bool {
+    match (log.rfind(START), log.rfind(END)) {
+        (Some(start), Some(end)) => end > start,
+        (None, Some(_)) => true,
+        _ => false,
+    }
 }
 
 /// Turns raw terminal output into the text a person saw: colour and cursor
@@ -251,7 +267,7 @@ pub fn tail(text: &str) -> String {
     kept
 }
 
-fn parse_status(text: &str) -> (Option<i32>, String) {
+pub(crate) fn parse_status(text: &str) -> (Option<i32>, String) {
     let (exit, command) = text.split_once('\n').unwrap_or((text, ""));
     (exit.trim().parse().ok(), command.trim().to_string())
 }
@@ -340,6 +356,7 @@ mod tests {
         assert!(hooks.contains(r#""\eh": __huh_complete"#));
         assert!(hooks.contains(r#""\ef": __huh_complete"#));
         assert!(hooks.contains(r#"huh --no-ask --first-line-only "$READLINE_LINE""#));
+        assert!(hooks.contains(r#""\ee": __huh_explain"#) && hooks.contains(r#"huh explain "$READLINE_LINE""#));
 
         // Execute the interactive hook setup in bash to verify skipping, completion, and HUH_KEY binding.
         let tmp = std::env::temp_dir().join(format!("huh-hook-test-{}", std::process::id()));
