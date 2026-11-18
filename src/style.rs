@@ -70,7 +70,7 @@ impl Look {
     fn bold(col: Col) -> Look {
         Look { col, bold: true, ..PLAIN }
     }
-    fn sgr(self) -> String {
+    fn sgr(self, truecolor: bool) -> String {
         let mut codes: Vec<String> = Vec::new();
         if self.bold {
             codes.push("1".into());
@@ -84,14 +84,75 @@ impl Look {
         match self.col {
             Col::Default => {}
             Col::Ansi(n) => codes.push(n.to_string()),
-            Col::Rgb(r, g, b) => codes.push(format!("38;2;{r};{g};{b}")),
+            Col::Rgb(r, g, b) if truecolor => codes.push(format!("38;2;{r};{g};{b}")),
+            Col::Rgb(r, g, b) => codes.push(format!("38;5;{}", nearest_256(r, g, b))),
         }
         codes.join(";")
     }
 }
 
+/// The xterm-256 colour nearest to an RGB value: the best of the 6x6x6 cube (16-231) and the
+/// grey ramp (232-255).
+fn nearest_256(r: u8, g: u8, b: u8) -> u8 {
+    const LEVELS: [i32; 6] = [0, 95, 135, 175, 215, 255];
+    let level = |v: u8| (0..6).min_by_key(|&i| (LEVELS[i] - v as i32).abs()).unwrap_or(0);
+    let dist = |(r2, g2, b2): (i32, i32, i32)| (r2 - r as i32).pow(2) + (g2 - g as i32).pow(2) + (b2 - b as i32).pow(2);
+    let (ri, gi, bi) = (level(r), level(g), level(b));
+    let cube = dist((LEVELS[ri], LEVELS[gi], LEVELS[bi]));
+    let cube_index = 16 + 36 * ri + 6 * gi + bi;
+    let grey_step = (0..24).min_by_key(|&i| dist(grey(i))).unwrap_or(0);
+    if dist(grey(grey_step)) < cube { (232 + grey_step) as u8 } else { cube_index as u8 }
+}
+
+fn grey(step: usize) -> (i32, i32, i32) {
+    let v = 8 + 10 * step as i32;
+    (v, v, v)
+}
+
+/// What the terminal can show: whether it has 24-bit colour, and whether its background is light.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TermEnv {
+    pub truecolor: bool,
+    pub light: bool,
+}
+
+impl Default for TermEnv {
+    /// Truecolour on a dark background: what most terminals are.
+    fn default() -> TermEnv {
+        TermEnv { truecolor: true, light: false }
+    }
+}
+
+/// 24-bit colour: `COLORTERM` says truecolor or 24bit, or `TERM` names a direct-colour terminal.
+pub fn truecolor_supported(colorterm: Option<&str>, term: Option<&str>) -> bool {
+    colorterm.is_some_and(|c| matches!(c.trim().to_ascii_lowercase().as_str(), "truecolor" | "24bit"))
+        || term.is_some_and(|t| t.contains("direct"))
+}
+
+/// A light background, from `COLORFGBG` ("15;0", "0;default;15"): the last field is the background
+/// colour number, and 7 and 15 are the light ones. Absent or unreadable means "not known", so dark.
+pub fn light_background(colorfgbg: Option<&str>) -> bool {
+    colorfgbg
+        .and_then(|v| v.rsplit(';').next())
+        .and_then(|bg| bg.trim().parse::<u8>().ok())
+        .is_some_and(|bg| bg == 7 || bg == 15)
+}
+
+impl TermEnv {
+    pub fn detect() -> TermEnv {
+        TermEnv {
+            truecolor: truecolor_supported(
+                std::env::var("COLORTERM").ok().as_deref(),
+                std::env::var("TERM").ok().as_deref(),
+            ),
+            light: light_background(std::env::var("COLORFGBG").ok().as_deref()),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Theme {
+    BabyBlue,
     Auto,
     Omarchy,
     Dark,
@@ -102,8 +163,9 @@ pub enum Theme {
     Mono,
 }
 
-pub const VALID: &str = "auto, omarchy, dark, light, nord, gruvbox, catppuccin, mono";
-pub const ALL: [Theme; 8] = [
+pub const VALID: &str = "babyblue, auto, omarchy, dark, light, nord, gruvbox, catppuccin, mono";
+pub const ALL: [Theme; 9] = [
+    Theme::BabyBlue,
     Theme::Auto,
     Theme::Omarchy,
     Theme::Dark,
@@ -117,6 +179,7 @@ pub const ALL: [Theme; 8] = [
 impl Theme {
     pub fn parse(value: &str) -> Result<Theme> {
         Ok(match value.trim().to_ascii_lowercase().as_str() {
+            "babyblue" => Theme::BabyBlue,
             "auto" => Theme::Auto,
             "omarchy" => Theme::Omarchy,
             "dark" => Theme::Dark,
@@ -131,6 +194,7 @@ impl Theme {
 
     pub fn name(self) -> &'static str {
         match self {
+            Theme::BabyBlue => "babyblue",
             Theme::Auto => "auto",
             Theme::Omarchy => "omarchy",
             Theme::Dark => "dark",
@@ -217,6 +281,33 @@ impl Palette {
         l[index(Role::Accent)] = Look::bold(self.accent);
         l
     }
+}
+
+/// The default look: baby blue, in truecolour. The text roles use mid-tones that read on a black,
+/// a #1e1e1e and a white background alike; the body text keeps the terminal's own colour. With a
+/// light background (see `light_background`) every colour is a deeper shade. Danger (red, orange)
+/// is never a blue.
+fn babyblue_looks(light: bool) -> [Look; ROLES] {
+    // accent, command, header and part, warning, risk, success, note and value, cause
+    let (accent, command, header, warning, risk, success, note, cause) = if light {
+        (0x1f7fb8, 0x2a7fc0, 0x1558a8, 0xc62828, 0xb85c00, 0x1b7f3e, 0x6a4fc4, 0x8a6100)
+    } else {
+        (0x89cff0, 0x3f97e4, 0x2f80d8, 0xe5484d, 0xe8750e, 0x2fae5e, 0x8a74e0, 0xc8922a)
+    };
+    let mut l = [PLAIN; ROLES];
+    l[index(Role::Command)] = Look::bold(hex(command));
+    l[index(Role::Part)] = Look::col(hex(header));
+    l[index(Role::Value)] = Look::col(hex(note));
+    l[index(Role::Warning)] = Look::bold(hex(warning));
+    l[index(Role::Risk)] = Look::col(hex(risk));
+    l[index(Role::Note)] = Look::col(hex(note));
+    l[index(Role::Cause)] = Look::col(hex(cause));
+    l[index(Role::Try)] = Look::bold(hex(success));
+    l[index(Role::Dim)] = Look { dim: true, ..PLAIN };
+    l[index(Role::Header)] = Look::bold(hex(header));
+    l[index(Role::Success)] = Look::col(hex(success));
+    l[index(Role::Accent)] = Look::bold(hex(accent));
+    l
 }
 
 fn mono_looks() -> [Look; ROLES] {
@@ -308,36 +399,49 @@ fn load_omarchy() -> Option<Palette> {
 #[derive(Clone, Debug)]
 pub struct Style {
     on: bool,
+    truecolor: bool,
     looks: [Look; ROLES],
 }
 
 impl Style {
     pub fn plain() -> Style {
-        Style { on: false, looks: [PLAIN; ROLES] }
+        Style { on: false, truecolor: true, looks: [PLAIN; ROLES] }
     }
 
     /// `omarchy` falls back to `auto` when the desktop theme file is missing or unreadable.
+    #[cfg(test)]
     pub fn new(theme: Theme, on: bool) -> Style {
+        Style::for_terminal(theme, on, TermEnv::default())
+    }
+
+    /// Like `new`, for a terminal with the given colour depth and background.
+    pub fn for_terminal(theme: Theme, on: bool, term: TermEnv) -> Style {
         // On Omarchy every terminal uses the theme's palette, whose slots may not mean what their
         // ANSI names say (a theme can put green in "red"): auto then uses the theme's own colours.
         let omarchy = if on && matches!(theme, Theme::Omarchy | Theme::Auto) { load_omarchy() } else { None };
-        Style::with_omarchy(theme, on, omarchy)
+        Style::build(theme, on, omarchy, term)
     }
 
+    #[cfg(test)]
     fn with_omarchy(theme: Theme, on: bool, omarchy: Option<Palette>) -> Style {
+        Style::build(theme, on, omarchy, TermEnv::default())
+    }
+
+    fn build(theme: Theme, on: bool, omarchy: Option<Palette>, term: TermEnv) -> Style {
         if !on {
             return Style::plain();
         }
         let looks = match theme {
+            Theme::BabyBlue => babyblue_looks(term.light),
             Theme::Mono => mono_looks(),
             Theme::Auto | Theme::Omarchy => omarchy.unwrap_or_else(Palette::auto).looks(),
             other => Palette::builtin(other).unwrap_or_else(Palette::auto).looks(),
         };
-        Style { on, looks }
+        Style { on, truecolor: term.truecolor, looks }
     }
 
     pub fn paint(&self, role: Role, text: &str) -> String {
-        let sgr = self.looks[index(role)].sgr();
+        let sgr = self.looks[index(role)].sgr(self.truecolor);
         if !self.on || text.is_empty() || sgr.is_empty() {
             return text.to_string();
         }
@@ -472,7 +576,7 @@ pub fn theme_from_config_text(text: &str) -> Result<Option<Theme>> {
     }
 }
 
-/// Flag beats environment, environment beats the file, the file beats `auto`.
+/// Flag beats environment, environment beats the file, the file beats `babyblue`.
 pub fn resolve_theme(flag: Option<&str>, env: Option<&str>, file: Option<&Path>) -> Result<Theme> {
     if let Some(value) = flag {
         return Theme::parse(value);
@@ -485,19 +589,20 @@ pub fn resolve_theme(flag: Option<&str>, env: Option<&str>, file: Option<&Path>)
     {
         return Ok(theme_from_config_text(&text)
             .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?
-            .unwrap_or(Theme::Auto));
+            .unwrap_or(Theme::BabyBlue));
     }
-    Ok(Theme::Auto)
+    Ok(Theme::BabyBlue)
 }
 
 /// `huh themes`: a sample of every theme.
 pub fn themes_text(on: bool) -> String {
     let mut out = String::new();
     for theme in ALL {
-        let style = Style::new(theme, on);
+        let style = Style::for_terminal(theme, on, TermEnv::detect());
         let label = match theme {
+            Theme::BabyBlue => "babyblue (default): baby-blue accent, readable on dark and light terminals",
             Theme::Auto => {
-                "auto (default): the current Omarchy theme's colours when there is one, else the terminal's own 16 colours"
+                "auto: the current Omarchy theme's colours when there is one, else the terminal's own 16 colours"
             }
             Theme::Omarchy if load_omarchy().is_none() => "omarchy: desktop theme not found, so it looks like auto",
             Theme::Omarchy => "omarchy: colours of the current Omarchy theme",
@@ -652,7 +757,7 @@ mod tests {
     #[test]
     fn theme_selection_precedence_and_errors() {
         let file = scratch("nord.toml", "theme = \"nord\"\nmode = \"expert\"\n");
-        assert_eq!(resolve_theme(None, None, None).unwrap(), Theme::Auto);
+        assert_eq!(resolve_theme(None, None, None).unwrap(), Theme::BabyBlue);
         assert_eq!(resolve_theme(None, None, Some(&file)).unwrap(), Theme::Nord);
         assert_eq!(resolve_theme(None, Some("gruvbox"), Some(&file)).unwrap(), Theme::Gruvbox);
         assert_eq!(resolve_theme(Some("MONO"), Some("gruvbox"), Some(&file)).unwrap(), Theme::Mono);
@@ -665,7 +770,7 @@ mod tests {
         let bad = scratch("bad2.toml", "theme = 3\n");
         assert!(resolve_theme(None, None, Some(&bad)).is_err());
         let missing = Path::new(env!("CARGO_MANIFEST_DIR")).join(".scratch/none.toml");
-        assert_eq!(resolve_theme(None, None, Some(&missing)).unwrap(), Theme::Auto);
+        assert_eq!(resolve_theme(None, None, Some(&missing)).unwrap(), Theme::BabyBlue);
         assert_eq!(theme_from_config_text("mode = \"x\"").unwrap(), None);
     }
 
@@ -688,5 +793,66 @@ mod tests {
         assert_eq!(parse_hex("#0a0B0c"), Some((10, 11, 12)));
         assert_eq!(parse_hex("0a0b0c"), None);
         assert_eq!(parse_hex("#12"), None);
+    }
+
+    #[test]
+    fn babyblue_is_the_default_and_listed_first() {
+        assert_eq!(ALL[0], Theme::BabyBlue);
+        let text = themes_text(false);
+        assert!(text.starts_with("babyblue (default)"), "{text}");
+        assert_eq!(text.matches("(default)").count(), 1);
+    }
+
+    #[test]
+    fn babyblue_accent_is_baby_blue_and_danger_is_not_blue() {
+        let style = Style::new(Theme::BabyBlue, true);
+        assert_eq!(style.paint(Role::Accent, "x"), "\x1b[1;38;2;137;207;240mx\x1b[0m");
+        // Body text keeps the terminal's colour.
+        assert_eq!(style.paint(Role::Description, "plain"), "plain");
+        let bluish = |col: Col| matches!(col, Col::Rgb(r, g, b) if b as i32 > r as i32 + 40 && b >= g);
+        for light in [false, true] {
+            let style = Style::for_terminal(Theme::BabyBlue, true, TermEnv { truecolor: true, light });
+            for role in [Role::Warning, Role::Risk, Role::Success, Role::Cause] {
+                assert!(!bluish(style.looks[index(role)].col), "{role:?}");
+            }
+            assert_ne!(style.looks[index(Role::Warning)].col, style.looks[index(Role::Accent)].col);
+            assert_ne!(style.looks[index(Role::Risk)].col, style.looks[index(Role::Accent)].col);
+        }
+        let light = Style::for_terminal(Theme::BabyBlue, true, TermEnv { truecolor: true, light: true });
+        assert_ne!(light.looks, style.looks);
+    }
+
+    #[test]
+    fn colour_depth_and_background_detection() {
+        assert!(truecolor_supported(Some("truecolor"), None));
+        assert!(truecolor_supported(Some("24bit"), Some("xterm")));
+        assert!(truecolor_supported(None, Some("xterm-direct")));
+        assert!(!truecolor_supported(None, Some("xterm-256color")));
+        assert!(!truecolor_supported(Some(""), None));
+        assert!(light_background(Some("0;15")));
+        assert!(light_background(Some("0;default;7")));
+        assert!(!light_background(Some("15;0")));
+        assert!(!light_background(Some("15;default")));
+        assert!(!light_background(None));
+    }
+
+    #[test]
+    fn without_truecolour_rgb_falls_back_to_256_codes() {
+        let term = TermEnv { truecolor: false, light: false };
+        let style = Style::for_terminal(Theme::BabyBlue, true, term);
+        // #89cff0 is nearest to 117 (#87d7ff).
+        assert_eq!(style.paint(Role::Accent, "x"), "\x1b[1;38;5;117mx\x1b[0m");
+        for role in ALL_ROLES {
+            let painted = style.paint(role, "x");
+            assert!(!painted.contains("38;2"), "{painted:?}");
+        }
+        assert!(style.paint(Role::Warning, "W").contains("38;5;"));
+        // The cube, the grey ramp and the extremes.
+        assert_eq!(nearest_256(0, 0, 0), 16);
+        assert_eq!(nearest_256(255, 255, 255), 231);
+        assert_eq!(nearest_256(128, 128, 128), 244);
+        assert_eq!(nearest_256(255, 0, 0), 196);
+        // Truecolour terminals are unchanged.
+        assert!(Style::new(Theme::BabyBlue, true).paint(Role::Accent, "x").contains("38;2;137;207;240"));
     }
 }

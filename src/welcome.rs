@@ -186,7 +186,7 @@ pub enum Shown {
     Interrupted,
 }
 
-fn print_welcome(trigger: Trigger) {
+pub fn print_welcome(trigger: Trigger) {
     let mut out = std::io::stdout().lock();
     for (n, line) in welcome_lines(trigger).iter().enumerate() {
         let role = match n {
@@ -240,6 +240,12 @@ fn animate() -> Shown {
 /// Plays the animation and the welcome if `trigger` allows it right now. With `text_always` the
 /// welcome lines are printed even when the animation is not (that is `huh welcome`).
 pub fn show(trigger: Trigger, first_line_only: bool, text_always: bool) -> Shown {
+    show_with(trigger, first_line_only, text_always, true)
+}
+
+/// `show`, but with `print_text` false the five welcome lines are left to the caller (the tutor
+/// prints them itself once its header is pinned). `Played` still says whether they are due.
+pub fn show_with(trigger: Trigger, first_line_only: bool, text_always: bool, print_text: bool) -> Shown {
     let path = welcomed_path(std::env::var("XDG_STATE_HOME").ok().as_deref(), std::env::var("HOME").ok().as_deref());
     let welcomed = path.as_deref().is_some_and(is_welcomed);
     let inputs = real_inputs(first_line_only);
@@ -247,7 +253,7 @@ pub fn show(trigger: Trigger, first_line_only: bool, text_always: bool) -> Shown
     if play && animate() == Shown::Interrupted {
         return Shown::Interrupted;
     }
-    if play || text_always {
+    if (play || text_always) && print_text {
         print_welcome(trigger);
     }
     if play

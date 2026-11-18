@@ -307,21 +307,31 @@ pub fn run(catalog: &[Command], quiet: bool, tty: Option<&str>, mode: Mode) -> R
         log = locate(tty);
     }
     let Some(log) = log else { bail!("{}", how_to_record()) };
-    if crate::welcome::show(crate::welcome::Trigger::Tutor, false, false) == crate::welcome::Shown::Interrupted {
+    // With a pinned header the welcome lines are printed after it is drawn, under it.
+    let pinning = crate::pin::wanted();
+    let shown = crate::welcome::show_with(crate::welcome::Trigger::Tutor, false, false, !pinning);
+    if shown == crate::welcome::Shown::Interrupted {
         return Ok(());
     }
     catch_ctrl_c();
     let tty_name = tty_of(&log).unwrap_or_else(|| log.display().to_string());
-    println!(
-        "{}",
-        paint(
-            Role::Dim,
-            &format!(
-                "huh tutor: following {tty_name}{} (Ctrl+C stops). It only reads.",
-                if tty.is_some() { "" } else { ", the terminal that finished a command most recently" }
+    // Dropped when `run` ends, however it ends: resets the scroll region and moves the cursor below.
+    let pinned = if pinning { crate::pin::Guard::start(&tty_name) } else { None };
+    if pinning && shown == crate::welcome::Shown::Played {
+        crate::welcome::print_welcome(crate::welcome::Trigger::Tutor);
+    }
+    if pinned.is_none() {
+        println!(
+            "{}",
+            paint(
+                Role::Dim,
+                &format!(
+                    "huh tutor: following {tty_name}{} (Ctrl+C stops). It only reads.",
+                    if tty.is_some() { "" } else { ", the terminal that finished a command most recently" }
+                )
             )
-        )
-    );
+        );
+    }
     if tty.is_none() {
         let own = std::env::var_os("HUH_SESSION_LOG").map(PathBuf::from);
         let others: Vec<String> = recording_dir()
@@ -352,6 +362,11 @@ pub fn run(catalog: &[Command], quiet: bool, tty: Option<&str>, mode: Mode) -> R
     let mut follower = Follower::new(&log);
     let mut explained = quiet.then(HashSet::new);
     while !STOP.load(Ordering::Relaxed) {
+        if pinned.is_some()
+            && let Some(redraw) = crate::pin::on_resize()
+        {
+            emit(&redraw);
+        }
         if let Some(done) = follower.poll() {
             let text = block(catalog, &done, explained.as_mut());
             *lock(&last) = Some(done);
@@ -363,6 +378,7 @@ pub fn run(catalog: &[Command], quiet: bool, tty: Option<&str>, mode: Mode) -> R
         }
         std::thread::sleep(POLL);
     }
+    drop(pinned);
     Ok(())
 }
 
@@ -399,9 +415,12 @@ fn spawn_input(everything: Vec<Command>, mode: Mode, last: Arc<Mutex<Option<Fini
                 Reply::Find(words) => {
                     // Nothing else prints while the finder has the terminal.
                     let _guard = lock(&PRINT);
+                    // The pinned header's scroll region is off while the finder runs.
+                    print!("{}", crate::pin::suspend());
                     if let Err(error) = crate::find::run(&words, &everything) {
                         println!("huh find: {error:#}");
                     }
+                    print!("{}", crate::pin::resume());
                     print!("{}", paint(Role::Dim, PROMPT));
                     std::io::Write::flush(&mut std::io::stdout()).ok();
                 }

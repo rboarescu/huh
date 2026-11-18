@@ -279,20 +279,27 @@ Output is coloured by role (command lines, flags, WARNING labels, risk categorie
 
 | Theme | Colours |
 |---|---|
-| `auto` (default) | on Omarchy, the active theme's exact colours (a theme can put green in the "red" slot, so the slot numbers are not trusted); elsewhere, the terminal's own 16 ANSI colours |
+| `babyblue` (default) | truecolour, the same in every terminal: a baby-blue accent and logo (`#89CFF0`), a lighter blue for commands (`#3F97E4`) and a deeper blue for headers and flags (`#2F80D8`). Descriptions and body text keep the terminal's own colour. WARNING and the risk category are red (`#E5484D`) and orange (`#E8750E`), success and `Try:` green, hints and values lavender (`#8A74E0`), causes amber, so danger never looks like the accent. The blues are mid-tones that read on a black, a `#1e1e1e` and a white background; when `COLORFGBG` says the background is light (7 or 15), every colour switches to a deeper shade. Without 24-bit colour (`COLORTERM` not `truecolor`/`24bit` and `TERM` not containing `direct`) the colours become the nearest of the 256-colour codes, never the 16 ANSI slots |
+| `auto` | on Omarchy, the active theme's exact colours (a theme can put green in the "red" slot, so the slot numbers are not trusted); elsewhere, the terminal's own 16 ANSI colours |
 | `omarchy` | truecolour values read at run time from `~/.local/state/omarchy/current/theme/colors.toml` (accent, foreground, background, color1-color6); falls back to `auto` if the file is missing or unreadable |
 | `dark`, `light`, `nord`, `gruvbox`, `catppuccin` | built-in truecolour palettes (One Dark, One Light, Nord, Gruvbox, Catppuccin Mocha) |
 | `mono` | bold, dim and underline only |
 
-Run `huh themes` to see a sample of each. Choose one with `--theme NAME`, `HUH_THEME=NAME` or `theme = "nord"` in `~/.config/huh/config.toml` (flag, then environment, then file, then `auto`). An unknown name lists the valid ones.
+Run `huh themes` to see a sample of each. Choose one with `--theme NAME`, `HUH_THEME=NAME` or `theme = "nord"` in `~/.config/huh/config.toml` (flag, then environment, then file, then `babyblue`). To get the old look back, use `theme = "auto"` (the Omarchy theme's colours, else the terminal's 16 colours) or `theme = "omarchy"`. An unknown name lists the valid ones.
 
 Colour is off when output is not a terminal (pipes), with `--first-line-only` (the Alt+h key binding), when `NO_COLOR` is set (any value), when `TERM=dumb`, and with `--color never`. `--color always` forces it on. `huh tutor` writes to a terminal, so it is coloured.
 
 ## Welcome animation
 
-A small "huh" logo draws itself (under a second; any key skips it), followed by a five-line welcome with three example commands. It plays when `huh tutor` starts (also in the pane or window opened by `--side`), once the first time you run huh in a terminal (recorded in `$XDG_STATE_HOME/huh/welcomed`, default `~/.local/state/huh/welcomed`), and whenever you run `huh welcome`.
+A small "huh" logo, in the theme's accent colour (baby blue by default), draws itself (under a second; any key skips it), followed by a five-line welcome with three example commands. It plays when `huh tutor` starts (also in the pane or window opened by `--side`), once the first time you run huh in a terminal (recorded in `$XDG_STATE_HOME/huh/welcomed`, default `~/.local/state/huh/welcomed`), and whenever you run `huh welcome`.
 
 It never plays into a pipe or when input is not a terminal, with `--first-line-only`, in a terminal narrower than the art, with `TERM=dumb`, with `HUH_NO_ANIMATION=1`, or with `animation = false` in `~/.config/huh/config.toml`. To switch it off for good, set `animation = false`. To see it again after the first run, use `huh welcome` or delete the `welcomed` file.
+
+### Pinned header in the tutor pane
+
+When `huh tutor` runs in a terminal at least 15 rows tall (and wide enough for the logo), the animation plays first and then settles as a header that stays pinned at the top of the pane: the logo, its caption and one dim line, `following /dev/pts/N · huh> to ask · Ctrl+C quits`. Everything the tutor prints scrolls underneath it, and the `huh> ` prompt stays on the bottom row. It uses a terminal scroll region (`ESC[top;bottom r`), so the header is drawn once, not redrawn on every block. Resizing the pane redraws it for the new size (the region is dropped if the pane becomes shorter than 15 rows and comes back when it grows). While `/find` runs, the region is off, and it returns afterwards. On exit (Ctrl+C or an error) the region is reset and the cursor is left below everything.
+
+It is not used when output is not a terminal, in a terminal shorter than 15 rows or narrower than the logo, with `TERM=dumb`, with `HUH_NO_PIN=1`, or with `pin = false` in `~/.config/huh/config.toml`; the tutor then prints its usual one-line start message. The header clears the pane when the tutor starts. If the tutor is killed without a chance to clean up (`kill -9`, SIGTERM), run `reset` to get the terminal's scrolling back.
 
 ## Terminal recording and prompt completion
 
