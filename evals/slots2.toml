@@ -18,7 +18,7 @@ expect = "journalctl -f -u docker"
 [[case]]
 request = "journalctl errors from last boot"
 command = "journalctl"
-expect = "journalctl -b"
+expect = "journalctl -b -p err"
 
 [[case]]
 request = "follow logs for unit sshd"

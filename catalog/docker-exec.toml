@@ -1,6 +1,6 @@
 name = "docker exec"
 description = "Open a shell inside a Docker container that is already running"
-template = "docker exec -it {user} {container} sh"
+template = "docker exec -it {user} {container} {shell}"
 kind = "action"
 keywords = ["shell inside container", "bash in container", "enter running container", "run command in container"]
 
@@ -17,3 +17,9 @@ type = "user"
 what = "the user to run as inside the container (root, postgres)"
 default = ""
 format = "-u {}"
+
+[[slots]]
+id = "shell"
+kind = "text"
+what = "the shell or program to start inside the container (bash, zsh)"
+default = "sh"
