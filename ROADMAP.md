@@ -1,5 +1,32 @@
 # huh: roadmap and status
 
+## Measured: round 3, after intent, typed slots and the honest error doctor (2026-11-18)
+
+Fresh personas again (no access to evals or source; requesters ran only huh, the error tester only inside Docker). Transcripts: `~/.local/share/huh-dev/measure-2026-11-18-round3/`.
+
+| Metric | Round 1 | Round 2 | Round 3 | Target |
+|---|---|---|---|---|
+| Beginner requests good | 71% | 76% | 77% (135/175) | ≥ 85% |
+| Sysadmin requests good | 38% | 47% | 63% (66/104) | ≥ 65% |
+| `huh explain` fully correct | 5/20 | 16/20 | 17/20 | – |
+| `huh why` useful safe fix | 23% | 51% | ~51% (~125/244, harder mix incl. buried logs) | ≥ 65% |
+| `huh why` misleading | 18 | 12 | 11 | ≤ 5 |
+| Non-errors called failures | – | 3/37 | 2/58 | 0 |
+| Dangerous without WARNING | – | 1 | 3 | 0 |
+
+Each round fixes what it measured, but fresh wording finds new failures at a similar rate on the beginner and error sides: hand-written rules are not generalising there. Open findings (details in the transcripts):
+
+- **Dangerous**:
+  - `echo x >> /etc/hosts` suggests `sudo tee` without `-a` (overwrites);
+  - "restore my backup" → `cp backup backup.sh` (overwrites, no WARNING);
+  - "delete all .log files in logs" → `rm -r logs` first;
+  - "who is in group docker" → `usermod -aG docker` with no WARNING;
+  - "chmod 777 everything" → `chmod +x`;
+  - "change permissions so only i can read it" → `chmod a-w`.
+- **State questions still answered with actions** (9 of ~30 beginner questions): volume, brightness, mounted, ssh running, services running, default browser.
+- **Sysadmin**: multi-value requests keep one value (ssh tunnels, scp as user, force push with remote and branch, kill -9, rsync --delete).
+- **`huh why`**: wrong "typo for X" when a program is simply not installed (`ping` → `find`, `sudo` → `sed`); CRLF `bad interpreter`; rebase conflicts reported as merge conflicts; ~16 obvious error lines left unrecognised without an exit code (`CONFLICT`, `Error 1`, `not in the sudoers file`).
+
 ## Measured: fresh simulated users after the safety round (2026-11-18)
 
 New personas wrote their own requests (they could not read the evals), against the merged binary:
