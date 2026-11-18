@@ -4,6 +4,7 @@ template = "sed -i 's/{from}/{to}/g' {file}"
 kind = "action"
 destructive = true
 warning = "this edits the file in place; keep a copy first (sed -i.bak keeps one)."
+risk = "destroys data"
 keywords = ["replace text in file", "find and replace", "substitute text in a file", "change foo to bar in file", "search and replace in file", "replace all occurrences"]
 
 [[slots]]

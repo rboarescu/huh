@@ -3,6 +3,7 @@ description = "Add my user to a group, for example to use docker without sudo"
 template = "sudo usermod -aG {group} {user}"
 destructive = true
 warning = "this gives the user every right of that group; docker, wheel and sudo are root-equivalent. The user must log out and in again for it to apply."
+risk = "gives away access"
 kind = "action"
 opposites = ["who is in", "members of", "who belongs"]
 keywords = ["join group", "usermod", "docker group", "group permissions", "add myself to group", "without sudo"]

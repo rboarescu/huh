@@ -160,7 +160,7 @@ pub fn render(e: &Explanation) -> String {
             } else {
                 format!("`{part}` (in `{}`): ", flat(&w.context, 50))
             };
-            hanging(&mut out, 2, "! ", &format!("{head}{}", w.text));
+            hanging(&mut out, 2, "! ", &format!("[{}] {head}{}", w.risk.name(), w.text));
         }
     }
     if !e.notes.is_empty() {

@@ -319,8 +319,33 @@ fn format_answer(explanation: &str, try_cmd: &str) -> String {
     if try_cmd.trim().is_empty() || try_cmd.trim().eq_ignore_ascii_case("nothing") {
         explanation.to_string()
     } else {
-        format!("{explanation}\nTry: {try_cmd}")
+        format!("{explanation}\nTry: {try_cmd}{}", risk_notes(try_cmd))
     }
+}
+
+/// `\nNote (category): ...` lines for a `Try:` command that is itself risky, so the person knows
+/// what they are about to run. Uses the same analysis and categories as `huh explain`; plain
+/// package installs, `sudo` itself and long-running commands are left out, since the Try line is
+/// what the person asked to fix. At most two notes, one per category.
+fn risk_notes(try_cmd: &str) -> String {
+    use crate::risk_kinds::Risk;
+    let opts = crate::breakdown::Options { man: false, path: false };
+    let explained = crate::breakdown::explain_line(&[], try_cmd, opts);
+    let mut seen: Vec<Risk> = Vec::new();
+    let mut out = String::new();
+    for w in &explained.warnings {
+        if matches!(w.risk, Risk::HeadsUp | Risk::BigSystemChange | Risk::RunsUnreadCode) || seen.contains(&w.risk) {
+            continue;
+        }
+        seen.push(w.risk);
+        let mut chars = w.text.chars();
+        let text = chars.next().map(|c| c.to_uppercase().collect::<String>() + chars.as_str()).unwrap_or_default();
+        out.push_str(&format!("\nNote ({}): {text}", w.risk.name()));
+        if seen.len() == 2 {
+            break;
+        }
+    }
+    out
 }
 
 fn cmd_label(command: &str) -> String {
@@ -4782,6 +4807,22 @@ fn diagnose_round4(last: &Last) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A risky `Try:` command gets a `Note (category): ...` line with the same category
+    /// `huh explain` shows; harmless ones stay as they were.
+    #[test]
+    fn a_risky_try_line_names_its_category() {
+        let a = format_answer("The Docker socket is not reachable.", "sudo usermod -aG docker $USER");
+        assert!(a.contains("\nTry: sudo usermod -aG docker $USER\nNote (gives away access): "), "{a}");
+        let a = format_answer("Git does not trust this folder.", "git config --global --add safe.directory /srv/app");
+        assert!(a.contains("\nNote (weakens security): "), "{a}");
+        let a = format_answer("Not executable.", "chmod 777 run.sh");
+        assert!(a.contains("\nNote (gives away access): "), "{a}");
+        assert_eq!(suggested(&a), Some("chmod 777 run.sh"));
+        assert_eq!(format_answer("It broke.", "ls -la"), "It broke.\nTry: ls -la");
+        assert_eq!(format_answer("Missing.", "sudo pacman -S jq"), "Missing.\nTry: sudo pacman -S jq");
+        assert_eq!(format_answer("Hung.", "tail -f app.log"), "Hung.\nTry: tail -f app.log");
+    }
 
     #[test]
     fn finds_the_suggested_command() {

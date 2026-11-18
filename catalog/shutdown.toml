@@ -3,6 +3,7 @@ description = "Turn the computer off now or at a set time"
 template = "sudo shutdown -h {when}"
 destructive = true
 warning = "this powers the computer off: all programs are closed and unsaved work is lost."
+risk = "kills work"
 keywords = ["power off", "turn off computer", "shut down pc", "halt system", "power down", "shutdown now", "shut down in minutes", "schedule a shutdown", "power off at a set time"]
 
 [[slots]]

@@ -2,6 +2,9 @@ name = "ssh-copy-id"
 description = "Set up key login to another computer, so SSH stops asking for a password"
 template = "ssh-copy-id {host}"
 kind = "action"
+destructive = true
+warning = "this adds your public key to the other computer's authorized keys, so that key can log in there without a password."
+risk = "gives away access"
 keywords = ["passwordless ssh", "copy ssh key", "setup ssh key", "login without password", "ssh key auth"]
 
 [[slots]]

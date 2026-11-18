@@ -1,0 +1,15 @@
+name = "http server"
+description = "Serve the files of this folder to a web browser over http (a quick web server)"
+template = "python3 -m http.server {port}"
+kind = "action"
+destructive = true
+warning = "the folder and every file in it can be read by any computer that can reach this one, not just you. Add --bind 127.0.0.1 to keep it on this computer."
+risk = "exposes a service"
+keywords = ["serve this folder over http", "serve a folder", "start a simple web server", "quick web server", "http server for this directory", "share this folder over the network", "host files over http", "serve files in a browser", "python http server"]
+
+[[slots]]
+id = "port"
+kind = "text"
+what = "the port to listen on"
+default = "8000"
+extract = "port"

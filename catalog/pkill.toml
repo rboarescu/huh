@@ -3,6 +3,7 @@ description = "Stop a running program, given its name"
 template = "pkill {force} {owner} {name}"
 destructive = true
 warning = "this stops every matching program; unsaved work in them is lost."
+risk = "kills work"
 keywords = ["kill frozen app", "frozen program", "force close", "kill by name", "kill process by name", "stop frozen program", "end unresponsive program", "close stuck app", "force quit", "force quit app", "quit frozen program", "kill program"]
 
 [[flags]]

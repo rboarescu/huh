@@ -3,6 +3,7 @@ description = "Stop whatever program is using a network port"
 template = "fuser -k {port}/tcp"
 destructive = true
 warning = "this kills the program using the port; its unsaved work is lost."
+risk = "kills work"
 package = "psmisc"
 keywords = ["kill process on port", "free up port", "free a port", "stop the program using a port", "kill whatever is using port", "port already in use", "address already in use"]
 

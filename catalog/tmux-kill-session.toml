@@ -3,6 +3,7 @@ description = "End a tmux terminal session"
 template = "tmux kill-session -t {name}"
 destructive = true
 warning = "this ends the session and everything running in it."
+risk = "kills work"
 keywords = ["kill tmux session", "close tmux session", "end session"]
 
 [[slots]]

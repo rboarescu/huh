@@ -4,6 +4,7 @@ template = "find {where} -name {name} -type d {action}"
 kind = "action"
 destructive = true
 warning = "every folder with this name below the starting folder is deleted with everything inside it, and cannot be recovered."
+risk = "destroys data"
 keywords = ["delete all node_modules", "remove node_modules folders", "remove pycache directories", "delete folders by name recursively", "recursively delete directories named", "clean build folders"]
 
 [[slots]]

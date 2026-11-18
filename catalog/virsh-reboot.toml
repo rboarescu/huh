@@ -3,6 +3,7 @@ description = "Restart a virtual machine"
 template = "virsh reboot {vm}"
 destructive = true
 warning = "the virtual machine is restarted; unsaved work in it may be lost."
+risk = "kills work"
 package = "libvirt"
 keywords = ["restart vm", "reboot virtual machine"]
 

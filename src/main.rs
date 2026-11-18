@@ -16,6 +16,8 @@ mod platform;
 mod readers;
 mod render;
 mod risk;
+mod risk_extra;
+mod risk_kinds;
 mod session;
 mod shell;
 mod sysinfo;
@@ -440,7 +442,10 @@ fn print(outcome: &Outcome, catalog: &[Command], brief: bool) {
             }
         }
         if let Some(why) = &s.warning {
-            println!("   WARNING: {why}");
+            match s.risk {
+                Some(risk) => println!("   WARNING ({}): {why}", risk.name()),
+                None => println!("   WARNING: {why}"),
+            }
         }
         // Hiding a missing program would push a worse command to the top, so say it instead.
         if let Some(note) = catalog::missing_note(&s.line, catalog.iter().find(|c| c.name == s.command), &platforms) {

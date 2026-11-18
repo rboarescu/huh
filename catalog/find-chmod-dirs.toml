@@ -4,6 +4,7 @@ template = "find {where} -type d -exec chmod {mode} {} +"
 kind = "action"
 destructive = true
 warning = "this changes the permissions of every folder below the folder; on a system folder that can break the system."
+risk = "gives away access"
 keywords = ["chmod all directories in", "chmod all folders in", "permissions of all folders", "755 on all directories", "set mode on folders only", "directory permissions recursively"]
 
 [[slots]]

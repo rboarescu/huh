@@ -3,6 +3,7 @@ description = "Delete Docker images that nothing uses, such as dangling untagged
 template = "docker image prune {all} {until}"
 destructive = true
 warning = "unused images are deleted; they have to be pulled or rebuilt to use them again."
+risk = "destroys data"
 keywords = ["dangling images", "remove dangling docker images", "prune images", "clean unused images", "delete untagged images", "remove unused docker images"]
 
 [[flags]]

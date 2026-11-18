@@ -11,6 +11,7 @@
 
 use crate::catalog::{Command, Slot, SlotKind};
 use crate::matcher::{Details, SlotPick};
+use crate::risk_kinds::Risk;
 use anyhow::{Result, bail};
 use std::collections::BTreeMap;
 
@@ -33,6 +34,8 @@ pub struct Suggestion {
     pub destructive: bool,
     /// Why the line is dangerous; set exactly when `destructive` is.
     pub warning: Option<String>,
+    /// Which kind of danger the warning is about (see risk_kinds.rs); set exactly when `warning` is.
+    pub risk: Option<Risk>,
     pub notes: Vec<String>,
     pub parts: Vec<(String, String)>,
 }
@@ -62,7 +65,9 @@ pub fn build(
     let mut values: BTreeMap<&str, String> = BTreeMap::new();
     let mut notes = Vec::new();
     let mut parts = Vec::new();
-    let mut warning = command.destructive.then(|| command.warning.clone().unwrap_or_else(|| DEFAULT_WARNING.into()));
+    let mut warning: Option<(Risk, String)> = command.destructive.then(|| {
+        (command.risk.unwrap_or(Risk::DestroysData), command.warning.clone().unwrap_or_else(|| DEFAULT_WARNING.into()))
+    });
     for id in crate::catalog::FACTS {
         if let Some(value) = crate::catalog::fact(id) {
             values.insert(id, value);
@@ -83,7 +88,7 @@ pub fn build(
         };
         if add {
             if let Some(why) = &flag.warning {
-                warning.get_or_insert_with(|| why.clone());
+                warning.get_or_insert_with(|| (flag.risk.unwrap_or(Risk::DestroysData), why.clone()));
             }
             parts.push((flag.value.clone(), second_person_statement(&flag.question)));
         }
@@ -96,7 +101,7 @@ pub fn build(
                     bail!("no option {index} in slot `{}` of `{}`", slot.id, command.name);
                 };
                 if let Some(why) = &option.warning {
-                    warning.get_or_insert_with(|| why.clone());
+                    warning.get_or_insert_with(|| (option.risk.unwrap_or(Risk::DestroysData), why.clone()));
                 }
                 if !option.value.is_empty() {
                     parts.push((option.value.clone(), option.description.clone()));
@@ -106,13 +111,20 @@ pub fn build(
             // A value typed in the request for a choice slot ("chmod 755").
             (SlotKind::Choice, SlotPick::Value { value, .. }) => {
                 if let Some(why) = risky_mode_warning(&command.name, value) {
-                    warning.get_or_insert(why);
+                    warning.get_or_insert((Risk::GivesAwayAccess, why));
                 }
                 parts.push((value.clone(), format!("the mode you asked for: {}", describe_mode(value))));
                 value.clone()
             }
             (SlotKind::Path | SlotKind::Text, SlotPick::Value { .. } | SlotPick::Unnamed) => {
                 let (value, is_placeholder) = picked_value(slot, pick, &mut notes, decide);
+                if let Some(why) = &slot.warning
+                    && !is_placeholder
+                    && !value.is_empty()
+                    && (slot.warn_when.is_empty() || slot.warn_when.iter().any(|w| w.eq_ignore_ascii_case(&value)))
+                {
+                    warning.get_or_insert_with(|| (slot.risk.unwrap_or(Risk::DestroysData), why.clone()));
+                }
                 if !is_placeholder && !value.is_empty() {
                     parts.push((value.clone(), slot.what.clone().unwrap_or_default()));
                 }
@@ -139,7 +151,8 @@ pub fn build(
         probability,
         description: command.description.clone(),
         destructive: warning.is_some(),
-        warning,
+        risk: warning.as_ref().map(|w| w.0),
+        warning: warning.map(|w| w.1),
         notes,
         parts,
     }))

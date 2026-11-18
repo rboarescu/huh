@@ -3,6 +3,7 @@ description = "Load a kernel module (a driver)"
 template = "sudo modprobe {module}"
 destructive = true
 warning = "this changes the running kernel; the wrong module can destabilise the system."
+risk = "big system change"
 keywords = ["load kernel module", "load driver", "kernel driver", "insert module"]
 
 [[slots]]

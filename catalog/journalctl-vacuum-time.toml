@@ -4,6 +4,7 @@ template = "sudo journalctl --vacuum-time={days}"
 kind = "action"
 destructive = true
 warning = "journal entries older than this are deleted and cannot be recovered."
+risk = "hides tracks"
 keywords = ["clear journal older than", "vacuum the journal", "delete old journal logs", "trim journal by age", "clean old system logs", "journal vacuum time"]
 
 [[slots]]

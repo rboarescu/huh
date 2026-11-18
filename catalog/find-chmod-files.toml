@@ -4,6 +4,7 @@ template = "find {where} -type f -exec chmod {mode} {} +"
 kind = "action"
 destructive = true
 warning = "this changes the permissions of every file below the folder; on a system folder that can break the system."
+risk = "gives away access"
 keywords = ["chmod all files in", "permissions of all files", "set mode on files only", "chmod files recursively", "644 for all files", "make all files readable", "file permissions recursively"]
 
 [[slots]]

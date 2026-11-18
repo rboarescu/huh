@@ -1,0 +1,8 @@
+name = "history clear"
+description = "Erase the list of commands I typed earlier (the shell history)"
+template = "history -c && history -w"
+kind = "action"
+destructive = true
+warning = "this erases the record of the commands you ran, in this session and in the history file; nothing shows afterwards what was done."
+risk = "hides tracks"
+keywords = ["clear history", "clear my command history", "delete shell history", "erase command history", "wipe my history", "forget the commands i typed", "remove my bash history"]

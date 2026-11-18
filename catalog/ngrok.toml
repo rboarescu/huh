@@ -1,0 +1,15 @@
+name = "ngrok"
+description = "Make a port of this computer reachable from the internet through a public tunnel"
+template = "ngrok http {port}"
+kind = "action"
+destructive = true
+warning = "anyone who gets the public address can reach whatever listens on that port, from anywhere. Close the tunnel when you are done."
+risk = "exposes a service"
+keywords = ["expose localhost to the internet", "public url for my local server", "share my local server with the internet", "tunnel my local port to the internet", "ngrok", "make my dev server public", "publish a local port on the internet"]
+
+[[slots]]
+id = "port"
+kind = "text"
+what = "the port of this computer to make public"
+default = "8080"
+extract = "port"
