@@ -1,6 +1,6 @@
 name = "dig"
 description = "Look up the DNS records of a domain name"
-template = "dig {name} {type}"
+template = "dig {name} {type} {server}"
 keywords = ["dns lookup", "dig mx", "look up dns records", "resolve a domain", "mx records", "nameserver lookup", "txt record", "domain records", "what ip does a domain have", "query dns"]
 
 [[slots]]
@@ -33,3 +33,10 @@ description = "Text records (TXT)"
 name = "nameservers"
 value = "NS"
 description = "Name servers (NS records)"
+
+[[slots]]
+id = "server"
+kind = "text"
+what = "the DNS server to ask (for example 8.8.8.8)"
+default = ""
+extract = "dns_server"

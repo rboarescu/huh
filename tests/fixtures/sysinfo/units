@@ -1,0 +1,15 @@
+# One unit file name per line, as found in the systemd unit folders.
+sshd.service
+docker.service
+nginx.service
+postgresql.service
+cronie.service
+NetworkManager.service
+bluetooth.service
+cups.service
+redis.service
+tailscaled.service
+apache2.service
+fail2ban.service
+getty@.service
+sshd.socket

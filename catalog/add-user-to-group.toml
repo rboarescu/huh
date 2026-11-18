@@ -6,10 +6,12 @@ keywords = ["join group", "usermod", "docker group", "group permissions", "add m
 [[slots]]
 id = "group"
 kind = "text"
+type = "group"
 what = "the group to join"
 
 [[slots]]
 id = "user"
 kind = "text"
+type = "user"
 what = "the user to add (you, when the request names nobody)"
 default = "$USER"

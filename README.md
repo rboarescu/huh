@@ -99,6 +99,7 @@ A local deterministic matcher (`LocalMatcher`) ranks the catalog (`rank`) and sc
 
 1. **Command matching**: Multi-field BM25F over command names, plain-language descriptions, curated `keywords`, flags, slots, and template literals, paired with stem/synonym normalization, domain-coherence fit checks, and an `installed()` tie-breaker.
 2. **Slot & flag assembly**: Extracts candidate tokens, quoted phrases, multi-word capitalized names, number words (`third` -> `3`), bare extensions (`.rs` -> `*.rs`), size expressions (`50MB` -> `50M`), and non-hidden entries in the current folder, then fills the template and attaches a part-by-part explanation for the top suggestion.
+   **System files read for values** (read-only, `src/sysinfo.rs`; huh never runs a program to learn them): `/etc/passwd` (user names), `/etc/group` (group names), `/etc/shells` (login shells; "bash" becomes `/bin/bash`), and the `*.service` files in `/usr/lib/systemd/system`, `/etc/systemd/system`, `~/.config/systemd/user` and `/usr/lib/systemd/user` (service names). A catalog slot opts in with `type = "service" | "user" | "group" | "shell" | "container" | "package"`. Containers and packages have no list (asking Docker would mean running it), so only a label ("container db") marks them. Label words ("group docker", "unit sshd", "user bob", "service web", "port 8080", "branch main") mark the value next to them and are never values themselves; words after "excluding", "except", "without" or "but not" are only ever exclusions. Set `HUH_SYSINFO_DIR=<folder>` (files `passwd`, `group`, `shells`, `units`) to read a different set of files; the evals and `cargo test` always use `tests/fixtures/sysinfo`, never the real machine.
 3. **Reverse command explainer (`huh explain`)**: A bash-subset parser (`src/shell.rs`) builds a tree of the command line, then every part is explained per program, with warnings. Details in "Explain a shell command" below.
 4. **Deterministic Error Doctor (`huh why`)**: Combines exit code meanings, live machine checks (`$PATH` typo scan with Damerau-Levenshtein distance, `metadata()` executable check, `/etc/group`, `/var/lib/pacman/db.lck`, `/var/run/docker.sock`, `$PWD` typo scan, platform and package manager detection from `src/platform.rs`), and structured error rules.
 
@@ -303,6 +304,7 @@ nmcli = { mylinux = "nm-cli" }         # package name where it differs (omit a f
 | `src/main.rs` | CLI (`huh`), request pipeline (`suggest`), `explain` & `why` entry points, output formatting |
 | `src/matcher.rs` | `LocalMatcher`: BM25F index, stems/concepts; `rank` orders the catalog, `details` scores fit, flags and slot values |
 | `src/candidates.rs` | Request token/phrase/size/extension extraction and `$PWD` entries |
+| `src/sysinfo.rs` | Read-only user, group, shell and service-unit lists for typed slots (fixture: `tests/fixtures/sysinfo`) |
 | `src/assemble.rs` | Decision thresholds, shortlisting, slot filling, shell quoting, and suggestion `parts` |
 | `src/platform.rs` | System detection (os-release, then package manager on PATH), package managers and names, PATH lookup |
 | `data/platforms.toml` | Package manager commands and per-family package names (embedded; `~/.config/huh/platforms.toml` extends it) |
@@ -329,6 +331,7 @@ Measured with `cargo run --release` on 2026-11-17 (217 catalog entries):
 | `evals/cases.toml` | 238 | 229/229 (100%) | 229/229 (100%) | 224/224 (100%) | 9/9 (100%) | 0 ms |
 | `evals/heldout.toml` | 138 | 133/133 (100%) | 133/133 (100%) | 128/128 (100%) | 5/5 (100%) | 0 ms |
 | `evals/safety.toml` | 110 | 100% | 100% | 100% | 100% | 0 ms |
+| `evals/slots.toml`, `evals/slots2.toml` | 52 + 51 | slot values: 100% exact line | | | | 0 ms |
 | `evals/debian.toml` (`--platform debian`) | 5 | 4/4 (100%) | 4/4 (100%) | 4/4 (100%) | 1/1 (100%) | 0 ms |
 
 Error Doctor (`eval-errors`, release build):

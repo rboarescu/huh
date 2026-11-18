@@ -8,4 +8,5 @@ keywords = ["stop container", "halt running container", "shut down container"]
 [[slots]]
 id = "container"
 kind = "text"
+type = "container"
 what = "the container to stop"

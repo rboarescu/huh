@@ -1892,9 +1892,20 @@ fn score_flag(cmd_name: &str, flag: &Flag, terms: &HashMap<String, f64>, q: &Que
         ("grep", "line_numbers") => {
             Some(has(&["line number", "line numbers", "which line", "what line", "tell me which line", "-n"]))
         }
-        ("journalctl", "boot") => {
-            Some(has(&["this boot", "current boot", "since boot", "last started", "since startup", "-b"]))
-        }
+        ("journalctl", "boot") => Some(has(&[
+            "this boot",
+            "current boot",
+            "since boot",
+            "last started",
+            "since startup",
+            "last boot",
+            "previous boot",
+            "from boot",
+            "-b",
+        ])),
+        ("git stash", "untracked") => Some(has(&["untracked", "new files", "not tracked", "-u"])),
+        ("sort", "unique") => Some(has(&["dedupe", "dedup", "unique", "duplicate", "duplicates", "distinct", "-u"])),
+        ("curl", "resume") => Some(has(&["resume", "continue", "partial", "unfinished", "interrupted", "-c"])),
         ("kill" | "pkill", "force") => Some(has(&[
             "force",
             "frozen",
@@ -2119,6 +2130,8 @@ enum SlotRole {
     PingCount,
     TarOutDir,
     TarExclude,
+    TarMember,
+    ShellName,
     SinceTime,
     UserName,
     SourcePath,
@@ -2167,7 +2180,14 @@ enum SlotRole {
 }
 
 fn infer_slot_role(cmd_name: &str, slot_id: &str, kind: SlotKind) -> SlotRole {
+    // `find delete` reads its folder and name pattern the way `find` does.
+    let cmd_name = if cmd_name == "find delete" { "find" } else { cmd_name };
     match (cmd_name, slot_id) {
+        ("tar", "member") => SlotRole::TarMember,
+        ("useradd", "shell") => SlotRole::ShellName,
+        ("useradd" | "pkill" | "docker exec", "user" | "owner") => SlotRole::UserName,
+        ("docker logs", "lines") => SlotRole::LineCount,
+        (_, "exclude") => SlotRole::TarExclude,
         ("cp" | "mv" | "scp" | "rsync", "source") => SlotRole::SourcePath,
         ("cp" | "mv" | "scp" | "rsync", "dest") => SlotRole::DestPath,
         ("ln", "source") => SlotRole::LinkTarget,
@@ -2186,8 +2206,7 @@ fn infer_slot_role(cmd_name: &str, slot_id: &str, kind: SlotKind) -> SlotRole {
         ("ssh", "user") => SlotRole::SshUser,
         (_, "port") => SlotRole::PortNumber,
         ("ping", "count") => SlotRole::PingCount,
-        ("tar", "outdir") => SlotRole::TarOutDir,
-        ("tar", "exclude") => SlotRole::TarExclude,
+        ("tar" | "unzip", "outdir") => SlotRole::TarOutDir,
         ("journalctl", "since") => SlotRole::SinceTime,
         ("add user to group", "user") => SlotRole::UserName,
         ("cut", "field") => SlotRole::FieldNumber,
@@ -2384,6 +2403,45 @@ fn looks_like_service_name(word: &str) -> bool {
             && word.ends_with('d')
             && !["ed", "ld", "nd", "rd"].iter().any(|end| word.ends_with(end))
             && word.chars().all(|c| c.is_ascii_lowercase()))
+}
+
+/// Words that say the next value is to be left out.
+const EXCLUSION_WORDS: &[&str] =
+    &["excluding", "exclude", "except", "without", "skipping", "ignoring", "omitting", "minus"];
+
+/// Whether the request names `cand` right after an exclusion word ("excluding node_modules",
+/// "but not .git", "other than logs").
+fn is_excluded_value(cand: &str, q: &QueryContext<'_>) -> bool {
+    let Some(token) = find_raw_token(cand, q) else { return false };
+    // "ignoring case" is a way of searching, not something to leave out.
+    if matches!(
+        token.lower.as_str(),
+        "case" | "capitalization" | "capitalisation" | "whitespace" | "errors" | "warnings"
+    ) {
+        return false;
+    }
+    if EXCLUSION_WORDS.contains(&token.prev_word.as_str()) {
+        return true;
+    }
+    let earlier = |back: usize| {
+        token
+            .word_pos
+            .checked_sub(back)
+            .and_then(|pos| q.raw_tokens.iter().find(|t| t.word_pos == pos))
+            .map(|t| t.lower.as_str())
+    };
+    (token.prev_word == "not" && earlier(2) == Some("but"))
+        || (token.prev_word == "than" && earlier(2) == Some("other"))
+}
+
+/// Files that hold no searchable text, by extension.
+fn is_binary_name(name: &str) -> bool {
+    const BINARY: &[&str] = &[
+        "xlsx", "xls", "docx", "doc", "pptx", "ppt", "odt", "ods", "odp", "pdf", "zip", "gz", "tgz", "bz2", "xz", "7z",
+        "rar", "tar", "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "heic", "mp3", "mp4", "mkv", "avi", "mov",
+        "wav", "flac", "ogg", "webm", "iso", "img", "exe", "bin", "so", "o", "db", "sqlite", "epub",
+    ];
+    name.rsplit_once('.').is_some_and(|(stem, ext)| !stem.is_empty() && BINARY.contains(&ext.to_lowercase().as_str()))
 }
 
 fn is_digits(s: &str) -> bool {
@@ -2859,13 +2917,14 @@ fn bind_slots(
 
     let tar_skip_inputs = cmd_name == "tar" && choice_picks.get("action").is_some_and(|a| a != "create");
     let tar_extracts = cmd_name == "tar" && choice_picks.get("action").is_some_and(|a| a == "extract");
+    let typed = TypedValues::new(cmd, q);
 
     let mut slot_candidates: Vec<(String, Vec<(String, f64)>)> = Vec::new();
     let to_split_pos = find_preposition_pos(q, &["to", "into", "as"]);
 
     for (slot_id, kind) in &ordered_slots {
         if (tar_skip_inputs && matches!(slot_id.as_str(), "inputs" | "exclude"))
-            || (!tar_extracts && slot_id == "outdir")
+            || (cmd_name == "tar" && !tar_extracts && matches!(slot_id.as_str(), "outdir" | "member"))
         {
             slot_candidates.push((slot_id.clone(), vec![]));
             continue;
@@ -2876,6 +2935,7 @@ fn bind_slots(
         for &cand in &slot_picks[slot_id] {
             let entry = if *kind == SlotKind::Path { candidates.entry_kind(cand) } else { EntryKind::NotEntry };
             let s = score_candidate_for_role(cmd_name, cand, role, *kind, entry, to_split_pos, q);
+            let s = typed.adjust(s, cand, slot_id, role, q);
             // Unpacking: the archive is the file with an archive name; "to /opt/app" is the folder.
             if tar_extracts && role == SlotRole::ArchiveFile && s < 9.0 {
                 continue;
@@ -2921,11 +2981,264 @@ fn bind_slots(
     result
 }
 
+/// A label in the request: "group docker" says `docker` is a group. The label word marks the value
+/// beside it and is never a value itself.
+#[derive(Debug, Clone)]
+struct Label {
+    kind: &'static str,
+    label_pos: usize,
+    value_pos: usize,
+}
+
+fn label_kind(word: &str) -> Option<&'static str> {
+    match word {
+        "group" => Some("group"),
+        "unit" | "service" | "daemon" => Some("service"),
+        "user" | "username" => Some("user"),
+        "container" => Some("container"),
+        "port" => Some("port"),
+        "branch" => Some("branch"),
+        "shell" => Some("shell"),
+        _ => None,
+    }
+}
+
+/// Whether `word` can be the thing a label names (not a filler, verb or another label).
+fn can_be_labelled(word: &str) -> bool {
+    const SKIP: &[&str] = &[
+        "since",
+        "until",
+        "after",
+        "before",
+        "status",
+        "running",
+        "logs",
+        "log",
+        "journal",
+        "check",
+        "display",
+        "view",
+        "tell",
+        "give",
+        "find",
+        "kill",
+        "reload",
+        "enable",
+        "disable",
+        "errors",
+        "error",
+        "older",
+        "newer",
+        "recursively",
+        "called",
+        "named",
+        "name",
+        "names",
+        "details",
+        "info",
+        "all",
+        "every",
+        "any",
+        "up",
+        "down",
+        "on",
+        "off",
+        "not",
+        "failed",
+        "crashed",
+        "stopped",
+        "started",
+        "again",
+        "permissions",
+        "access",
+        "rights",
+        "membership",
+        "members",
+        "owner",
+        "owned",
+        "that",
+        "dir",
+        "home",
+        "directory",
+        "with",
+        "without",
+        "owns",
+        "inside",
+        "into",
+        "onto",
+        "under",
+        "within",
+        "through",
+        "over",
+        "about",
+        "around",
+        "near",
+        "between",
+        "via",
+        "using",
+        "per",
+        "make",
+        "list",
+        "show",
+        "get",
+        "set",
+        "add",
+        "remove",
+        "delete",
+        "erase",
+        "start",
+        "restart",
+        "stop",
+        "follow",
+        "watch",
+        "close",
+        "run",
+        "open",
+        "read",
+        "write",
+        "connect",
+        "launch",
+        "create",
+        "new",
+        "my",
+        "your",
+        "other",
+        "same",
+    ];
+    !word.is_empty() && !STOPWORDS.contains(&word) && !SKIP.contains(&word) && label_kind(word).is_none()
+}
+
+/// The labels the request writes: the value is the word after the label ("group docker"), or when
+/// that is no value, the word before it ("docker group", "bash shell").
+fn find_labels(q: &QueryContext<'_>) -> Vec<Label> {
+    let mut seq: Vec<&RawToken> = Vec::new();
+    for rt in &q.raw_tokens {
+        if seq.last().is_none_or(|prev| prev.word_pos != rt.word_pos) {
+            seq.push(rt);
+        }
+    }
+    let mut out: Vec<Label> = Vec::new();
+    for (i, rt) in seq.iter().enumerate() {
+        let Some(kind) = (!rt.quoted).then(|| label_kind(&rt.lower)).flatten() else { continue };
+        let taken = |pos: usize, out: &[Label]| out.iter().any(|l| l.value_pos == pos || l.label_pos == pos);
+        // After the label, past "the", "a" and "called".
+        let mut j = i + 1;
+        while seq.get(j).is_some_and(|n| matches!(n.lower.as_str(), "the" | "a" | "an" | "called" | "named")) {
+            j += 1;
+        }
+        let after = seq.get(j).filter(|n| (n.quoted || can_be_labelled(&n.lower)) && !taken(n.word_pos, &out));
+        // Before the label, past "the" and "a".
+        let mut k = i;
+        let mut before = None;
+        while k > 0 {
+            k -= 1;
+            if matches!(seq[k].lower.as_str(), "the" | "a" | "an" | "my") {
+                continue;
+            }
+            before = Some(seq[k]).filter(|n| can_be_labelled(&n.lower) && !taken(n.word_pos, &out));
+            break;
+        }
+        // "user", "port" and "branch" lead into their value; "docker service", "bash shell" and
+        // "docker group" put it first. A word after the label wins when both are possible.
+        let trailing = matches!(kind, "service" | "group" | "shell" | "container");
+        let found = if trailing { after.copied().or(before) } else { after.copied() };
+        if let Some(value) = found {
+            out.push(Label { kind, label_pos: rt.word_pos, value_pos: value.word_pos });
+        }
+    }
+    out
+}
+
+/// What kind of name a role takes, for slots whose catalog entry has no `type`.
+fn role_type(role: SlotRole) -> Option<&'static str> {
+    match role {
+        SlotRole::ServiceUnit => Some("service"),
+        SlotRole::UserName | SlotRole::OwnerUser | SlotRole::SshUser => Some("user"),
+        SlotRole::GroupName => Some("group"),
+        SlotRole::ShellName => Some("shell"),
+        SlotRole::ContainerOrImage => Some("container"),
+        SlotRole::BranchName => Some("branch"),
+        SlotRole::PortNumber => Some("port"),
+        _ => None,
+    }
+}
+
+/// Labels and system names, used to tell which word fills a typed slot.
+struct TypedValues {
+    labels: Vec<Label>,
+    /// Slot id to its declared `type`.
+    declared: HashMap<String, String>,
+    facts: Option<std::rc::Rc<crate::sysinfo::Facts>>,
+    /// The program the command runs: its own name is never a name to act on.
+    program: String,
+}
+
+impl TypedValues {
+    fn new(cmd: &Command, q: &QueryContext<'_>) -> Self {
+        let declared: HashMap<String, String> =
+            cmd.slots.iter().filter_map(|s| s.value_type.clone().map(|t| (s.id.clone(), t))).collect();
+        let facts = declared.values().any(|t| crate::sysinfo::has_list(t)).then(crate::sysinfo::facts);
+        Self { labels: find_labels(q), declared, facts, program: cmd.program().to_lowercase() }
+    }
+
+    /// Rescores `cand` for a slot: a label word is never a value, a labelled value goes to the slot
+    /// of its kind only, and a typed slot checks names against what the system lists.
+    fn adjust(&self, score: f64, cand: &str, slot_id: &str, role: SlotRole, q: &QueryContext<'_>) -> f64 {
+        if self.labels.is_empty() && self.facts.is_none() {
+            return score;
+        }
+        let declared = self.declared.get(slot_id).map(String::as_str);
+        let slot_type = declared.or_else(|| role_type(role));
+        let label_word_at = |pos: usize| self.labels.iter().any(|l| l.label_pos == pos);
+        let Some(token) = find_raw_token(cand, q) else {
+            // A phrase that swallowed a label ("group docker") is not a value.
+            let swallowed = cand.contains(' ')
+                && cand
+                    .split_whitespace()
+                    .any(|w| q.raw_tokens.iter().any(|t| t.lower == w.to_lowercase() && label_word_at(t.word_pos)));
+            return if swallowed { 0.0 } else { score };
+        };
+        if label_word_at(token.word_pos) {
+            return 0.0;
+        }
+        if let Some(label) = self.labels.iter().find(|l| l.value_pos == token.word_pos) {
+            return if slot_type == Some(label.kind) { 9.9 } else { 0.0 };
+        }
+        let Some(slot_type) = slot_type else { return score };
+        if matches!(slot_type, "service" | "user" | "group") && cand.eq_ignore_ascii_case(&self.program) {
+            return 0.0;
+        }
+        if self.labels.iter().any(|l| l.kind == slot_type) {
+            // The request labels this slot's value; no other word is it.
+            return 0.0;
+        }
+        let Some(facts) = self.facts.as_ref().filter(|_| declared.is_some_and(crate::sysinfo::has_list)) else {
+            return score;
+        };
+        let lower = cand.to_lowercase();
+        if facts.knows(slot_type, cand) {
+            return if is_non_value_english_word(&lower) || is_digits(cand) { score } else { score.max(8.8) };
+        }
+        // The name of a login shell is not a user, a service or a group.
+        if slot_type != "shell" && facts.knows("shell", cand) {
+            return 0.0;
+        }
+        match slot_type {
+            "shell" => 0.0,
+            "service" if score < 8.5 && !looks_like_service_name(&lower) => 0.0,
+            "user" | "group" if score < 8.5 => score.min(3.0),
+            _ => score,
+        }
+    }
+}
+
 /// The text that goes into the line for a picked value: a folder that receives a copy ends in `/`,
 /// and a bare name to look for ("a file named notes") becomes a pattern that also finds `notes.txt`.
 fn shape_value(role: SlotRole, cand: &str, candidates: &Candidates, q: &QueryContext<'_>) -> String {
     match role {
         SlotRole::DestPath if candidates.entry_kind(cand) == EntryKind::Dir => format!("{cand}/"),
+        // "bash" is written as the path /etc/shells lists for it.
+        SlotRole::ShellName => crate::sysinfo::facts().shell_path(cand).unwrap_or_else(|| cand.to_string()),
         SlotRole::NamePattern
             if cand.chars().all(|c| c.is_alphabetic())
                 && find_raw_token(cand, q)
@@ -3037,6 +3350,18 @@ fn score_candidate_for_role(
     to_split_pos: Option<usize>,
     q: &QueryContext<'_>,
 ) -> f64 {
+    // "excluding node_modules": the value named after an exclusion word is never a destination or target.
+    if role != SlotRole::TarExclude && is_excluded_value(cand, q) {
+        return 0.0;
+    }
+    // "-9" in "kill -9 java" is an option of the command, not a name.
+    if cand.starts_with('-') && !matches!(role, SlotRole::DaysNumber | SlotRole::PidNumber | SlotRole::LineCount) {
+        return 0.0;
+    }
+    // A spreadsheet or picture is not searched for text unless the request names that file.
+    if matches!(role, SlotRole::SearchWhere) && is_binary_name(cand) && !q.raw_tokens.iter().any(|t| t.text == cand) {
+        return 0.0;
+    }
     let mut score = score_by_role(cmd_name, cand, role, kind, entry, to_split_pos, q);
     if score <= 0.0 || entry == EntryKind::NotEntry {
         return score;
@@ -3141,6 +3466,7 @@ fn score_by_role(
     match role {
         SlotRole::SshUser | SlotRole::UserName => {
             let cue = matches!(prev, "as" | "user" | "username" | "login" | "account")
+                || (role == SlotRole::UserName && matches!(prev, "called" | "named" | "by" | "owner"))
                 || (role == SlotRole::UserName && prev == "add" && next != "group");
             if cue && !is_path && !is_digits(cand) && !is_non_value_english_word(&lower) { 9.0 } else { 0.0 }
         }
@@ -3153,8 +3479,17 @@ fn score_by_role(
         SlotRole::TarOutDir => {
             if matches!(prev, "to" | "into" | "in") && (is_path || is_named_dir_or_file) && !is_digits(cand) { 9.0 } else { 0.0 }
         }
+        SlotRole::ShellName => 0.0,
+        SlotRole::TarMember => {
+            let archive = lower.ends_with(".tar.gz") || lower.ends_with(".tgz") || lower.ends_with(".tar") || lower.ends_with(".zip");
+            if !archive && is_path && !is_digits(cand) && (matches!(next, "from" | "out" | "inside" | "in") || matches!(prev, "only" | "just" | "member" | "extract" | "unpack")) {
+                9.0
+            } else {
+                0.0
+            }
+        }
         SlotRole::TarExclude => {
-            if matches!(prev, "excluding" | "exclude" | "except" | "without" | "skipping" | "ignoring") && !is_digits(cand) { 9.0 } else { 0.0 }
+            if is_excluded_value(cand, q) && !is_digits(cand) { 9.0 } else { 0.0 }
         }
         SlotRole::SinceTime => {
             if prev != "since" || (is_digits(cand) && !is_multi_phrase) { 0.0 } else if is_multi_phrase { 9.5 } else { 9.0 }
@@ -3187,7 +3522,7 @@ fn score_by_role(
             }
         }
         SlotRole::LineCount => {
-            if is_digits(cand) && (matches!(next, "line" | "lines" | "log" | "most") || matches!(prev, "first" | "last" | "top" | "bottom")) {
+            if is_digits(cand) && (matches!(next, "line" | "lines" | "log" | "most") || matches!(prev, "first" | "last" | "top" | "bottom" | "--tail" | "tail")) {
                 9.5
             } else {
                 0.0
@@ -3320,7 +3655,10 @@ fn score_by_role(
         SlotRole::Pattern => {
             if quoted {
                 9.5
-            } else if matches!(prev, "for" | "mention" | "containing" | "contain" | "matching" | "word" | "with") && !is_path {
+            } else if (matches!(prev, "for" | "mention" | "containing" | "contain" | "matching" | "word" | "with")
+                || (prev.starts_with('-') && prev.len() > 1 && cmd_name == "grep"))
+                && !is_path
+            {
                 9.0
             } else if !is_path && !is_digits(cand) && !is_non_value_english_word(&lower) {
                 bare_word(&lower, 4.0)
@@ -3734,6 +4072,60 @@ mod tests {
         let misses: Vec<&String> = report.lines.iter().filter(|line| line.starts_with("MISS")).collect();
         assert!(report.exact.total >= 40, "slots.toml should hold the slot-filling cases");
         assert!(misses.is_empty(), "{misses:#?}");
+    }
+
+    fn labels_of(request: &str) -> Vec<(String, String)> {
+        let norm = normalize_text(request);
+        let words = raw_lower_words(&norm);
+        let terms = extract_weighted_terms(request);
+        let q = QueryContext::new(request, &norm, &words, &terms);
+        find_labels(&q)
+            .into_iter()
+            .map(|l| {
+                let value = q.raw_tokens.iter().find(|t| t.word_pos == l.value_pos).unwrap().text.clone();
+                (l.kind.to_string(), value)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn labels_mark_the_value_beside_them() {
+        let pair = |k: &str, v: &str| (k.to_string(), v.to_string());
+        assert_eq!(labels_of("add bob to group docker"), vec![pair("group", "docker")]);
+        assert_eq!(labels_of("follow journal for unit sshd"), vec![pair("service", "sshd")]);
+        assert_eq!(labels_of("restart the nginx service"), vec![pair("service", "nginx")]);
+        assert_eq!(labels_of("show logs for the docker service since yesterday"), vec![pair("service", "docker")]);
+        assert_eq!(labels_of("create user carol with zsh shell"), vec![pair("user", "carol"), pair("shell", "zsh")]);
+        assert_eq!(labels_of("switch to branch main"), vec![pair("branch", "main")]);
+        // No value beside the label: nothing is labelled.
+        assert!(labels_of("show service status").is_empty());
+        assert!(labels_of("get a shell inside the box").is_empty());
+    }
+
+    #[test]
+    fn exclusion_words_mark_the_next_value() {
+        let request = "grep TODO in src excluding node_modules but not tests";
+        let norm = normalize_text(request);
+        let words = raw_lower_words(&norm);
+        let terms = extract_weighted_terms(request);
+        let q = QueryContext::new(request, &norm, &words, &terms);
+        assert!(is_excluded_value("node_modules", &q));
+        assert!(!is_excluded_value("src", &q));
+        assert!(is_binary_name("budget.xlsx") && !is_binary_name("notes.txt") && !is_binary_name(".xlsx"));
+    }
+
+    /// Round-2 slot filling (evals/slots2.toml): labelled words, exclusions, system names, no silent drops.
+    #[test]
+    fn slot_filling_round_two_cases_all_pass() {
+        let all = load_catalog();
+        let platform = vec!["arch".to_string(), "omarchy".to_string()];
+        let matcher = LocalMatcher::new(&catalog::usable(all, &platform, false));
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals/slots2.toml");
+        let report = eval::score_for(&matcher, &file, &platform).unwrap();
+        let misses: Vec<&String> = report.lines.iter().filter(|line| line.starts_with("MISS")).collect();
+        println!("slots2: {} of {} exact lines", report.exact.hit, report.exact.total);
+        assert!(report.exact.total >= 50, "slots2.toml should hold the round-2 cases");
+        assert!(misses.is_empty(), "{} misses: {misses:#?}", misses.len());
     }
 
     /// Safety evals (evals/safety.toml): every case must pass, including the WARNING expectations.

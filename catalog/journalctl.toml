@@ -16,6 +16,7 @@ question = "Does the user want to keep watching for new messages as they appear?
 [[slots]]
 id = "unit"
 kind = "text"
+type = "service"
 what = "the service whose log to read"
 default = ""
 format = "-u {}"

@@ -1,9 +1,16 @@
 name = "unzip"
 description = "Unpack a .zip archive"
-template = "unzip {archive}"
+template = "unzip {archive} {outdir}"
 keywords = ["extract zip", "unpack zip", "open zip file", "decompress zip"]
 
 [[slots]]
 id = "archive"
 kind = "path"
 what = "the .zip file to unpack"
+
+[[slots]]
+id = "outdir"
+kind = "path"
+what = "the folder to unpack into"
+default = ""
+format = "-d {}"

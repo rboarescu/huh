@@ -43,7 +43,7 @@ Known limits: stdout and stderr arrive mixed in the terminal, so the tutor goes 
    - JSON decode errors point at the library frame instead of the user's code.
    - About 15 real failures are called "not an error" (`git commit` with nothing staged, `make nosuchtarget`, `sed` syntax errors, …). When unsure, huh should say it does not recognise the output rather than "not an error".
 2. **`huh why` coverage**: about 40% of real failures still get only the restated error line. These include curl exit 7/28, git push rejections and missing remotes, the missing dev library or header (`-lssl`, `ssl.h`), cargo/rustc/gcc errors, node errors, jq/awk syntax, and `mkdir`/`rm` on folders.
-3. **Requests: wrong noun in a slot** (`journalctl -u unit`, `usermod -aG 'group docker'`, `useradd -m bash`, ".log" taken as the folder), and modifiers still dropped with no note (`-d` for unzip, `--tail` for docker logs, `-u` for docker exec, stash `-u`, `@server` for dig, `-C -` for curl).
+3. ~~**Requests: wrong noun in a slot**~~ done 2026-11-18, see "Completed: Slot filling, round 2".
 4. **Requests: state questions answered with actions** ("is vlc installed" → install, "what wifi am i connected to" → connect, "put the computer to sleep" → stay awake, "connect bluetooth headphones" → power off), values as targets ("set volume to 50%"), and stray words accepting off-topic requests ("order a pizza" → `sort`). Needs a minimum-evidence floor for `<placeholder>`-only suggestions.
 5. **Catalog gaps seen repeatedly** (also "unmount drive" → `lsblk` at 29%; should be `udisksctl unmount -b <device>` / `umount`):
    - packages: package cache clean, list installed, is X installed;
@@ -52,6 +52,17 @@ Known limits: stdout and stderr arrive mixed in the terminal, so the tutor goes 
    - git: git branch -d, rebase;
    - docker: docker build, docker rm;
    - others: ssh -L, curl -X POST, wl-copy, set volume or brightness to a value.
+
+## Completed: Slot filling, round 2 (2026-11-18)
+
+- **Evals**: `evals/slots2.toml` (51 cases: the measured failures plus variants); 37 of the first 50 failed before, all pass now and `cargo test` requires 100%. Nothing in it depends on the machine: users, groups, shells and services come from `tests/fixtures/sysinfo` (`HUH_SYSINFO_DIR` overrides the real files for manual runs).
+- **Typed slots** (`type = "service" | "user" | "group" | "shell" | "container" | "package"` on a catalog slot; `src/sysinfo.rs` reads `/etc/passwd`, `/etc/group`, `/etc/shells` and the systemd unit folders, read-only). A name on the machine's list wins; an unlisted bare word never fills a service slot unless it looks like a daemon (`journalctl -u older` is gone); shell names map to their path (`bash` is `/bin/bash`).
+- **Labels**: "group docker", "unit sshd", "user bob", "service web", "container db", "branch main" mark the value beside them (before or after) and are never values themselves. Several values in one sentence fill several slots ("add bob to group docker" is `usermod -aG docker bob`).
+- **Exclusions**: the value after "excluding", "except", "without", "but not", "other than" is an exclude value only (`grep --exclude-dir=`, `rsync --exclude=`, `tar --exclude=`), never a target or destination.
+- **Other binding fixes**: ".log" is `*.log`, not a folder; "recursively" and trailing fillers are not part of a name; `-9` is not a program name; binary files (.xlsx .pdf .zip .png ...) are not grep targets unless the request names that file; `find delete` reads its folder like `find`.
+- **No more silent drops**: new on existing entries: `unzip -d`, `docker logs --tail`, `docker exec -u`, `pkill -u`, `git stash -u`, `dig @server`, `curl -C -`, `sort -u`, `tar` one member, `useradd -s`, `grep`/`rsync` exclude; "older than N" gets a "not included" note when the line has no place for it.
+- **Catalog entries touched** (slots/flags only, no new entries): useradd, pkill, unzip, docker logs, docker exec, git stash, dig, curl, sort, tar, rsync, grep (new slot or flag); `type` added to journalctl, search service log, systemctl, systemctl --user, add user to group, chown, docker exec/logs/restart/stop/rm/start.
+- **Not handled**: "reset to origin/main" (no catalog fit: ranking/entry), "vacuum journal logs older than 7 days" (no `journalctl --vacuum-time` entry; it now gives plain `journalctl` plus a note), "docker compose restart service web" (no compose restart entry: gives `systemctl restart web`), and containers/packages cannot be checked against a list.
 
 ## Completed: Safety (2026-11-18)
 

@@ -6,4 +6,5 @@ keywords = ["start stopped container", "resume container", "boot container"]
 [[slots]]
 id = "container"
 kind = "text"
+type = "container"
 what = "the container to start"

@@ -189,6 +189,11 @@ fn capitalized_phrases(request: &str) -> Vec<String> {
 /// Nouns that introduce a name ("a package called X"); they are not part of the name.
 const NAMED_THINGS: &[&str] = &["package", "program", "app", "application", "tool", "software", "utility", "command"];
 
+/// Words that say what kind of thing the next (or previous) word is: "group docker", "unit sshd".
+/// A label marks the value beside it and is never a value itself.
+pub const LABEL_WORDS: &[&str] =
+    &["group", "unit", "service", "user", "container", "port", "branch", "shell", "daemon"];
+
 /// Extracts short multi-word value phrases after prepositions/markers (e.g. "to stretch my legs").
 fn prepositional_phrases(request: &str, existing: &[String]) -> Vec<String> {
     let mut out = Vec::new();
@@ -221,6 +226,17 @@ fn prepositional_phrases(request: &str, existing: &[String]) -> Vec<String> {
         "until",
         "excluding",
         "except",
+        "without",
+        "but",
+        "recursively",
+        "owned",
+        "including",
+        "older",
+        "newer",
+        "then",
+        "using",
+        "now",
+        "please",
     ];
     let articles = ["the", "a", "an", "my"];
 
@@ -282,6 +298,13 @@ fn prepositional_phrases(request: &str, existing: &[String]) -> Vec<String> {
                     break;
                 }
                 j += 1;
+            }
+            // "group docker", "the docker group": the label is not part of the name.
+            if collected.first().is_some_and(|c| LABEL_WORDS.contains(&c.to_lowercase().as_str())) {
+                collected.remove(0);
+            }
+            if collected.last().is_some_and(|c| LABEL_WORDS.contains(&c.to_lowercase().as_str())) {
+                collected.pop();
             }
             if (2..=6).contains(&collected.len()) {
                 let phrase = collected.join(" ");
@@ -388,12 +411,16 @@ pub fn tokens(request: &str) -> Vec<String> {
         if !quoted && STOPWORDS.contains(&text.to_lowercase().as_str()) {
             return;
         }
-        push_raw(text);
+        // ".log" is a kind of file, written `*.log`; it is not a folder to look in.
+        let glob = if quoted { None } else { bare_extension_glob(text) };
+        if glob.is_none() {
+            push_raw(text);
+        }
         if !quoted {
             if let Some(num) = number_word(text) {
                 push_raw(&num);
             }
-            if let Some(glob) = bare_extension_glob(text) {
+            if let Some(glob) = glob {
                 push_raw(&glob);
             }
         }
@@ -447,8 +474,17 @@ pub fn modifier_phrases(request: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for (i, word) in words.iter().enumerate() {
         let rest = &words[i + 1..];
+        // "older than 7 days": the number is what has to show up in the line.
+        if matches!(word.as_str(), "older" | "newer")
+            && rest.first().is_some_and(|w| w == "than")
+            && let Some(n) = rest.get(1).filter(|n| n.chars().all(|c| c.is_ascii_digit()) && !n.is_empty())
+        {
+            let unit = rest.get(2).map(|u| format!(" {u}")).unwrap_or_default();
+            out.push((format!("{word} than {n}{unit}"), n.clone()));
+            continue;
+        }
         let value = match word.as_str() {
-            "excluding" | "except" | "exclude" => rest.first().cloned(),
+            "excluding" | "except" | "exclude" | "without" => rest.first().cloned(),
             "since" | "until" => {
                 let n = rest.iter().take(4).take_while(|w| !matches!(w.as_str(), "and" | "in" | "on" | "for")).count();
                 Some(rest[..n].join(" ")).filter(|v| !v.is_empty())
@@ -614,6 +650,29 @@ mod tests {
             assert!(values.contains("ripgrep"), "{request}: {values:?}");
             assert!(!values.iter().any(|v| v.contains(' ')), "{request}: {values:?}");
         }
+    }
+
+    #[test]
+    fn a_label_is_not_part_of_a_value_phrase() {
+        let found = Candidates::new("add bob to group docker", vec![]);
+        let values = found.for_slot(SlotKind::Text);
+        assert!(values.contains("docker") && values.contains("bob"));
+        assert!(!values.iter().any(|v| v.contains("group docker")), "{values:?}");
+        let found = Candidates::new("chown /var/www to www-data recursively", vec![]);
+        assert!(!found.for_slot(SlotKind::Text).iter().any(|v| v.contains(' ') && v.contains("recursively")));
+    }
+
+    #[test]
+    fn a_bare_extension_is_a_pattern_not_a_folder() {
+        let got = tokens("find .log files older than 30 days");
+        assert!(got.contains(&"*.log".to_string()));
+        assert!(!got.contains(&".log".to_string()));
+    }
+
+    #[test]
+    fn older_than_is_reported_by_its_number() {
+        let phrases = modifier_phrases("show journal logs older than 3 days");
+        assert_eq!(phrases, vec![("older than 3 days".to_string(), "3".to_string())]);
     }
 
     #[test]

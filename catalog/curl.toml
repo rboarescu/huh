@@ -1,6 +1,6 @@
 name = "curl"
 description = "Download a file from a web address, or show what a web address returns"
-template = "curl -L {save} {url}"
+template = "curl -L {resume} {save} {url}"
 keywords = ["download url", "fetch webpage", "http request", "get url", "save file from url", "api request"]
 
 [[flags]]
@@ -12,3 +12,8 @@ question = "Does the user want the result saved as a file?"
 id = "url"
 kind = "text"
 what = "the web address"
+
+[[flags]]
+id = "resume"
+value = "-C -"
+question = "Does the user want to continue a partly finished download where it stopped (resume)?"

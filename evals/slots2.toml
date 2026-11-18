@@ -1,0 +1,283 @@
+# Slot filling, round 2: labelled words ("group docker", "unit sshd"), several values in one sentence,
+# exclusions ("excluding X"), binary files, and modifiers that must not be dropped silently.
+# Users, groups, shells and services come from tests/fixtures/sysinfo (see src/sysinfo.rs), never from the
+# machine running the test. Folder entries end in /.
+
+# --- journalctl: the unit is a service name, never "journalctl", "unit", "errors" or "older"
+
+[[case]]
+request = "show journalctl logs for sshd since 2 hours ago"
+command = "journalctl"
+expect = "journalctl -u sshd --since '2 hours ago'"
+
+[[case]]
+request = "follow journal for unit docker"
+command = "journalctl"
+expect = "journalctl -f -u docker"
+
+[[case]]
+request = "journalctl errors from last boot"
+command = "journalctl"
+expect = "journalctl -b"
+
+[[case]]
+request = "follow logs for unit sshd"
+command = "journalctl"
+expect = "journalctl -f -u sshd"
+
+[[case]]
+request = "show logs for the docker service since yesterday"
+command = "journalctl"
+expect = "journalctl -u docker --since yesterday"
+
+[[case]]
+request = "show the last 50 log lines of nginx"
+command = "journalctl"
+expect = "journalctl -u nginx -n 50 --no-pager"
+
+[[case]]
+request = "show logs for service web"
+command = "journalctl"
+expect = "journalctl -u web"
+
+# --- users and groups
+
+[[case]]
+request = "add bob to group docker"
+command = "add user to group"
+expect = "sudo usermod -aG docker bob"
+
+[[case]]
+request = "add alice to group developers"
+command = "add user to group"
+expect = "sudo usermod -aG developers alice"
+
+[[case]]
+request = "add user alice to the docker group"
+command = "add user to group"
+expect = "sudo usermod -aG docker alice"
+
+[[case]]
+request = "add deploy to group www-data"
+command = "add user to group"
+expect = "sudo usermod -aG www-data deploy"
+
+[[case]]
+request = "add me to group docker"
+command = "add user to group"
+expect = "sudo usermod -aG docker $USER"
+
+[[case]]
+request = "add user bob with home dir and bash shell"
+command = "useradd"
+expect = "sudo useradd -m -s /bin/bash bob"
+
+[[case]]
+request = "create user carol with zsh shell"
+command = "useradd"
+expect = "sudo useradd -m -s /usr/bin/zsh carol"
+
+[[case]]
+request = "add user erin with home dir and fish shell"
+command = "useradd"
+expect = "sudo useradd -m -s /usr/bin/fish erin"
+
+[[case]]
+request = "create a new user called dave"
+command = "useradd"
+expect = "sudo useradd -m dave"
+
+[[case]]
+request = "chown /var/www to www-data recursively"
+command = "chown"
+expect = "sudo chown -R www-data /var/www"
+
+[[case]]
+request = "chown /srv/data to alice recursively"
+command = "chown"
+expect = "sudo chown -R alice /srv/data"
+
+[[case]]
+request = "make bob the owner of notes.txt"
+command = "chown"
+expect = "sudo chown bob notes.txt"
+files = ["notes.txt", "todo.md"]
+
+# --- services
+
+[[case]]
+request = "restart the nginx service"
+command = "systemctl"
+expect = "sudo systemctl restart nginx"
+
+[[case]]
+request = "restart service web"
+command = "systemctl"
+expect = "sudo systemctl restart web"
+
+[[case]]
+request = "stop unit cups"
+command = "systemctl"
+expect = "sudo systemctl stop cups"
+
+# --- containers and branches
+
+[[case]]
+request = "restart container db"
+command = "docker restart"
+expect = "docker restart db"
+
+[[case]]
+request = "show the last 20 lines of the logs of container db"
+command = "docker logs"
+expect = "docker logs --tail 20 db"
+
+[[case]]
+request = "open a shell in container db as user postgres"
+command = "docker exec"
+expect = "docker exec -it -u postgres db sh"
+
+[[case]]
+request = "get a shell in container web"
+command = "docker exec"
+expect = "docker exec -it web sh"
+
+[[case]]
+request = "switch to branch main"
+command = "git switch"
+expect = "git switch main"
+
+# --- exclusions are never the destination or the target
+
+[[case]]
+request = "grep -r TODO in src excluding node_modules"
+command = "grep"
+expect = "grep -r TODO src --exclude-dir=node_modules"
+
+[[case]]
+request = "grep -r password in config except .git"
+command = "grep"
+expect = "grep -r password config --exclude-dir=.git"
+
+[[case]]
+request = "rsync dist to user@host:/var/www excluding node_modules"
+command = "rsync"
+expect = "rsync -av --exclude=node_modules dist user@host:/var/www"
+
+[[case]]
+request = "rsync photos to /mnt/backup except thumbnails"
+command = "rsync"
+expect = "rsync -av --exclude=thumbnails photos /mnt/backup"
+files = ["photos/", "notes.txt"]
+
+[[case]]
+request = "kill -9 java process owned by deploy"
+command = "pkill"
+expect = "pkill -9 -u deploy java"
+
+[[case]]
+request = "kill the firefox process owned by alice"
+command = "pkill"
+expect = "pkill -u alice firefox"
+
+[[case]]
+request = "force kill chrome"
+command = "pkill"
+expect = "pkill -9 chrome"
+
+# --- files: a ".log" is a name pattern, never the folder; binary files are not grep targets
+
+[[case]]
+request = "find .log files older than 30 days and delete them"
+command = "find delete"
+expect = "find . -type f -name '*.log' -mtime +30 -delete"
+
+[[case]]
+request = "find .tmp files older than 7 days and delete them"
+command = "find delete"
+expect = "find . -type f -name '*.tmp' -mtime +7 -delete"
+
+[[case]]
+request = "search for the word budget in my files"
+command = "grep"
+expect = "grep -r budget ."
+files = ["budget.xlsx", "notes.txt", "report.pdf", "src/"]
+
+[[case]]
+request = "search for the word invoice in my files"
+command = "grep"
+expect = "grep -r invoice ."
+files = ["invoice.pdf", "photo.jpg", "notes.txt"]
+
+[[case]]
+request = "search for budget in budget.xlsx"
+command = "grep"
+expect = "grep budget budget.xlsx"
+files = ["budget.xlsx", "notes.txt"]
+
+# --- modifiers that used to be dropped
+
+[[case]]
+request = "unzip release.zip to /opt/app"
+command = "unzip"
+expect = "unzip release.zip -d /opt/app"
+
+[[case]]
+request = "unzip data.zip into /srv/data"
+command = "unzip"
+expect = "unzip data.zip -d /srv/data"
+
+[[case]]
+request = "unzip photos.zip"
+command = "unzip"
+expect = "unzip photos.zip"
+
+[[case]]
+request = "stash my changes including untracked files"
+command = "git stash"
+expect = "git stash -u"
+
+[[case]]
+request = "dig example.com @8.8.8.8"
+command = "dig"
+expect = "dig example.com @8.8.8.8"
+
+[[case]]
+request = "dig mx example.org using 1.1.1.1"
+command = "dig"
+expect = "dig example.org MX @1.1.1.1"
+
+[[case]]
+request = "continue a partial download and save it from https://example.com/big.iso"
+command = "curl"
+expect = "curl -L -C - -O https://example.com/big.iso"
+
+[[case]]
+request = "sort and dedupe names.txt"
+command = "sort"
+expect = "sort -u names.txt"
+files = ["names.txt"]
+
+[[case]]
+request = "sort list.txt and dedupe"
+command = "sort"
+expect = "sort -u list.txt"
+files = ["list.txt"]
+
+[[case]]
+request = "extract config.yml from backup.tar.gz"
+command = "tar"
+expect = "tar -xzf backup.tar.gz config.yml"
+
+[[case]]
+request = "extract notes/todo.md from archive.tar.gz"
+command = "tar"
+expect = "tar -xzf archive.tar.gz notes/todo.md"
+
+# --- a modifier with no place in the line is reported, never dropped silently
+
+[[case]]
+request = "show journal logs older than 3 days"
+command = "journalctl"
+expect = "journalctl"
+note = "older than 3"

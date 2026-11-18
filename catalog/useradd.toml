@@ -1,9 +1,18 @@
 name = "useradd"
 description = "Create a new user account with a home folder"
-template = "sudo useradd -m {user}"
+template = "sudo useradd -m {shell} {user}"
 keywords = ["create user", "add user", "new user account", "make a user", "add a new user", "create an account"]
 
 [[slots]]
 id = "user"
 kind = "text"
+type = "user"
 what = "the name of the new user"
+
+[[slots]]
+id = "shell"
+kind = "text"
+type = "shell"
+what = "the login shell of the new user (bash, zsh, fish)"
+default = ""
+format = "-s {}"

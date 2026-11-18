@@ -76,6 +76,11 @@ pub struct Slot {
     /// request instead of from the words offered as candidates, e.g. `shutdown_time`.
     #[serde(default)]
     pub extract: Option<String>,
+    /// What kind of name the value is (`service`, `user`, `group`, `shell`, `container`, `package`):
+    /// the label words in the request ("group docker") and, where the system has a list, the names
+    /// found on this machine (see sysinfo.rs) decide which word fills the slot.
+    #[serde(default, rename = "type")]
+    pub value_type: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -465,6 +470,11 @@ pub fn validate(command: &Command) -> Result<()> {
                     bail!("slot `{}` needs `what` (e.g. \"the folder to list\")", slot.id);
                 }
             }
+        }
+        if let Some(value_type) = &slot.value_type
+            && !crate::sysinfo::TYPES.contains(&value_type.as_str())
+        {
+            bail!("slot `{}`: unknown type `{value_type}` (known: {})", slot.id, crate::sysinfo::TYPES.join(", "));
         }
         if slot.format.as_ref().is_some_and(|format| !format.contains("{}")) {
             bail!("slot `{}`: `format` must contain `{{}}`", slot.id);

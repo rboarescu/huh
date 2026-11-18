@@ -1,6 +1,6 @@
 name = "rsync"
 description = "Make one folder match another, copying only the files that changed"
-template = "rsync -av {source} {dest}"
+template = "rsync -av {exclude} {source} {dest}"
 keywords = ["sync folders", "mirror folder", "incremental copy", "backup folder", "copy changed files"]
 
 [[slots]]
@@ -12,3 +12,10 @@ what = "the folder to copy from"
 id = "dest"
 kind = "path"
 what = "the destination that receives the files"
+
+[[slots]]
+id = "exclude"
+kind = "text"
+what = "a name or pattern to leave out"
+default = ""
+format = "--exclude={}"

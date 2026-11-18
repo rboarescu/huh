@@ -1,6 +1,6 @@
 name = "pkill"
 description = "Stop a running program, given its name"
-template = "pkill {force} {name}"
+template = "pkill {force} {owner} {name}"
 destructive = true
 warning = "this stops every matching program; unsaved work in them is lost."
 keywords = ["kill frozen app", "frozen program", "force close", "kill by name", "kill process by name", "stop frozen program", "end unresponsive program", "close stuck app"]
@@ -14,3 +14,11 @@ question = "Does the user say the program is frozen or refuses to stop?"
 id = "name"
 kind = "text"
 what = "the name of the program to stop"
+
+[[slots]]
+id = "owner"
+kind = "text"
+type = "user"
+what = "only stop programs that belong to this user"
+default = ""
+format = "-u {}"

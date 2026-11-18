@@ -6,6 +6,7 @@ keywords = ["grep journalctl", "search service log", "find error in service log"
 [[slots]]
 id = "unit"
 kind = "text"
+type = "service"
 what = "the service whose log to search"
 
 [[slots]]
