@@ -203,6 +203,28 @@ huh eval-errors --cases evals/errors-heldout.toml    # score held-out error case
 huh eval-errors --cases evals/errors-real.toml       # score failures from the real-world test
 ```
 
+### Expert mode
+
+Normal mode is cautious on purpose. If you know your way around a shell and find that too careful, switch on expert mode: `huh --expert "delete stuff"`, `HUH_MODE=expert`, or `mode = "expert"` in `~/.config/huh/config.toml`. `--normal` (or `HUH_MODE=normal`) overrides the file; the order is flag, then environment, then file, then normal. An unknown value is an error that lists the valid ones (`normal`, `expert`).
+
+Expert mode relaxes only the beginner protections, so you get the best-ranked command instead of "No suggestion":
+
+- a dangerous command no longer needs a named object (`rm <target>` for "delete stuff");
+- a command on a whole folder you did not type is kept (`rm -r ~`), with the WARNING and an extra note such as `note: this acts on your whole home folder`;
+- a question about state ("is nginx running") ranks like any request (actions are still ranked below queries, just not removed).
+
+It prints `expert mode: fewer beginner safeguards; warnings are still shown.` on stderr first, so `--first-line-only` and pipes stay clean. Never changed: every WARNING line, the refusal to help with access to systems, accounts or networks that are not yours, the refusal to format or wipe drives, and the redirect of "is X dangerous" or "what does X do" to `huh explain`.
+
+### List your tools
+
+```bash
+huh tools                  # every program on $PATH, one line each: name, description
+huh tools compress         # only programs whose name or description contains every word
+huh tools network --no-desc
+```
+
+The last line says how many matched ("143 of 2214 programs match"). Programs come from the directories of `$PATH` (the first one wins when a name appears twice; files that are not executable are skipped). The description is the catalog's, else the built-in table's, else the NAME line of the program's man page, read from disk (plain or `.gz`; `.xz` and `.zst` pages are skipped). Nothing is run, not even `--help` or `man`, and nothing is cached.
+
 ## Terminal recording and prompt completion
 
 Add two lines to `~/.bashrc` (bash) to enable `huh why` without piping and `Alt+h` / `Alt+f` prompt-line replacement:
@@ -328,6 +350,8 @@ nmcli = { mylinux = "nm-cli" }         # package name where it differs (omit a f
 | `evals/explain.toml` | 70+ real-world command lines with expected text and warnings (run by `cargo test`) |
 | `src/session.rs` | Terminal recording (`script` + `record-sink`), shell hooks, readline binding |
 | `src/eval.rs` | Evaluation runners (`eval` and `eval-errors`) |
+| `src/mode.rs` | Normal/expert mode and its config loader |
+| `src/tools.rs` | `huh tools`: PATH scan and man page descriptions |
 
 ## Eval results
 
@@ -340,6 +364,7 @@ Measured with `cargo run --release` on 2026-11-17 (217 catalog entries):
 | `evals/safety.toml` | 110 | 100% | 100% | 100% | 100% | 0 ms |
 | `evals/slots.toml`, `evals/slots2.toml` | 52 + 51 | slot values: 100% exact line | | | | 0 ms |
 | `evals/sysadmin.toml` | 120 | 120/120 (100%) exact line, warnings included | | | | 0 ms |
+| `evals/expert.toml` (cases tagged `mode = "expert"` run in expert mode) | 45 | 100% (answers, refusals, warnings) | | | | 0 ms |
 | `evals/debian.toml` (`--platform debian`) | 5 | 4/4 (100%) | 4/4 (100%) | 4/4 (100%) | 1/1 (100%) | 0 ms |
 
 Error Doctor (`eval-errors`, release build):

@@ -11,6 +11,7 @@ mod guard;
 mod knowledge;
 mod manpage;
 mod matcher;
+mod mode;
 mod platform;
 mod readers;
 mod render;
@@ -18,6 +19,7 @@ mod risk;
 mod session;
 mod shell;
 mod sysinfo;
+mod tools;
 
 use anyhow::{Result, bail};
 use assemble::Suggestion;
@@ -54,6 +56,12 @@ struct Cli {
     /// Print only the first suggested command line (or exit 1 with no output)
     #[arg(long, hide = true)]
     first_line_only: bool,
+    /// Expert mode: fewer beginner safeguards; warnings are still shown (also HUH_MODE=expert or mode = "expert" in ~/.config/huh/config.toml)
+    #[arg(long, global = true)]
+    expert: bool,
+    /// Normal mode, overriding HUH_MODE and the config file
+    #[arg(long, global = true)]
+    normal: bool,
     /// Also offer commands that belong to another kind of system (e.g. apt on Arch)
     #[arg(long)]
     all_commands: bool,
@@ -78,6 +86,17 @@ enum Action {
     Explain {
         /// Command line to break down; `-` (or nothing, with piped input) reads it from standard input
         command: Vec<String>,
+    },
+    /// List the programs on this machine with a one-line description; words narrow the list
+    ///
+    /// Example: `huh tools compress`. Nothing is run: names come from $PATH, descriptions from
+    /// the catalog, the built-in table or man pages read from disk.
+    Tools {
+        /// Keep programs whose name or description contains every word
+        words: Vec<String>,
+        /// List names only
+        #[arg(long)]
+        no_desc: bool,
     },
     /// Print the shell lines that record a terminal and bind prompt completion for `huh`
     ShellInit {
@@ -115,29 +134,40 @@ const COMMON_PROGRAMS: &[&str] = &[
 /// Whole-folder targets a destructive line must never get unless the request typed them.
 const BROAD_TARGETS: &[&str] = &[".", "./", "./*", "*", "~", "~/", "~/*", "/", "/*", "$HOME", "$HOME/", "$HOME/*"];
 
-/// A destructive suggestion that would act on a whole folder the user never named (`rm -r ~`
-/// for "delete user bob and home directory"), or a `find ... -delete` with no name or age filter
-/// (every file under the folder), is worse than no suggestion: drop it.
-fn destroys_more_than_named(suggestion: &Suggestion, request: &str) -> bool {
+/// What a destructive suggestion would act on that is a whole folder the user never named
+/// (`rm -r ~` for "delete user bob and home directory"), or a `find ... -delete` with no name or
+/// age filter (every file under the folder). Normal mode drops such a suggestion, since it is worse
+/// than none; expert mode keeps it and adds a note naming the target.
+fn broad_target(suggestion: &Suggestion, request: &str) -> Option<&'static str> {
     if !suggestion.destructive {
-        return false;
+        return None;
     }
     let typed: Vec<&str> = request.split_whitespace().map(|w| w.trim_matches(['"', '\'', ',', '?'])).collect();
     if suggestion.line.ends_with("-delete") && suggestion.line.starts_with("find ") {
-        return !(suggestion.line.contains(" -name ")
+        let filtered = suggestion.line.contains(" -name ")
             || suggestion.line.contains(" -mtime ")
-            || suggestion.line.contains(" -size "));
+            || suggestion.line.contains(" -size ");
+        return (!filtered).then_some("every file under the starting folder");
     }
     // `find . -name node_modules -type d -prune -exec rm -rf {} +` only removes what the name matches;
     // without a name it would remove every folder.
     if suggestion.line.starts_with("find ") && suggestion.line.contains(" -exec rm ") {
-        return !suggestion.line.contains(" -name ") || suggestion.line.contains(" -name <");
+        let named = suggestion.line.contains(" -name ") && !suggestion.line.contains(" -name <");
+        return (!named).then_some("every file or folder under the starting folder");
     }
-    suggestion
+    let target = suggestion
         .line
         .split_whitespace()
         .map(|w| w.trim_matches(['"', '\'']))
-        .any(|w| BROAD_TARGETS.contains(&w) && !typed.contains(&w))
+        .find(|w| BROAD_TARGETS.contains(w) && !typed.contains(w))?;
+    Some(match target {
+        "." | "./" => "the whole current folder",
+        "./*" | "*" => "everything in the current folder",
+        "~" | "~/" | "$HOME" | "$HOME/" => "your whole home folder",
+        "~/*" | "$HOME/*" => "everything in your home folder",
+        "/" => "the whole filesystem root",
+        _ => "everything at the top of the filesystem",
+    })
 }
 
 /// "what does rm -rf do": the command being asked about, as written in the request.
@@ -177,6 +207,19 @@ pub fn suggest(
     files: Vec<String>,
     decide: &mut dyn FnMut(&str) -> Option<bool>,
 ) -> Result<Outcome> {
+    suggest_in(mode::Mode::Normal, matcher, request, files, decide)
+}
+
+/// `suggest` in a given mode. Expert mode drops the beginner protections only (see mode.rs);
+/// refusals, the explain redirects and every WARNING stay.
+pub fn suggest_in(
+    mode: mode::Mode,
+    matcher: &LocalMatcher,
+    request: &str,
+    files: Vec<String>,
+    decide: &mut dyn FnMut(&str) -> Option<bool>,
+) -> Result<Outcome> {
+    let expert = mode.is_expert();
     let started = Instant::now();
     if let Some(command) = command_in_question(request, matcher) {
         let hint = format!(
@@ -215,7 +258,7 @@ pub fn suggest(
     let mut hint = None;
     for &(command, probability) in &shortlist {
         // A question about state is answered by a query or not at all: never by an action.
-        if about_state && matcher.is_action(&command.name) {
+        if about_state && !expert && matcher.is_action(&command.name) {
             hint.get_or_insert(
                 "that asks about the current state, and no command in the catalog that only looks fits it.",
             );
@@ -235,12 +278,15 @@ pub fn suggest(
                     .notes
                     .push(format!("in the editor that opens, add this line (use the full path of the script): {line}"));
             }
-            if destroys_more_than_named(&suggestion, request) {
-                continue;
+            if let Some(target) = broad_target(&suggestion, request) {
+                if !expert {
+                    continue;
+                }
+                suggestion.notes.push(format!("note: this acts on {target}"));
             }
             // A dangerous command needs the verb and something specific to act on; without the
             // object the request is too vague to risk it, and nothing weaker should stand in for it.
-            if suggestion.destructive && !guard::has_evidence(command, &details, request) {
+            if suggestion.destructive && !expert && !guard::has_evidence(command, &details, request) {
                 if suggestions.is_empty() {
                     hint = Some(
                         "that would change or delete something, but the request does not name what. Say which file, folder or item.",
@@ -441,6 +487,9 @@ fn main() -> Result<()> {
                 here.len()
             );
         }
+        Some(Action::Tools { words, no_desc }) => {
+            print!("{}", tools::run(&words, &everything, no_desc));
+        }
         Some(Action::Explain { command }) => {
             use std::io::Read;
             // `huh explain -` (or no argument with piped input) reads the text from standard input.
@@ -493,7 +542,16 @@ fn main() -> Result<()> {
                 && std::io::stdin().is_terminal()
                 && std::io::stderr().is_terminal();
             let mut decide = |question: &str| if interactive { ask_on_terminal(question) } else { None };
-            let outcome = suggest(&LocalMatcher::new(&catalog), &request, files, &mut decide)?;
+            let mode = mode::resolve(
+                cli.expert,
+                cli.normal,
+                std::env::var("HUH_MODE").ok().as_deref(),
+                mode::config_path().as_deref(),
+            )?;
+            if mode.is_expert() {
+                eprintln!("expert mode: fewer beginner safeguards; warnings are still shown.");
+            }
+            let outcome = suggest_in(mode, &LocalMatcher::new(&catalog), &request, files, &mut decide)?;
             if cli.debug {
                 eprintln!("[debug] {} ms, ranked: {:?}", outcome.millis, outcome.ranked);
             }

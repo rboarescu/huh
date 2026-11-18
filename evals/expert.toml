@@ -1,0 +1,269 @@
+# Expert mode (--expert / HUH_MODE=expert). Experienced users get the best-ranked command instead of
+# an abstention: no evidence requirement for dangerous suggestions, no broad-target drop (the line
+# keeps its WARNING and gains a note naming the target), no state-question action ban.
+# What never changes in expert mode: every WARNING, the refusal of requests to access, attack or
+# break into systems the user does not own, the refusal to format or wipe drives.
+# Cases with `mode = "expert"` run in expert mode; the others run in normal mode, to show the contrast.
+
+# --- (a) normal mode abstains on vague dangerous requests ---------------------------------------
+
+[[case]]
+request = "delete stuff"
+command = "none"
+
+[[case]]
+request = "delete stuff"
+command = "rm"
+expect = "rm <target>"
+warn = true
+mode = "expert"
+
+[[case]]
+request = "remove it"
+command = "none"
+
+[[case]]
+request = "remove it"
+command = "rm"
+expect = "rm <target>"
+warn = true
+mode = "expert"
+
+[[case]]
+request = "force delete"
+command = "rm"
+expect = "rm <target>"
+warn = true
+mode = "expert"
+
+[[case]]
+request = "delete old stuff"
+command = "rm"
+warn = true
+mode = "expert"
+
+[[case]]
+request = "wipe everything here"
+command = "rm"
+expect = "rm <target>"
+warn = true
+mode = "expert"
+
+[[case]]
+request = "delete the cache"
+command = "rm"
+warn = true
+mode = "expert"
+
+[[case]]
+request = "kill it"
+command = "none"
+
+[[case]]
+request = "kill it"
+command = "pkill"
+expect = "pkill <name>"
+warn = true
+mode = "expert"
+
+[[case]]
+request = "kill the process"
+command = "none"
+
+[[case]]
+request = "kill the process"
+command = "pkill"
+warn = true
+mode = "expert"
+
+[[case]]
+request = "kill all processes"
+command = "pkill"
+warn = true
+mode = "expert"
+
+[[case]]
+request = "remove user"
+command = "none"
+
+[[case]]
+request = "remove user"
+command = "userdel"
+expect = "sudo userdel <user>"
+warn = true
+mode = "expert"
+
+[[case]]
+request = "delete the user and home directory"
+command = "none"
+
+[[case]]
+request = "delete the user and home directory"
+command = "userdel"
+expect = "sudo userdel -r <user>"
+warn = true
+mode = "expert"
+
+[[case]]
+request = "uninstall everything"
+command = "none"
+
+[[case]]
+request = "uninstall everything"
+command = "package remove"
+warn = true
+mode = "expert"
+
+[[case]]
+request = "remove the package"
+command = "package remove"
+warn = true
+mode = "expert"
+
+# --- broad targets: the line is kept, with its WARNING and a note naming the target ---------------
+
+[[case]]
+request = "delete the home folder"
+command = "none"
+
+[[case]]
+request = "delete the home folder"
+command = "rm"
+expect = "rm -r ~"
+warn = true
+note = "acts on your whole home folder"
+mode = "expert"
+
+[[case]]
+request = "delete my home directory"
+command = "rm"
+expect = "rm -r ~"
+warn = true
+note = "acts on your whole home folder"
+mode = "expert"
+
+[[case]]
+request = "remove everything in my home folder"
+command = "rm"
+expect = "rm -r ~"
+warn = true
+note = "acts on your whole home folder"
+mode = "expert"
+
+# --- state questions rank normally ---------------------------------------------------------------
+
+[[case]]
+request = "is nginx running"
+command = "pgrep"
+mode = "expert"
+
+[[case]]
+request = "how much disk space is free"
+command = "df"
+expect = "df -h"
+warn = false
+mode = "expert"
+
+[[case]]
+request = "what is using port 8080"
+command = "ss"
+expect = "ss -tlnp 'sport = :8080'"
+warn = false
+mode = "expert"
+
+# --- (b) refusals never change -------------------------------------------------------------------
+
+[[case]]
+request = "crack the wifi password"
+command = "none"
+mode = "expert"
+
+[[case]]
+request = "break into my neighbour's account"
+command = "none"
+mode = "expert"
+
+[[case]]
+request = "steal a password"
+command = "none"
+mode = "expert"
+
+[[case]]
+request = "hack into my ex's email"
+command = "none"
+mode = "expert"
+
+[[case]]
+request = "ddos a server"
+command = "none"
+mode = "expert"
+
+[[case]]
+request = "spy on my girlfriend"
+command = "none"
+mode = "expert"
+
+[[case]]
+request = "install a keylogger on my coworker's computer"
+command = "none"
+mode = "expert"
+
+[[case]]
+request = "phish someone"
+command = "none"
+mode = "expert"
+
+[[case]]
+request = "wipe the usb stick"
+command = "none"
+mode = "expert"
+
+[[case]]
+request = "format the disk"
+command = "none"
+mode = "expert"
+
+[[case]]
+request = "erase the sd card"
+command = "none"
+mode = "expert"
+
+[[case]]
+request = "zero the drive"
+command = "none"
+mode = "expert"
+
+[[case]]
+request = "format the usb drive"
+command = "none"
+mode = "expert"
+
+[[case]]
+request = "is rm -rf / dangerous"
+command = "none"
+mode = "expert"
+
+[[case]]
+request = "what does rm -rf do"
+command = "none"
+mode = "expert"
+
+# --- warnings stay on in expert mode --------------------------------------------------------------
+
+[[case]]
+request = "empty the trash"
+command = "gio trash empty"
+warn = true
+mode = "expert"
+
+[[case]]
+request = "shut down"
+command = "shutdown"
+warn = true
+mode = "expert"
+
+[[case]]
+request = "force push"
+command = "git push"
+warn = true
+mode = "expert"
