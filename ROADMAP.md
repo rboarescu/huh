@@ -21,6 +21,12 @@ Safety:
 
 Transcripts are in `~/.local/share/huh-dev/measure-2026-11-18-round5/`.
 
+## Completed: `huh find` (2026-11-19)
+
+New `src/find.rs`: a fuzzy finder over the catalog (name, description, keywords) and every installed program (the `huh tools` list). One line per item, `name — description [catalog|installed]`; a program with a catalog entry is listed once. Scoring is a subsequence match with bonuses for word starts and consecutive letters (descriptions and keywords allow only short gaps), name over description, catalog entries first among equals. With `fzf` installed (`launch::fzf_argv`, run by `launch::run_fzf`; the process test stays strict) it gets the list, the words as `--query`, a `--preview` of `huh find --describe {1}` on the right (55%) and the header "Enter: details   Esc: quit"; without it a line-based finder shows the top 15 numbered matches, a number gives the details, Enter searches again and `q` quits (a pure state machine, `find::step`). Piped, it prints the matching lines. `huh find --describe NAME` prints at most about 25 lines: description, installed or the install hint, the command template and WARNING with its risk category for catalog entries, up to 6 flags (built-in table, then man page) and "More: man NAME". Nothing picked is run.
+
+Not verified: the fzf picker and preview in a real terminal (only the argument list is tested), and the plain finder beyond piped input.
+
 ## Completed: colour themes and welcome animation (2026-11-18)
 
 New `src/style.rs`: output is styled by semantic role (command, description, part, value, WARNING, risk category, note, cause, `Try:`, dim, header, success, accent) and a theme maps roles to looks. Themes: `auto` (terminal's 16 ANSI colours, default), `omarchy` (read from the current Omarchy `colors.toml` at run time, falls back to `auto`; red and green are swapped back if the theme has them in the wrong slots), `dark`, `light`, `nord`, `gruvbox`, `catppuccin`, `mono`. Selected by `--theme`, `HUH_THEME` or `theme =` in config.toml; `huh themes` shows samples. Colour is off for pipes, `--first-line-only`, `NO_COLOR`, `TERM=dumb` and `--color never`; `--color always` forces it. Nothing is styled until `main` initialises the style, so all tests and evals see plain text.

@@ -253,6 +253,26 @@ huh tools network --no-desc
 
 The last line says how many matched ("143 of 2214 programs match"). Programs come from the directories of `$PATH` (the first one wins when a name appears twice; files that are not executable are skipped). The description is the catalog's, else the built-in table's, else the NAME line of the program's man page, read from disk (plain or `.gz`; `.xz` and `.zst` pages are skipped). Nothing is run, not even `--help` or `man`, and nothing is cached.
 
+### Find a command or tool
+
+```bash
+huh find                  # pick from everything (fzf if installed, a plain finder otherwise)
+huh find compress         # start with the words "compress" typed in
+huh find compress | head  # piped: print the matching lines, best first, and exit
+huh find --describe tar   # the details of one entry, as shown in the preview
+```
+
+`huh find` searches two lists with one fuzzy search (the letters you type must appear in order; word starts and runs of letters score higher, and a match in the name counts more than one in the description):
+
+- huh's catalog entries: name, description and keywords, tagged `[catalog]`;
+- every program on `$PATH`, with the description `huh tools` gives it, tagged `[installed]`. A program that has a catalog entry is listed once, as the entry.
+
+Each item is one line, `name — description [tag]`. **With `fzf` installed** the list goes to fzf with your words as the starting query, a preview pane on the right (about 55%, the details below) and the header "Enter: details   Esc: quit". Enter prints the details of the chosen item. **Without fzf** a small line-based finder runs: type words, it prints the 15 best matches numbered, type a number to see the details, press Enter for a new search, `q` to quit.
+
+The details (`huh find --describe NAME`, at most about 25 lines) are: the name and description; whether the program is installed, and if not the install command for this system; for a catalog entry its command template and any WARNING with its risk category; up to 6 common flags with one-line meanings (the built-in table first, the man page second); and "More: man NAME".
+
+Nothing is run: not the item you pick, not the program, not `--help`. The only program huh starts is `fzf` itself (in `src/launch.rs`), and its preview only calls `huh find --describe`. Colours follow the theme and are off when piped or with `NO_COLOR`. Listing the programs takes about 0.3 s, the same as `huh tools`.
+
 ## Colours and themes
 
 Output is coloured by role (command lines, flags, WARNING labels, risk categories, hints, the `Try:` line). The text itself is the same with or without colour.
