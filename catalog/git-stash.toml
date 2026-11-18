@@ -1,6 +1,6 @@
 name = "git stash"
 description = "Put uncommitted changes aside, bring them back, or list what is set aside"
-template = "git stash {action}"
+template = "git stash {untracked} {action}"
 keywords = ["stash changes", "stash my changes", "shelve changes", "set changes aside", "pop the stash", "apply stash", "list stashes", "stashed changes", "put work aside"]
 
 [[slots]]
@@ -22,3 +22,8 @@ description = "Bring the most recently stashed changes back and drop them from t
 name = "list"
 value = "list"
 description = "List what is stashed"
+
+[[flags]]
+id = "untracked"
+value = "-u"
+question = "Does the user want new files that git does not track yet (untracked) stashed too?"

@@ -1,6 +1,6 @@
 name = "docker logs"
 description = "Show the output (logs) of a Docker container"
-template = "docker logs {follow} {container}"
+template = "docker logs {follow} {lines} {container}"
 keywords = ["container logs", "container output", "follow container logs", "stdout container"]
 
 [[flags]]
@@ -11,4 +11,12 @@ question = "Does the user want to keep watching new output as it appears?"
 [[slots]]
 id = "container"
 kind = "text"
+type = "container"
 what = "the container whose logs to show"
+
+[[slots]]
+id = "lines"
+kind = "text"
+what = "how many of the most recent log lines to show"
+default = ""
+format = "--tail {}"

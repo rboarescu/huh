@@ -1,0 +1,6 @@
+# Pathnames of valid login shells.
+/bin/sh
+/bin/bash
+/usr/bin/zsh
+/usr/bin/fish
+/usr/bin/nologin

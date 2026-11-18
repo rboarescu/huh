@@ -12,6 +12,7 @@ warning = "this changes every file inside the folder; on a system folder that ca
 [[slots]]
 id = "owner"
 kind = "text"
+type = "user"
 what = "the user who should become the owner"
 
 [[slots]]

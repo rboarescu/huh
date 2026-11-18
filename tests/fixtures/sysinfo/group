@@ -1,0 +1,12 @@
+root:x:0:
+wheel:x:998:radu
+docker:x:970:radu
+sudo:x:27:
+audio:x:996:
+video:x:985:
+www-data:x:33:
+deploy:x:1001:
+developers:x:1010:alice
+alice:x:1002:
+bob:x:1003:
+radu:x:1000:

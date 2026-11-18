@@ -99,7 +99,10 @@ pub fn run(matcher: &LocalMatcher, path: &Path, platforms: &[String]) -> Result<
 /// for it and cases tagged with its package manager family are included.
 pub fn score_for(matcher: &LocalMatcher, path: &Path, platforms: &[String]) -> Result<Report> {
     crate::platform::use_platform_for_eval(platforms);
+    // Users, groups, shells and services come from the fixture, never from the machine running the eval.
+    crate::sysinfo::use_fixture(true);
     let report = score_cases(matcher, path, platforms);
+    crate::sysinfo::use_fixture(false);
     crate::platform::use_platform_for_eval(&[]);
     report
 }

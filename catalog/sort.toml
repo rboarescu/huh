@@ -1,6 +1,6 @@
 name = "sort"
 description = "Put the lines of a file in alphabetical or numerical order"
-template = "sort {numeric} {reverse} {target}"
+template = "sort {numeric} {reverse} {unique} {target}"
 keywords = ["sort lines", "alphabetical order", "numerical order", "sort numbers", "biggest to smallest", "reverse sort", "descending order"]
 
 [[flags]]
@@ -17,3 +17,8 @@ question = "Does the user want the order reversed, largest or last first?"
 id = "target"
 kind = "path"
 what = "the file whose lines to sort"
+
+[[flags]]
+id = "unique"
+value = "-u"
+question = "Does the user want duplicate lines removed (unique, dedupe)?"

@@ -7,4 +7,5 @@ keywords = ["delete container", "remove container", "erase container"]
 [[slots]]
 id = "container"
 kind = "text"
+type = "container"
 what = "the container to delete"

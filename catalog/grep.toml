@@ -1,6 +1,6 @@
 name = "grep"
 description = "Search inside files for lines that contain a word or phrase"
-template = "grep {ignore_case} {recursive} {line_numbers} {pattern} {where}"
+template = "grep {ignore_case} {recursive} {line_numbers} {pattern} {where} {exclude}"
 keywords = ["search inside file", "find text in files", "search string", "matching lines", "lines mentioning", "lines containing", "text search", "case insensitive", "recursive search", "search folder for text"]
 
 [[flags]]
@@ -28,3 +28,10 @@ id = "where"
 kind = "path"
 what = "the file or folder to search in"
 default = ""
+
+[[slots]]
+id = "exclude"
+kind = "text"
+what = "a folder name to leave out of the search"
+default = ""
+format = "--exclude-dir={}"

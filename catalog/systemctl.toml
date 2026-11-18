@@ -39,4 +39,5 @@ warning = "this stops the service from starting at boot, which can break whateve
 [[slots]]
 id = "service"
 kind = "text"
+type = "service"
 what = "the service"

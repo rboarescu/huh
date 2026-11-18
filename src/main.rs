@@ -15,6 +15,7 @@ mod render;
 mod risk;
 mod session;
 mod shell;
+mod sysinfo;
 
 use anyhow::{Result, bail};
 use assemble::Suggestion;

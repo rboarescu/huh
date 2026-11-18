@@ -17,6 +17,7 @@ pub fn extract(reader: &str, request: &str) -> Option<String> {
         "domain" => domain(request),
         "host" => host(request, &words),
         "service" => service(&words),
+        "dns_server" => dns_server(request),
         _ => None,
     }
 }
@@ -226,13 +227,43 @@ fn is_domain(word: &str) -> bool {
         || labels.len() == 4 && labels.iter().all(|l| l.parse::<u8>().is_ok())
 }
 
+/// Words that introduce the DNS server to ask rather than the name to look up.
+const SERVER_CUES: &[&str] = &["using", "via", "against", "server", "nameserver", "resolver"];
+
 fn domain(request: &str) -> Option<String> {
-    request
-        .split_whitespace()
-        .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
+    let words: Vec<&str> = request.split_whitespace().collect();
+    words
+        .iter()
+        .enumerate()
+        .filter(|(i, w)| {
+            // "@8.8.8.8" and "using 1.1.1.1" name the server, not the domain.
+            !w.starts_with('@')
+                && !i.checked_sub(1).is_some_and(|j| SERVER_CUES.contains(&words[j].to_lowercase().as_str()))
+        })
+        .map(|(_, w)| w.trim_matches(|c: char| !c.is_alphanumeric()))
         .map(|w| w.rsplit("://").next().unwrap_or(w).split('/').next().unwrap_or(w))
         .find(|w| is_domain(w))
         .map(str::to_string)
+}
+
+/// The server a DNS lookup should ask, as `dig` takes it: "@8.8.8.8", "using 1.1.1.1", "via ns1.example.com".
+fn dns_server(request: &str) -> Option<String> {
+    let words: Vec<&str> = request.split_whitespace().collect();
+    for (i, word) in words.iter().enumerate() {
+        if let Some(rest) = word.strip_prefix('@') {
+            let rest = rest.trim_matches(|c: char| !c.is_alphanumeric());
+            if !rest.is_empty() {
+                return Some(format!("@{rest}"));
+            }
+        }
+        if SERVER_CUES.contains(&word.to_lowercase().as_str())
+            && let Some(next) = words.get(i + 1).map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
+            && is_domain(next)
+        {
+            return Some(format!("@{next}"));
+        }
+    }
+    None
 }
 
 /// The machine a request is about: a domain or IP address, else the word after "on", "at" or "to".
@@ -359,6 +390,17 @@ mod tests {
         assert_eq!(read("host", "check if port 443 open on web1").as_deref(), Some("web1"));
         assert_eq!(read("host", "is port 22 open on 192.168.0.5").as_deref(), Some("192.168.0.5"));
         assert_eq!(read("host", "is port 22 open on this machine"), None);
+    }
+
+    #[test]
+    fn dns_servers() {
+        assert_eq!(read("dns_server", "dig example.com @8.8.8.8").as_deref(), Some("@8.8.8.8"));
+        assert_eq!(read("dns_server", "dig mx example.org using 1.1.1.1").as_deref(), Some("@1.1.1.1"));
+        assert_eq!(read("dns_server", "look up example.org via ns1.example.net").as_deref(), Some("@ns1.example.net"));
+        assert_eq!(read("dns_server", "dig example.com"), None);
+        // The server is never the name to look up.
+        assert_eq!(read("domain", "dig @8.8.8.8 example.com").as_deref(), Some("example.com"));
+        assert_eq!(read("domain", "dig example.org using 1.1.1.1").as_deref(), Some("example.org"));
     }
 
     #[test]
