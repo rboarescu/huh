@@ -1,0 +1,10 @@
+name = "appimage run"
+description = "Run an AppImage without FUSE (--appimage-extract-and-run also works directly on an executable .AppImage)"
+template = "env APPIMAGE_EXTRACT_AND_RUN=1 {appimage}"
+kind = "action"
+keywords = ["run appimage", "appimage without fuse", "appimage fuse", "extract and run appimage", "start appimage"]
+
+[[slots]]
+id = "appimage"
+kind = "path"
+what = "the .AppImage file to run"

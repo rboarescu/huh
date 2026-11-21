@@ -1,0 +1,11 @@
+name = "flatpak search"
+description = "Search Flathub for a Flatpak application"
+template = "flatpak search {term}"
+kind = "query"
+keywords = ["flatpak search", "search flatpak", "find flatpak", "search flathub"]
+
+[[slots]]
+id = "term"
+kind = "text"
+type = "package"
+what = "the app name or keyword to search Flathub for"

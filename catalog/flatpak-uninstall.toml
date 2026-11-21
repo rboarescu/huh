@@ -1,0 +1,14 @@
+name = "flatpak uninstall"
+description = "Uninstall a Flatpak application"
+template = "flatpak uninstall {package}"
+kind = "action"
+destructive = true
+warning = "Removes the Flatpak application from your system."
+risk = "big system change"
+keywords = ["flatpak uninstall", "uninstall flatpak", "remove flatpak", "delete flatpak app"]
+
+[[slots]]
+id = "package"
+kind = "text"
+type = "package"
+what = "the Flatpak app name or ID to uninstall"

@@ -1,0 +1,303 @@
+id = "paint-your-pet"
+number = 11
+title = "Paint Your Own Pet"
+summary = "Export your #! pet's 32x32 sprite sheet, read and edit TOML palettes and pixel grids safely, keep backups, and preview changes with diff."
+badge = "pixel_painter"
+unlock_after = "finding-your-way"
+
+[[lessons]]
+id = "u11-sprite-folders"
+title = "Where Configs & Sprites Live"
+intro = "Find where huh keeps custom 32x32 pet sprites, export a starter sheet with huh pet --customize, and back up your file before painting."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u11-l1-q1"
+command = "huh pet --customize"
+prompt = "You want to give Pebble a custom outfit or brand-new colors. What does `huh pet --customize` do?"
+choices = [
+    "Resets your XP and locks all pet species",
+    "Exports an editable 32x32 sprite TOML template into `~/.config/huh/sprites/` without overwriting existing custom sheets",
+    "Deletes your `~/.config/huh` settings folder",
+    "Posts your pet sprite online",
+]
+answer = 1
+hint = "Think of `--customize` as giving you a clean starter canvas to paint on."
+note = "You can also type `/pet customize` inside the `huh` companion pane — both export the built-in 32x32 sheet ready for editing!"
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u11-l1-q2"
+prompt = "Create the `~/.config/huh/sprites` folder (including any missing parent folders) using `mkdir -p`."
+accepted = [
+    "mkdir -p ~/.config/huh/sprites",
+    "mkdir -p ~/.config/huh/sprites/",
+    "mkdir --parents ~/.config/huh/sprites",
+]
+hints = [
+    "Use `mkdir` with `-p` so it creates `~/.config/huh` too if needed.",
+    "Type `mkdir -p ~/.config/huh/sprites`.",
+]
+note = "Dotfolders like `~/.config` hold your personal app settings and themes, separate from system programs."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u11-l1-q3"
+command = "ls -la ~/.config/huh/sprites"
+output = """
+total 8
+drwxr-xr-x 2 sam sam 4096 Nov 21 10:00 .
+drwxr-xr-x 3 sam sam 4096 Nov 21 09:58 ..
+-rw-r--r-- 1 sam sam 1964 Nov 21 10:00 penguin.toml
+"""
+prompt = "Look at this `ls -la ~/.config/huh/sprites` output. Which custom sprite sheet is ready to edit?"
+choices = [
+    "`total 8`",
+    "`..`",
+    "`penguin.toml`",
+]
+answer = 2
+hint = "`.` and `..` are folder navigation shortcuts; look for the `.toml` file."
+note = "`huh` loads `<species>.toml` (like `penguin.toml`, `cat.toml`, `turtle.toml`, or `owl.toml`) from `~/.config/huh/sprites/`."
+expect_output_match = true
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u11-l1-q4"
+prompt = "Make a backup copy of `~/.config/huh/sprites/penguin.toml` called `~/.config/huh/sprites/penguin.toml.bak` using `cp`."
+accepted = [
+    "cp ~/.config/huh/sprites/penguin.toml ~/.config/huh/sprites/penguin.toml.bak",
+    "cp -p ~/.config/huh/sprites/penguin.toml ~/.config/huh/sprites/penguin.toml.bak",
+]
+hints = [
+    "Use `cp <original> <backup>` with `.bak` at the end of the destination path.",
+    "Type `cp ~/.config/huh/sprites/penguin.toml ~/.config/huh/sprites/penguin.toml.bak`.",
+]
+note = "Saving a `.bak` copy before editing a config or sprite means you can always undo an experiment in one second."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u11-l1-q5"
+prompt = "You only wanted to remove one custom sprite, NOT erase every app's settings on your computer! Which command is DANGEROUS because it wipes all of `~/.config`?"
+choices = [
+    "ls -la ~/.config/huh/sprites",
+    "head -n 20 ~/.config/huh/sprites/penguin.toml",
+    "rm -rf ~/.config",
+    "mkdir -p ~/.config/huh/sprites",
+]
+answer = 2
+risk = "destroys data"
+hint = "Watch out for `rm -rf` pointed at the whole `~/.config` folder instead of one file."
+note = "`~/.config` stores settings for your shell, editor, terminal, and apps! Never point `rm -rf` at `~/.config`."
+
+[[lessons]]
+id = "u11-reading-sprite-toml"
+title = "Reading & Editing Sprite TOML"
+intro = "Peek inside a sprite sheet with head, edit safely with nano, decode grid tokens and [palette] colors, and verify line counts with grep and wc."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u11-l2-q1"
+command = "head -n 20 ~/.config/huh/sprites/penguin.toml"
+prompt = "What does `head -n 20 ~/.config/huh/sprites/penguin.toml` do?"
+choices = [
+    "Prints the first 20 lines of `penguin.toml` so you can peek at its header and top pixel rows",
+    "Deletes the first 20 lines of `penguin.toml`",
+    "Recolors the top 20 rows randomly",
+    "Copies `penguin.toml` 20 times",
+]
+answer = 0
+hint = "`head -n 20` only reads and displays the top 20 lines."
+note = "Checking config files with `head` first lets you see comments and layout before opening an editor."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u11-l2-q2"
+prompt = "Open `~/.config/huh/sprites/penguin.toml` in the `nano` terminal text editor so you can tweak colors or pixels."
+accepted = [
+    "nano ~/.config/huh/sprites/penguin.toml",
+    "nano -B ~/.config/huh/sprites/penguin.toml",
+]
+hints = [
+    "Run `nano` followed by `~/.config/huh/sprites/penguin.toml`.",
+    "Type `nano ~/.config/huh/sprites/penguin.toml`.",
+]
+note = "Inside `nano`, look at the bottom bar: `Ctrl+O` (then Enter) saves your changes, and `Ctrl+X` exits back to the shell."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u11-l2-q3"
+command = "cat ~/.config/huh/sprites/penguin.toml"
+output = """
+  "..............KK................",
+  ".............K33K...............",
+
+[palette]
+K = "#141c2e"
+3 = "accent"
+"""
+prompt = "Look at this snippet from a custom `penguin.toml`. What do `.` and `3` mean in the pixel grid?"
+choices = [
+    "`.` draws solid white, and `3` repeats the row 3 times",
+    "`.` is transparent background, and `3` paints pixels using your active theme's `accent` color",
+    "`3` deletes the `[palette]` table",
+    "`.` and `3` are syntax errors",
+]
+answer = 1
+hint = "Every non-dot character in `grid` looks up its color under `[palette]` — and semantic names like `\"accent\"` follow your theme!"
+note = "Semantic tokens like `\"accent\"`, `\"warning\"`, `\"success\"`, `\"note\"`, and `\"shadow\"` automatically adapt whenever you switch `/theme`!"
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u11-l2-q4"
+prompt = "Search `~/.config/huh/sprites/penguin.toml` for `palette` and print matching line numbers using `grep -n`."
+accepted = [
+    "grep -n palette ~/.config/huh/sprites/penguin.toml",
+    "grep -n \"palette\" ~/.config/huh/sprites/penguin.toml",
+    "grep -n 'palette' ~/.config/huh/sprites/penguin.toml",
+]
+hints = [
+    "Use `grep -n` followed by `palette` and the path `~/.config/huh/sprites/penguin.toml`.",
+    "Type `grep -n palette ~/.config/huh/sprites/penguin.toml`.",
+]
+note = "`grep -n` jumps straight to the line number you want — super useful before opening a long file in `nano`!"
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u11-l2-q5"
+command = "wc -l ~/.config/huh/sprites/penguin.toml"
+prompt = "What does `wc -l ~/.config/huh/sprites/penguin.toml` check?"
+choices = [
+    "How many lines `penguin.toml` has, helping verify you did not delete a row of the sprite grid",
+    "How many colors your monitor supports",
+    "Deletes blank lines from `penguin.toml`",
+    "Converts `penguin.toml` to a PNG image",
+]
+answer = 0
+hint = "`wc -l` stands for \"word count — lines\"."
+note = "Quick sanity check: if your sprite stopped loading after an edit, `wc -l` and `diff -u` help spot missing rows right away."
+
+[[lessons]]
+id = "u11-colors-and-backups"
+title = "Custom Colors, Backups & Restoring"
+intro = "Compare edits line by line with diff -u, restore from a .bak copy with mv, clone a template with cp, and understand safe 32x32 validation."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u11-l3-q1"
+command = "diff -u ~/.config/huh/sprites/penguin.toml.bak ~/.config/huh/sprites/penguin.toml"
+prompt = "You finished painting `penguin.toml` and want to double-check every line you edited against your backup. What does `diff -u` show?"
+choices = [
+    "Deletes whichever file is older",
+    "Only the lines that changed, with `-` for the backup lines and `+` for your new lines",
+    "Overwrites your backup automatically",
+    "Launches Pebble in celebrating mode",
+]
+answer = 1
+hint = "`diff -u` shows a \"unified diff\" comparing two text files without modifying either one."
+note = "Running `diff -u file.bak file` before saving or restarting an app is a super-clean way to catch typos in a TOML file."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u11-l3-q2"
+prompt = "Suppose you want to undo your edits in `~/.config/huh/sprites/penguin.toml` by moving `~/.config/huh/sprites/penguin.toml.bak` back over it with `mv`."
+accepted = [
+    "mv ~/.config/huh/sprites/penguin.toml.bak ~/.config/huh/sprites/penguin.toml",
+    "mv -i ~/.config/huh/sprites/penguin.toml.bak ~/.config/huh/sprites/penguin.toml",
+]
+hints = [
+    "Pass the `.bak` file first and `penguin.toml` second to `mv`.",
+    "Type `mv ~/.config/huh/sprites/penguin.toml.bak ~/.config/huh/sprites/penguin.toml`.",
+]
+note = "If you want to keep the `.bak` file around too, use `cp` instead of `mv` so your backup stays intact for next time!"
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u11-l3-q3"
+prompt = "Copy `~/.config/huh/sprites/penguin.toml` to `~/.config/huh/sprites/owl.toml` as a starting template using `cp`."
+accepted = ["cp ~/.config/huh/sprites/penguin.toml ~/.config/huh/sprites/owl.toml"]
+hints = [
+    "Use `cp` with `penguin.toml` as source and `owl.toml` as destination.",
+    "Type `cp ~/.config/huh/sprites/penguin.toml ~/.config/huh/sprites/owl.toml`.",
+]
+note = "Remember to also update `species = \"owl\"` inside `owl.toml` if you borrow pixels from another starter sheet!"
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u11-l3-q4"
+command = "diff -u ~/.config/huh/sprites/penguin.toml.bak ~/.config/huh/sprites/penguin.toml"
+output = """
+--- ~/.config/huh/sprites/penguin.toml.bak
++++ ~/.config/huh/sprites/penguin.toml
+@@ -15,2 +15,2 @@
+-  "................................",
++  "...............................",
+"""
+prompt = "Look at this `diff -u` output: the edited `+` row accidentally lost one dot and is only 31 characters wide instead of 32. What does `huh` do when a custom sprite is not 32x32?"
+choices = [
+    "`huh` crashes and refuses to open your shell",
+    "`huh` safely ignores the invalid override and falls back to the built-in penguin sprite until you fix the 32x32 grid",
+    "`huh` deletes `~/.config/huh/sprites/penguin.toml`",
+    "`huh` stretches your terminal window",
+]
+answer = 1
+hint = "`huh` validates every override sheet strictly before drawing pixels, so a typo never breaks your terminal."
+note = "Safe fallback is built in: if a grid has 31 chars instead of 32 or references a missing `[palette]` token, `huh` falls back cleanly to the embedded sprite."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u11-l3-q5"
+command = "cat ~/.config/huh/sprites/penguin.toml"
+prompt = "What does `cat ~/.config/huh/sprites/penguin.toml` do?"
+choices = [
+    "Turns Pebble into a Terminal Cat immediately",
+    "Prints the full contents of `penguin.toml` to your terminal without changing anything",
+    "Deletes `penguin.toml`",
+    "Rebuilds `huh` from source",
+]
+answer = 1
+hint = "`cat` is short for \"concatenate\" — it simply prints a file's text to your screen."
+note = "Even though `cat` shares a name with your Terminal Cat pet, in Linux `cat` just reads and prints files safely!"
+
+[practice]
+id = "u11-sprite-studio"
+title = "Sprite Studio"
+goal = "Create a `sprites/` folder, copy `templates/penguin.toml` into `sprites/penguin.toml`, save a backup `sprites/penguin.toml.bak`, and customize `sprites/penguin.toml` so palette token `3` uses `\"accent\"` instead of `\"#89cff0\"`."
+hints = [
+    "Start with `mkdir sprites`, then `cp templates/penguin.toml sprites/penguin.toml` and `cp sprites/penguin.toml sprites/penguin.toml.bak`.",
+    "Update `sprites/penguin.toml` to use `accent` (for example with `nano sprites/penguin.toml` or `sed -i 's/#89cff0/accent/' sprites/penguin.toml`), leaving `sprites/penguin.toml.bak` untouched.",
+]
+
+[practice.setup]
+dirs = ["templates"]
+files = [
+    { path = "templates/penguin.toml", content = "species = \"penguin\"\nstyle = \"P1\"\n\n[palette]\nK = \"#141c2e\"\n3 = \"#89cff0\"\nS = \"shadow\"\n" },
+    { path = "palette-notes.txt", content = "Tip: change 3 = \"#89cff0\" to 3 = \"accent\" in sprites/penguin.toml so Pebble's crest follows your /theme!\n" },
+]
+
+[[practice.checks]]
+kind = "dir_exists"
+path = "sprites"
+label = "Folder `sprites` exists"
+
+[[practice.checks]]
+kind = "file_exists"
+path = "sprites/penguin.toml"
+label = "Custom sprite `sprites/penguin.toml` exists"
+
+[[practice.checks]]
+kind = "file_exists"
+path = "sprites/penguin.toml.bak"
+label = "Backup `sprites/penguin.toml.bak` exists"
+
+[[practice.checks]]
+kind = "file_contains"
+path = "sprites/penguin.toml"
+text = "accent"
+label = "`sprites/penguin.toml` is customized to use `accent`"
+
+[[practice.checks]]
+kind = "file_contains"
+path = "sprites/penguin.toml.bak"
+text = "#89cff0"
+label = "`sprites/penguin.toml.bak` keeps the original `#89cff0` color"

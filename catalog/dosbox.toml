@@ -1,0 +1,12 @@
+name = "dosbox"
+description = "Run a classic MS-DOS game or program in DOSBox"
+template = "dosbox {target}"
+kind = "action"
+package = "dosbox"
+keywords = ["dosbox", "run dos game", "play dos game", "ms-dos game", "dos emulator", "classic dos game"]
+opposites = ["windows", "wine"]
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the DOS game, folder, or runnable file"

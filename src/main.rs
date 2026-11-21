@@ -2,6 +2,7 @@ mod assemble;
 mod breakdown;
 mod candidates;
 mod catalog;
+mod date;
 mod decode;
 mod doctor;
 mod eval;
@@ -12,23 +13,36 @@ mod guard;
 mod hint;
 mod knowledge;
 mod launch;
+mod learn;
+mod lessons;
 mod manpage;
 mod matcher;
 mod mode;
 mod outputs;
+mod pane;
+mod pet;
 mod pin;
 mod platform;
+mod practice;
+mod prefs;
+mod progress;
 mod readers;
 mod render;
 mod risk;
 mod risk_extra;
 mod risk_kinds;
 mod session;
+mod setup;
 mod shell;
+mod slash;
+mod sprite;
+mod srs;
 mod style;
 mod sysinfo;
+mod tips;
 mod tools;
-mod tutor;
+mod tui;
+mod typewriter;
 mod values;
 mod welcome;
 
@@ -83,6 +97,30 @@ struct Cli {
     /// Also offer commands that belong to another kind of system (e.g. apt on Arch)
     #[arg(long)]
     all_commands: bool,
+    /// Run the companion pane directly in this terminal instead of opening a side pane
+    #[arg(long, conflicts_with = "request")]
+    here: bool,
+    /// Starting companion pane mode (watch or lab)
+    #[arg(long, conflicts_with = "request", value_name = "MODE")]
+    mode: Option<String>,
+    /// Hide the explanation of a program already explained in this companion session
+    #[arg(long, conflicts_with = "request")]
+    quiet: bool,
+    /// Follow the recording of this terminal (e.g. /dev/pts/3) in this pane
+    #[arg(long, conflicts_with = "request", value_name = "TTY")]
+    tty: Option<String>,
+    /// Print how the companion pane would be started without launching it (also HUH_DRY_RUN=1)
+    #[arg(long, conflicts_with = "request")]
+    dry_run: bool,
+    /// The folder holding the recordings (set for a launched side pane)
+    #[arg(long, hide = true, conflicts_with = "request")]
+    dir: Option<PathBuf>,
+    /// Keep the window open after an error until Enter is pressed (set for a launched side pane)
+    #[arg(long, hide = true, conflicts_with = "request")]
+    hold: bool,
+    /// Follow exactly this recording (set for a launched side pane)
+    #[arg(long, hide = true, conflicts_with = "request")]
+    log: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -102,6 +140,23 @@ enum Action {
     Themes,
     /// Replay the welcome animation
     Welcome,
+    /// Interactive guided setup for shell hooks, theme, companion pane, and Pebble
+    Setup,
+    /// Check on your #! terminal pet, rename it, switch species, or customize sprites
+    Pet {
+        /// Give your pet a new name (1-20 characters)
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+        /// Switch to an unlocked species (penguin, cat, turtle, owl)
+        #[arg(long, value_name = "SPECIES")]
+        species: Option<String>,
+        /// Set pet render style (auto, pixel, ascii, off)
+        #[arg(long, value_name = "STYLE")]
+        style: Option<String>,
+        /// Export an editable 32x32 sprite TOML template for the active species
+        #[arg(long)]
+        customize: bool,
+    },
     /// Explain why the last command failed (or pipe output in)
     Why,
     /// Explain what a shell command and each of its flags and arguments do
@@ -133,7 +188,10 @@ enum Action {
     },
     /// Print the shell lines that record a terminal and bind prompt completion for `huh`
     ShellInit {
-        /// Print the second part, which goes at the end of ~/.bashrc
+        /// Shell syntax to generate (auto detects from $SHELL)
+        #[arg(long, value_enum, default_value = "auto")]
+        shell: session::ShellArg,
+        /// Print the second part, which goes at the end of your shell rc file
         #[arg(long)]
         hooks: bool,
     },
@@ -141,32 +199,6 @@ enum Action {
     EvalErrors {
         #[arg(long, default_value = "evals/errors.toml")]
         cases: PathBuf,
-    },
-    /// Follow the recorded terminal next to this one and explain each command and its output
-    ///
-    /// Run it in a second pane. It only reads the recording (see `huh shell-init`); it never runs anything.
-    Tutor {
-        /// Hide the explanation of a program already explained in this run
-        #[arg(long)]
-        quiet: bool,
-        /// Follow the recording of this terminal (e.g. /dev/pts/3) instead of the newest one
-        #[arg(long, conflicts_with = "side")]
-        tty: Option<String>,
-        /// Open the tutor beside this terminal: a tmux split, a new window on a tiling desktop, or a tmux session
-        #[arg(long)]
-        side: bool,
-        /// With --side: print what would be started instead of starting it (also HUH_DRY_RUN=1)
-        #[arg(long, requires = "side")]
-        dry_run: bool,
-        /// The folder holding the recordings (set by --side for the window it opens)
-        #[arg(long, hide = true)]
-        dir: Option<PathBuf>,
-        /// Keep the window open after an error until Enter is pressed (set by --side)
-        #[arg(long, hide = true)]
-        hold: bool,
-        /// Follow exactly this recording (set by --side: the terminal it was started from)
-        #[arg(long, hide = true)]
-        log: Option<PathBuf>,
     },
     #[command(hide = true)]
     RecordSink { file: PathBuf, pipe: PathBuf },
@@ -635,14 +667,22 @@ fn exit_quietly_on_closed_pipe() {
     }
 }
 
-/// `huh tutor --side`: starts the tutor viewer beside this terminal (see launch.rs).
-fn side(quiet: bool, dry_run: bool) -> Result<()> {
+/// Starts the unified companion pane beside this terminal (see launch.rs).
+fn side(quiet: bool, dry_run: bool, initial_mode: Option<&str>) -> Result<()> {
     let dry_run = dry_run || std::env::var_os("HUH_DRY_RUN").is_some_and(|v| !v.is_empty() && v != "0");
     let tty = launch::stdin_tty().or_else(|| dry_run.then(|| "<this tty>".to_string()));
     let huh = std::env::current_exe()?;
     let path = platform::path_dirs();
     let have = |program: &str| !matches!(platform::locate_in(program, &path, &[]), platform::Found::Missing);
-    let plan = launch::decide(&|name| std::env::var(name).ok(), &have, tty.as_deref(), &huh, quiet, std::process::id());
+    let plan = launch::decide_for(
+        &|name| std::env::var(name).ok(),
+        &have,
+        tty.as_deref(),
+        &huh,
+        quiet,
+        initial_mode,
+        std::process::id(),
+    );
     let platforms = platform::detect();
     if dry_run {
         println!("{}", launch::describe(&plan, &platforms));
@@ -651,17 +691,44 @@ fn side(quiet: bool, dry_run: bool) -> Result<()> {
     launch::start(plan, &platforms)
 }
 
+/// Resolves safety mode: CLI (`--expert`/`--normal`) > `HUH_MODE` > `config.toml` > `prefs.safety` > `Normal`.
+fn resolve_safety_mode(
+    expert_flag: bool,
+    normal_flag: bool,
+    env: Option<&str>,
+    config_file: Option<&std::path::Path>,
+    pref_safety: Option<&str>,
+) -> Result<mode::Mode> {
+    if expert_flag || normal_flag || env.is_some_and(|v| !v.trim().is_empty()) {
+        return mode::resolve(expert_flag, normal_flag, env, config_file);
+    }
+    if let Some(path) = config_file
+        && let Ok(text) = std::fs::read_to_string(path)
+        && let Some(configured) =
+            mode::from_config_text(&text).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?
+    {
+        return Ok(configured);
+    }
+    if let Some(pref) = pref_safety.and_then(|s| mode::Mode::parse(s).ok()) {
+        return Ok(pref);
+    }
+    Ok(mode::Mode::Normal)
+}
+
 /// Chooses the theme and whether to colour, once, before anything is printed. The shell hooks and
-/// `--first-line-only` (the Alt+h key) never read the theme or the config file, so a bad one cannot break them.
-fn setup_style(cli: &Cli) -> Result<()> {
+/// `--first-line-only` (the Alt+h key) never read the theme, prefs, or the config file, so a bad one cannot break them.
+fn setup_style(cli: &Cli) -> Result<(style::Theme, bool)> {
     use std::io::IsTerminal;
     if cli.first_line_only || matches!(cli.action, Some(Action::ShellInit { .. } | Action::RecordSink { .. })) {
-        return Ok(());
+        return Ok((style::Theme::BabyBlue, false));
     }
-    let theme = style::resolve_theme(
+    let prefs = prefs::load_default();
+    let pref_theme = prefs.theme.as_deref().filter(|t| style::Theme::parse(t).is_ok());
+    let theme = style::resolve_theme_with_prefs(
         cli.theme.as_deref(),
         std::env::var("HUH_THEME").ok().as_deref(),
         mode::config_path().as_deref(),
+        pref_theme,
     )?;
     let on = style::color_enabled(
         cli.color,
@@ -671,7 +738,7 @@ fn setup_style(cli: &Cli) -> Result<()> {
         std::env::var("TERM").is_ok_and(|t| t == "dumb"),
     );
     style::init(style::Style::for_terminal(theme, on, style::TermEnv::detect()));
-    Ok(())
+    Ok((theme, on))
 }
 
 /// The one-time welcome (see welcome.rs). Does nothing unless this is an interactive first run.
@@ -686,17 +753,18 @@ fn main() -> Result<()> {
     #[cfg(unix)]
     exit_quietly_on_closed_pipe();
     let cli = Cli::parse();
-    setup_style(&cli)?;
+    let (active_theme, color_on) = setup_style(&cli)?;
     let first_line_only = cli.first_line_only;
 
     // These do not need the catalog, and the shell ones run in every new terminal.
     match &cli.action {
-        Some(Action::ShellInit { hooks }) => {
-            print!("{}", if *hooks { session::hooks_script() } else { session::record_script()? });
+        Some(Action::ShellInit { shell, hooks }) => {
+            let kind = session::resolve_shell(*shell, std::env::var("SHELL").ok().as_deref());
+            print!("{}", if *hooks { session::hooks_script_for(kind) } else { session::record_script_for(kind)? });
             return Ok(());
         }
         Some(Action::RecordSink { file, pipe }) => return session::sink(file, pipe),
-        Some(Action::Tutor { quiet, side: true, dry_run, .. }) => return side(*quiet, *dry_run),
+        Some(Action::Setup) => return setup::run(),
         Some(Action::Themes) => {
             print!("{}", style::themes_text(style::enabled()));
             return Ok(());
@@ -707,24 +775,90 @@ fn main() -> Result<()> {
             }
             return Ok(());
         }
+        Some(Action::Pet { name, species, style: pet_style, customize }) => {
+            let mut pet = pet::load_default();
+            let mut changed = false;
+            if let Some(n) = name {
+                pet.rename(n)?;
+                changed = true;
+            }
+            if let Some(s) = species {
+                pet.set_species(pet::Species::parse(s)?)?;
+                changed = true;
+            }
+            if changed {
+                pet::save_default(&pet)?;
+            }
+            if let Some(st) = pet_style {
+                let parsed = sprite::RenderStyle::parse(st)?;
+                let mut prefs = prefs::load_default();
+                prefs.pet_style = Some(parsed.name().to_string());
+                prefs::save_default(&prefs)?;
+            }
+            print!("{}", pet::render_status(&pet, date::now_epoch(), None, !pet::enabled()));
+            if *customize {
+                let dir = sprite::override_dir().ok_or_else(|| {
+                    anyhow::anyhow!("cannot find sprite config directory ($XDG_CONFIG_HOME or $HOME)")
+                })?;
+                let path = sprite::export_template(pet.species, &dir)?;
+                println!("\nSprite template ({}): {}", pet.species.name(), path.display());
+            }
+            return Ok(());
+        }
         Some(Action::Why) => return why(),
         Some(Action::EvalErrors { cases }) => return eval::run_errors(cases),
         None if cli.request.is_empty() => {
             if cli.first_line_only {
                 std::process::exit(1);
             }
-            if !std::io::stdin().is_terminal() {
+            if !std::io::stdin().is_terminal()
+                && !cli.dry_run
+                && !cli.here
+                && cli.tty.is_none()
+                && cli.mode.is_none()
+                && !cli.quiet
+            {
                 return why();
             }
-            if let Ok(last) = session::last()
-                && last.exit.is_some_and(|code| code != 0)
-            {
-                return why_last(last);
+            let prefs = prefs::load_default();
+            let cli_mode = cli.mode.as_deref().map(prefs::PaneMode::parse).transpose()?;
+            let config_text = mode::config_path().and_then(|p| std::fs::read_to_string(p).ok());
+            let initial_mode = prefs::resolve_initial_pane_mode(cli_mode, config_text.as_deref(), &prefs)?;
+            let quiet = cli.quiet || prefs.quiet.unwrap_or(false);
+
+            if cli.here || cli.tty.is_some() {
+                let everything = catalog::load_default(cli.catalog)?;
+                let safety = resolve_safety_mode(
+                    cli.expert,
+                    cli.normal,
+                    std::env::var("HUH_MODE").ok().as_deref(),
+                    mode::config_path().as_deref(),
+                    prefs.safety.as_deref(),
+                )?;
+                let opts = pane::RunOpts {
+                    initial_mode,
+                    quiet,
+                    tty: cli.tty.clone(),
+                    safety,
+                    theme: active_theme,
+                    color_on,
+                    dir: cli.dir.clone(),
+                    log: cli.log.clone(),
+                };
+                if let Err(error) = pane::run(&everything, opts) {
+                    if !cli.hold {
+                        return Err(error);
+                    }
+                    // A window opened by --side closes when the pane ends: keep the message readable.
+                    eprintln!("huh: {error:#}\n\nPress Enter to close this window.");
+                    let mut line = String::new();
+                    std::io::stdin().read_line(&mut line).ok();
+                    std::process::exit(1);
+                }
+                return Ok(());
             }
-            bail!(
-                "say what you want to do, e.g. `huh \"make deploy.sh executable\"`, \
-                 `huh explain \"<command>\"`, or `huh why`"
-            );
+
+            return side(quiet, cli.dry_run, cli_mode.map(|m| m.name()));
         }
         _ => {}
     }
@@ -738,33 +872,11 @@ fn main() -> Result<()> {
             | Action::EvalErrors { .. }
             | Action::RecordSink { .. }
             | Action::Themes
-            | Action::Welcome,
+            | Action::Welcome
+            | Action::Setup
+            | Action::Pet { .. },
         ) => {
             unreachable!("handled above")
-        }
-        Some(Action::Tutor { quiet, tty, dir, hold, log, .. }) => {
-            if let Some(dir) = dir {
-                tutor::set_recording_dir(dir);
-            }
-            if let Some(log) = log {
-                tutor::set_recording(log);
-            }
-            let mode = mode::resolve(
-                cli.expert,
-                cli.normal,
-                std::env::var("HUH_MODE").ok().as_deref(),
-                mode::config_path().as_deref(),
-            )?;
-            if let Err(error) = tutor::run(&everything, quiet, tty.as_deref(), mode) {
-                if !hold {
-                    return Err(error);
-                }
-                // A window opened by --side closes when the tutor ends: keep the message readable.
-                eprintln!("huh tutor: {error:#}\n\nPress Enter to close this window.");
-                let mut line = String::new();
-                std::io::stdin().read_line(&mut line).ok();
-                std::process::exit(1);
-            }
         }
         Some(Action::Check) => {
             let everything = catalog::matchable(everything);
@@ -847,11 +959,13 @@ fn main() -> Result<()> {
                 && std::io::stdin().is_terminal()
                 && std::io::stderr().is_terminal();
             let mut decide = |question: &str| if interactive { ask_on_terminal(question) } else { None };
-            let mode = mode::resolve(
+            let prefs = prefs::load_default();
+            let mode = resolve_safety_mode(
                 cli.expert,
                 cli.normal,
                 std::env::var("HUH_MODE").ok().as_deref(),
                 mode::config_path().as_deref(),
+                prefs.safety.as_deref(),
             )?;
             if mode.is_expert() {
                 eprintln!("expert mode: fewer beginner safeguards; warnings are still shown.");
@@ -915,5 +1029,61 @@ mod tests {
             join_argv(&["git".into(), "commit".into(), "-m".into(), "fix bug".into()]),
             r#"git commit -m "fix bug""#
         );
+    }
+
+    #[test]
+    fn safety_mode_precedence_and_cli_flags() {
+        use std::path::Path;
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/main-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let normal_cfg = dir.join("normal.toml");
+        let empty_cfg = dir.join("empty.toml");
+        std::fs::write(&normal_cfg, "mode = \"normal\"\n").unwrap();
+        std::fs::write(&empty_cfg, "theme = \"nord\"\n").unwrap();
+
+        // CLI > HUH_MODE > config.toml > prefs.safety > Normal.
+        assert_eq!(
+            resolve_safety_mode(false, false, None, Some(&empty_cfg), Some("expert")).unwrap(),
+            mode::Mode::Expert
+        );
+        assert_eq!(
+            resolve_safety_mode(false, false, None, Some(&normal_cfg), Some("expert")).unwrap(),
+            mode::Mode::Normal
+        );
+        assert_eq!(
+            resolve_safety_mode(false, false, Some("expert"), Some(&normal_cfg), Some("normal")).unwrap(),
+            mode::Mode::Expert
+        );
+        assert_eq!(
+            resolve_safety_mode(false, true, Some("expert"), Some(&normal_cfg), Some("expert")).unwrap(),
+            mode::Mode::Normal
+        );
+        assert_eq!(
+            resolve_safety_mode(false, false, None, Some(&empty_cfg), Some("bogus")).unwrap(),
+            mode::Mode::Normal
+        );
+        std::fs::remove_dir_all(&dir).ok();
+
+        // Companion pane CLI flags and dropped subcommands.
+        let bare = Cli::try_parse_from(["huh"]).unwrap();
+        assert!(bare.action.is_none() && bare.request.is_empty() && !bare.here);
+        let lab = Cli::try_parse_from(["huh", "--here", "--mode", "lab", "--quiet"]).unwrap();
+        assert!(lab.here && lab.quiet && lab.mode.as_deref() == Some("lab"));
+        let dry = Cli::try_parse_from(["huh", "--dry-run"]).unwrap();
+        assert!(dry.dry_run);
+        assert!(matches!(Cli::try_parse_from(["huh", "setup"]).unwrap().action, Some(Action::Setup)));
+        assert!(matches!(
+            Cli::try_parse_from(["huh", "shell-init", "--shell", "zsh", "--hooks"]).unwrap().action,
+            Some(Action::ShellInit { shell: session::ShellArg::Zsh, hooks: true })
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["huh", "pet", "--style", "ascii", "--customize"]).unwrap().action,
+            Some(Action::Pet { style: Some(_), customize: true, .. })
+        ));
+        let tutor_req = Cli::try_parse_from(["huh", "tutor"]).unwrap();
+        assert!(tutor_req.action.is_none() && tutor_req.request == ["tutor"]);
+        let learn_req = Cli::try_parse_from(["huh", "learn"]).unwrap();
+        assert!(learn_req.action.is_none() && learn_req.request == ["learn"]);
+        assert!(Cli::try_parse_from(["huh", "--here", "list files"]).is_err());
     }
 }

@@ -373,6 +373,23 @@ mod tests {
         assert!(misses.is_empty(), "hint evals must be at 100%: {} misses", misses.len());
     }
 
+    /// Everyday desktop, gaming, and media workflow evals (evals/everyday.toml).
+    #[test]
+    fn everyday_evals_all_pass() {
+        let arch = vec!["arch".to_string(), "omarchy".to_string()];
+        let catalog = crate::catalog::usable(crate::catalog::load_embedded().unwrap(), &arch, false);
+        let matcher = LocalMatcher::new(&catalog);
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals/everyday.toml");
+        let report = score_for(&matcher, &file, &arch).unwrap();
+        let misses: Vec<&String> = report.lines.iter().filter(|line| line.starts_with("MISS")).collect();
+        for line in &misses {
+            println!("{line}");
+        }
+        println!("{} cases, {} misses", report.lines.len(), misses.len());
+        assert!(report.lines.len() >= 12, "everyday.toml should hold 12+ cases");
+        assert!(misses.is_empty(), "everyday evals must be at 100%: {} misses", misses.len());
+    }
+
     #[test]
     fn recorded_failures_are_all_explained() {
         for file in [

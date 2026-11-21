@@ -1,0 +1,259 @@
+id = "finding-your-way"
+number = 1
+title = "Finding Your Way"
+summary = "See where you are, look inside folders, and walk around the Linux file tree with pwd, ls, and cd."
+badge = "pathfinder"
+unlocks_species = "cat"
+
+[[lessons]]
+id = "u1-where-am-i"
+title = "Where Am I?"
+intro = "Every terminal session stands inside one folder at a time. Meet pwd, ls, and the handy path shortcuts /, ~, and ."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u1-l1-q1"
+command = "pwd"
+prompt = "You just opened a terminal and want to check which folder you are standing in. What does `pwd` do?"
+choices = [
+    "Changes your user password",
+    "Prints the full path of your current folder",
+    "Deletes the current folder",
+    "Lists every file on the computer",
+]
+answer = 1
+hint = "`pwd` stands for Print Working Directory — it only prints where you are."
+note = "`pwd` means Print Working Directory. Whenever you feel lost in the terminal, `pwd` shows your exact address."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u1-l1-q2"
+prompt = "Type the command to list the files and folders inside your current folder."
+accepted = ["ls", "ls .", "ls ./"]
+hints = [
+    "It is a two-letter command short for \"list\".",
+    "Type `ls` on its own (or `ls .` for the current folder).",
+]
+note = "`ls` shows what is inside your current folder without changing anything."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u1-l1-q3"
+command = "pwd"
+output = "/home/sam/games"
+prompt = "Look at this output from `pwd`. What does the very first `/` at the start mean?"
+choices = [
+    "The root folder — the very top of the whole Linux file tree",
+    "A hidden file named home",
+    "A broken path error",
+    "Your USB stick",
+]
+answer = 0
+hint = "Every full path in Linux starts from one top-level folder written as a single slash."
+note = "In Linux, `/` is the root folder at the top of the tree, and every other folder lives underneath it."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u1-l1-q4"
+command = "ls ~"
+prompt = "What does `ls ~` show you?"
+choices = [
+    "Only files whose names contain a squiggle",
+    "The files and folders inside the root folder `/`",
+    "The files and folders inside your personal home folder",
+]
+answer = 2
+hint = "The tilde `~` is a shortcut for your own home folder, like `/home/sam`."
+note = "`~` always stands for your home folder, so `ls ~` peeks inside your home folder from anywhere."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u1-l1-q5"
+prompt = "Type the command to print the path of the folder you are currently in."
+accepted = ["pwd"]
+hints = [
+    "Think of the three letters for Print Working Directory.",
+    "Just type `pwd`.",
+]
+note = "`pwd` is read-only and completely safe to run anytime you want to check your spot."
+
+[[lessons]]
+id = "u1-hidden-and-details"
+title = "Hidden Files & Details"
+intro = "Plain ls hides dotfiles and skips details. Add -a and -l to uncover hidden files, sizes, dates, and folder markers."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u1-l2-q1"
+command = "ls -a"
+prompt = "Some files in Linux are hidden because their names start with a dot, like `.bashrc`. What does `ls -a` do?"
+choices = [
+    "Shows all files, including hidden ones that start with a dot",
+    "Sorts files alphabetically from Z to A",
+    "Adds a new empty file to the folder",
+    "Deletes hidden files",
+]
+answer = 0
+hint = "The `-a` flag stands for \"all\"."
+note = "In Linux, dotfiles like `.config` or `.bashrc` stay tucked out of sight until you ask for them with `-a`."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u1-l2-q2"
+command = "ls -l"
+output = """
+total 12
+drwxr-xr-x 2 sam sam 4096 Nov 19 09:10 art
+-rw-r--r-- 1 sam sam  340 Nov 19 09:12 notes.txt
+-rwxr-xr-x 1 sam sam  128 Nov 19 09:15 launch.sh
+"""
+prompt = "Look at the first letter on each line of this `ls -l` output. Which item is a folder?"
+choices = [
+    "notes.txt",
+    "launch.sh",
+    "art",
+    "All three are folders",
+]
+answer = 2
+hint = "Check the very first character on the left: `d` stands for directory (folder), and `-` means a regular file."
+note = "In `ls -l`, the first character tells you the type: `d` is a folder, `-` is a regular file, and `l` is a link."
+expect_output_match = true
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u1-l2-q3"
+command = "ls -la"
+output = """
+total 16
+drwxr-xr-x 3 sam sam 4096 Nov 19 09:20 .
+drwxr-xr-x 5 sam sam 4096 Nov 19 09:00 ..
+-rw-r--r-- 1 sam sam   84 Nov 19 09:18 .bookmarks
+-rw-r--r-- 1 sam sam  512 Nov 19 09:19 journal.txt
+"""
+prompt = "In this `ls -la` output, which file is hidden by default when you run plain `ls`?"
+choices = [
+    "journal.txt",
+    ".bookmarks",
+    "total 16",
+]
+answer = 1
+hint = "Hidden files start with a dot `.` (`.` and `..` are special entries for this folder and its parent)."
+note = "`.bookmarks` starts with a dot, so plain `ls` skips it. You can also read its size (84 bytes) and owner (`sam`)."
+expect_output_match = true
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u1-l2-q4"
+prompt = "Combine `-l` and `-a` to show a detailed listing of ALL files in the current folder, including hidden ones."
+accepted = ["ls -la", "ls -al", "ls -l -a", "ls -a -l", "ls -la .", "ls -al ."]
+hints = [
+    "Start with `ls` and attach both the `-l` (long) and `-a` (all) flags.",
+    "You can bundle short flags together, like `ls -la` or `ls -al`.",
+]
+note = "Short single-letter flags can usually be glued together in any order: `ls -la`, `ls -al`, and `ls -l -a` all do the same thing."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u1-l2-q5"
+prompt = "Type the command to show a detailed (long) list of files inside the `photos` folder."
+accepted = ["ls -l photos", "ls -l photos/", "ls -l ./photos", "ls -l ./photos/", "ls photos -l", "ls photos/ -l"]
+hints = [
+    "Use `ls` with the long-format flag `-l` followed by the folder name.",
+    "Put the folder name after the flag: `ls -l photos`.",
+]
+note = "You can pass a folder name to `ls` to look inside it without even moving there first."
+
+[[lessons]]
+id = "u1-moving-around"
+title = "Moving Around"
+intro = "Walk up, down, and straight back home using cd, .., ~, and relative versus absolute paths."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u1-l3-q1"
+command = "cd .."
+prompt = "You are inside `/home/sam/projects/robot` and you run `cd ..`. Where do you end up?"
+choices = [
+    "/home/sam/projects",
+    "/home/sam/projects/robot",
+    "/",
+    "/home/sam/robot",
+]
+answer = 0
+hint = "Two dots `..` always mean the parent folder — one step up."
+note = "`..` means \"one folder up\". Going up from `/home/sam/projects/robot` lands you in `/home/sam/projects`."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u1-l3-q2"
+prompt = "Type a command to jump straight back to your home folder from anywhere."
+accepted = ["cd ~", "cd", "cd ~/", "cd $HOME", "cd \"$HOME\""]
+hints = [
+    "Use `cd` (change directory) with the home shortcut `~` — or even `cd` all by itself!",
+    "Type `cd ~` or just `cd`.",
+]
+note = "Both `cd ~` and plain `cd` take you straight home whenever you want a fresh starting point."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u1-l3-q3"
+command = "cd /var/log"
+prompt = "Is `/var/log` a relative path or an absolute path, and how can you tell?"
+choices = [
+    "Relative, because it has two words",
+    "Absolute, because it starts with `/` from the very top of the tree",
+    "Relative, because it only works from your home folder",
+]
+answer = 1
+hint = "Look at the very first character of `/var/log`."
+note = "An absolute path starts with `/` and works the same from anywhere. A relative path like `docs/notes` starts from your current folder."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u1-l3-q4"
+command = "pwd"
+output = "/home/sam/school/math"
+prompt = "You are in `/home/sam/school/math`. Which folder does the relative command `cd ../science` move you into?"
+choices = [
+    "/home/sam/school/math/science",
+    "/science",
+    "/home/sam/school/science",
+    "/home/sam/science",
+]
+answer = 2
+hint = "Read `../science` in two steps: `..` goes up to `school`, then `science` goes down into `science`."
+note = "Combining `..` with a sibling folder name like `../science` hops up one level and right back down into a neighbour folder."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u1-l3-q5"
+prompt = "You are in `/home/sam`. Type the command to move into the `docs` folder inside your current folder."
+accepted = ["cd docs", "cd docs/", "cd ./docs", "cd ./docs/"]
+hints = [
+    "Use `cd` followed by the name of the folder you want to enter.",
+    "Type `cd docs`.",
+]
+note = "Nice! Because `docs` is right inside your current folder, the short relative path `cd docs` is all you need."
+
+[practice]
+id = "u1-hidden-clue"
+title = "Find the Hidden Clue"
+goal = "Open a shell in the sandbox folder, list ALL files (including hidden dotfiles), and peek inside `.secret_clue`."
+hints = [
+    "Remember: plain `ls` skips names starting with a dot — try `ls -a` or `ls -la`.",
+    "Once you spot `.secret_clue`, read it with `cat .secret_clue`.",
+]
+
+[practice.setup]
+files = [
+    { path = ".secret_clue", content = "penguin-tracks\n" },
+    { path = "readme.txt", content = "Nothing secret in here — look for a hidden dotfile!\n" },
+]
+
+[[practice.checks]]
+kind = "recorded_output"
+program = "ls"
+output_contains = ".secret_clue"
+fallback_prompt = "What secret phrase is inside .secret_clue?"
+fallback_answer = "penguin-tracks"
+label = "Uncover .secret_clue with ls -a"

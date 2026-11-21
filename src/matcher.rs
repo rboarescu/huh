@@ -56,6 +56,14 @@ const SPECIFIC_ENTRIES: &[&str] = &[
     "docker compose restart",
     "awk column",
     "ls permissions",
+    "dosbox",
+    "appimage run",
+    "flatpak install",
+    "flatpak run",
+    "flatpak search",
+    "flatpak list",
+    "flatpak uninstall",
+    "mpv",
 ];
 
 const STOPWORDS: &[&str] = &[
@@ -1791,7 +1799,7 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
             && q.has_any(&["file", "files", "folder", "folders", "directory", "directories", "named", "bigger", "changed", "modified"])
             && !is_meta_which && !q.has_any(&["inside", "mention", "contain", "search inside", "look through", "ignoring case", "install"]) && !q.raw.contains('"') => bonus += 6.0,
         "grep" if (q.has_any(&["search", "which line", "which lines", "every line", "mention", "contain", "look through", "find the word"]) || q.raw.contains('"'))
-            && !q.has_any(&["service", "package", "aur", "alias", "shortcut", "commit"])
+            && !q.has_any(&["service", "package", "aur", "alias", "shortcut", "commit", "flatpak", "flatpaks", "flathub"])
             && (!q.has_any(&["log", "logs"]) || q.has_log_file()) => bonus += 9.5,
         "search service log" if q.has_any(&["search", "look for", "grep"]) && q.has_any(&["log", "logs"]) && !q.has_log_file() => bonus += 9.5,
         "journalctl" if q.has_any(&["log", "logs", "log lines", "journald", "journal"])
@@ -1820,8 +1828,9 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "zip" if !has_url && !q.has_remote_scp() && q.has_any(&["zip up", "into", "pack", "compress", "create", "make"]) && (q.raw.contains(".zip") || q.has_word("zip")) => bonus += 9.5,
         "unrar" if q.raw.contains(".rar") => bonus += 9.5,
         "package install" if q.has_exact_word("install")
+            && !q.has_any(&["flatpak", "flatpaks", "flathub"])
             && q.raw_tokens.iter().any(|t| !t.quoted && t.lower != "install" && platform::is_known_program(&t.lower)) => bonus += 12.0,
-        "package remove" if q.removes_program() => bonus += 9.0,
+        "package remove" if q.removes_program() && !q.has_any(&["flatpak", "flatpaks", "flathub"]) => bonus += 9.0,
         "package owns file" if q.asks_package_owner() => bonus += 9.0,
         "package provides program" if q.has_word("package")
             && q.has_any(&["provides", "provide", "contains", "has the command", "for the command"])
@@ -1892,12 +1901,17 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "package install" if q.has_word("omarchy") && q.has_any(&["install", "add", "get"]) && !q.has_word("aur") => bonus += 10.5,
         "package remove" if q.has_word("omarchy") && q.has_any(&["uninstall", "remove", "drop"]) => bonus += 10.5,
         "pacman install file" if q.raw.contains(".pkg.tar.zst") => bonus += 9.5,
-        "package install" if q.has_word("install") && !q.has_any(&["aur", "omarchy", "where is", ".pkg.tar.zst", "look for", "is there"]) => bonus += 6.0,
-        "package remove" if q.has_any(&["uninstall", "remove the package", "remove package"]) && !q.has_word("omarchy") => bonus += 7.5,
+        "package install" if q.has_word("install") && !q.has_any(&["aur", "omarchy", "where is", ".pkg.tar.zst", "look for", "is there", "flatpak", "flatpaks", "flathub"]) => bonus += 6.0,
+        "package remove" if q.has_any(&["uninstall", "remove the package", "remove package"]) && !q.has_word("omarchy") && !q.has_any(&["flatpak", "flatpaks", "flathub"]) => bonus += 7.5,
         "system update" if q.has_any(&["update all", "upgrade", "all my packages", "update system", "up to date"]) && !q.has_word("omarchy") => bonus += 8.0,
-        "package search" if (q.has_any(&["is there a package", "package for", "available to install"]) || (q.has_any(&["look for", "search for"]) && q.has_any(&["package", "install", "reader", "program", "app"]))) && !q.has_word("aur") => bonus += 10.5,
+        "package search" if (q.has_any(&["is there a package", "package for", "available to install"]) || (q.has_any(&["look for", "search for"]) && q.has_any(&["package", "install", "reader", "program", "app"]))) && !q.has_word("aur") && !q.has_any(&["flatpak", "flatpaks", "flathub"]) => bonus += 10.5,
         "yay install" if q.has_word("aur") && q.has_any(&["install", "get", "add"]) && !q.has_word("omarchy") => bonus += 9.5,
         "yay search" if q.has_word("aur") && q.has_any(&["search", "find", "look"]) => bonus += 9.5,
+        "flatpak install" if q.has_any(&["flatpak", "flathub"]) && q.has_any(&["install", "add", "get"]) => bonus += 12.0,
+        "flatpak search" if q.has_any(&["flatpak", "flathub"]) && q.has_any(&["search", "find", "look"]) => bonus += 11.5,
+        "flatpak run" if q.has_any(&["flatpak", "flathub"]) && q.has_any(&["run", "launch", "start", "open"]) => bonus += 11.0,
+        "flatpak list" if q.has_any(&["flatpak", "flatpaks"]) && q.has_any(&["list", "installed", "show"]) => bonus += 11.0,
+        "flatpak uninstall" if q.has_any(&["flatpak", "flathub"]) && q.has_any(&["uninstall", "remove", "delete"]) => bonus += 11.5,
         "add shell alias" if q.has_word("alias") || (q.has_word("shortcut") && q.raw.contains('"')) => bonus += 11.5,
         "add to PATH" if q.has_any(&["to my path", "to path"]) || (q.raw.contains("PATH") && q.has_word("add")) => bonus += 9.5,
         "set shell variable" if q.has_any(&["export", "permanently", "every time", "environment variable"])
@@ -2493,6 +2507,7 @@ fn is_off_topic_unmodeled(_cmd: &Command, q: &QueryContext<'_>) -> bool {
             &["image", "photo", "picture", "png", "jpg", "jpeg", "pixels", "wide"],
         ),
         (&["convert", "transcode"], &["video", "gif", "mp4", "mp3", "wav", "webp", "heic", "pdf", "audio"]),
+        (&["shrink", "compress"], &["video", "videos", "webm", "mp4", "mkv", "avi", "mov"]),
         (&["burn", "flash"], &["iso", "usb", "sd card", "drive"]),
         (&["merge", "split", "combine"], &["pdf"]),
         (&["send", "compose"], &["email", "mail", "tweet", "slack"]),
@@ -2627,6 +2642,10 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         "omarchy brightness set" => return percent && has(&["brightness", "backlight", "bright", "dim", "screen"]),
         "omarchy audio output volume" if percent => return false,
         "omarchy brightness display" if percent => return false,
+        "dosbox" => return has(&["dosbox", "dos", "ms-dos", "msdos"]),
+        "appimage run" => return has(&["appimage", "fuse", "libfuse"]) || q.raw_tokens.iter().any(|t| t.lower.ends_with(".appimage")),
+        "flatpak install" | "flatpak run" | "flatpak search" | "flatpak list" | "flatpak uninstall" => return has(&["flatpak", "flatpaks", "flathub"]),
+        "mpv" => return asks_mpv(q),
         _ => {}
     }
 
@@ -2797,6 +2816,29 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         "free" => has(&["ram", "memory", "swap"]) && !has(&["model", "ollama", "docker", "container"]),
         _ => true,
     }
+}
+
+/// Play media only when the user names `mpv` or asks to play or watch a media URL, file, or noun.
+fn asks_mpv(q: &QueryContext<'_>) -> bool {
+    const MEDIA_EXTS: &[&str] =
+        &[".mp4", ".mkv", ".avi", ".webm", ".mov", ".mp3", ".flac", ".wav", ".ogg", ".opus", ".m4a", ".m3u", ".m3u8"];
+    const MEDIA_NOUNS: &[&str] = &[
+        "video", "movie", "film", "audio", "media", "mp4", "mkv", "avi", "webm", "mov", "mp3", "flac", "wav", "ogg",
+        "opus", "m4a",
+    ];
+    if q.has_word("mpv") {
+        return true;
+    }
+    if !q.has_any(&["play", "watch", "listen", "loop", "player"]) || q.has_any(&["recommend", "good movie"]) {
+        return false;
+    }
+    q.has_url()
+        || q.raw_tokens.iter().any(|t| {
+            t.lower.starts_with("http://")
+                || t.lower.starts_with("https://")
+                || MEDIA_EXTS.iter().any(|ext| t.lower.ends_with(ext))
+        })
+        || q.has_any(MEDIA_NOUNS)
 }
 
 // ---------------------------------------------------------------------------
@@ -4977,6 +5019,9 @@ fn score_by_role(
         }
         SlotRole::PackageOrTerm => {
             if cand.contains('.') && lower.ends_with(".pkg.tar.zst") {
+                return 0.0;
+            }
+            if cmd_name.starts_with("flatpak ") && matches!(lower.as_str(), "flatpak" | "flatpaks" | "flathub") {
                 return 0.0;
             }
             let value_word = known_package || !is_non_value_english_word(&lower);

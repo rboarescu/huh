@@ -1,0 +1,11 @@
+name = "flatpak install"
+description = "Install an application from Flathub using Flatpak"
+template = "flatpak install flathub {package}"
+kind = "action"
+keywords = ["flatpak install", "install flatpak", "install from flathub", "flathub install", "install flatpak app"]
+
+[[slots]]
+id = "package"
+kind = "text"
+type = "package"
+what = "the Flatpak app name or ID to install"

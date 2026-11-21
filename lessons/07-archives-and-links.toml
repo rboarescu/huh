@@ -1,0 +1,276 @@
+id = "archives-and-links"
+number = 7
+title = "Archives & Links"
+summary = "Bundle and unpack folders with tar, gzip, and unzip, compare files with diff and sha256sum, and make shortcuts with ln -s."
+badge = "archive_ace"
+
+[[lessons]]
+id = "u7-tar-bundles"
+title = "Packing & Unpacking with tar"
+intro = "Bundle folders into compact .tar.gz archives with tar -czf, peek inside safely with tar -tf, and unpack with tar -xzf."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u7-l1-q1"
+command = "tar -czf backup.tar.gz notes/"
+prompt = "In `tar -czf backup.tar.gz notes/`, what do the three flags `-c`, `-z`, and `-f` mean?"
+choices = [
+    "Copy, zoom, and format your disk",
+    "Create a new archive (`-c`), compress with gzip (`-z`), and use the filename that follows (`-f`)",
+    "Check, zero-out, and freeze `notes/`",
+    "Close, unzip, and find files",
+]
+answer = 1
+hint = "Remember `c` = create, `z` = gzip compression, `f` = file."
+note = "`tar -czf archive.tar.gz folder/` packs and compresses a whole folder tree into one portable file."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u7-l1-q2"
+command = "tar -tf backup.tar.gz"
+prompt = "Before unpacking an archive from someone else, it is smart to peek inside first. What does `tar -tf backup.tar.gz` do?"
+choices = [
+    "Extracts every file and deletes the archive",
+    "Tests your internet speed",
+    "Lists the files inside `backup.tar.gz` without extracting anything",
+]
+answer = 2
+hint = "Think of `-t` as \"table of contents\"."
+note = "`tar -tf` lets you inspect an archive's contents before unpacking so you know whether it creates a neat subfolder or drops loose files."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u7-l1-q3"
+prompt = "Type the `tar` command to list the contents of `photos.tar.gz` without unpacking it."
+accepted = [
+    "tar -tf photos.tar.gz",
+    "tar -tzf photos.tar.gz",
+    "tar -tvf photos.tar.gz",
+    "tar -t -f photos.tar.gz",
+    "tar --list -f photos.tar.gz",
+]
+hints = [
+    "Use `tar` with `-t` (list table of contents) and `-f` followed by the archive name.",
+    "Type `tar -tf photos.tar.gz`.",
+]
+note = "Checking with `tar -tf` first is a classic pro habit — completely read-only and takes a split second."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u7-l1-q4"
+prompt = "Extract the compressed archive `game.tar.gz` using `tar` (`-x`, `-z`, `-f`)."
+accepted = [
+    "tar -xzf game.tar.gz",
+    "tar -xf game.tar.gz",
+    "tar -xzvf game.tar.gz",
+    "tar -xvf game.tar.gz",
+    "tar -x -z -f game.tar.gz",
+    "tar -x -f game.tar.gz",
+]
+hints = [
+    "Swap `-c` (create) for `-x` (extract), keeping `-z` and `-f` before the filename.",
+    "Type `tar -xzf game.tar.gz`.",
+]
+note = "Modern `tar` can even auto-detect gzip with `tar -xf`, and `tar -xzf` works everywhere!"
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u7-l1-q5"
+command = "tar -tf project.tar.gz"
+output = """
+project/
+project/README.md
+project/src/main.py
+"""
+prompt = "You peeked inside `project.tar.gz` with `tar -tf`. What will appear in your current folder when you unpack it?"
+choices = [
+    "One tidy `project/` folder holding `README.md` and `src/main.py`",
+    "Loose files scattered without any folder",
+    "Nothing — `tar -tf` already deleted them",
+]
+answer = 0
+hint = "Every line in the listing starts with `project/`."
+note = "Because every path starts with `project/`, unpacking keeps everything neatly grouped inside one folder."
+
+[[lessons]]
+id = "u7-zip-diff-hashes"
+title = "Zip, Diff & Checksums"
+intro = "Compress single files with gzip, compare changes with diff, verify downloads with sha256sum, and unpack zip files carefully."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u7-l2-q1"
+command = "diff old.txt new.txt"
+prompt = "What does `diff old.txt new.txt` show?"
+choices = [
+    "Merges both files into `old.txt`",
+    "Deletes whichever file is older",
+    "Only the lines that differ between `old.txt` and `new.txt`",
+    "Counts how many words are in both files",
+]
+answer = 2
+hint = "`diff` is short for \"differences\" — it never edits either file."
+note = "`diff` (especially `diff -u` for unified format) highlights exactly what changed between two text files."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u7-l2-q2"
+command = "sha256sum game.iso"
+prompt = "Why do download pages often publish a `sha256sum` string next to a file?"
+choices = [
+    "It is a unique fingerprint of the file — if even one byte changed or got corrupted, the checksum will not match",
+    "It compresses the file to half its size",
+    "It is the password to unzip the file",
+]
+answer = 0
+hint = "A cryptographic checksum acts like a tamper-evident seal for a file's exact bytes."
+note = "Running `sha256sum` on a downloaded file and comparing it against the official hash confirms the file arrived intact."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u7-l2-q3"
+prompt = "Compare `v1.txt` and `v2.txt` line by line using `diff`."
+accepted = ["diff v1.txt v2.txt", "diff -u v1.txt v2.txt", "diff ./v1.txt ./v2.txt"]
+hints = [
+    "Use `diff` followed by the first file and the second file.",
+    "Type `diff v1.txt v2.txt`.",
+]
+note = "If `diff` prints nothing at all, that means both files are 100% identical!"
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u7-l2-q4"
+command = "gzip notes.txt && ls"
+output = "notes.txt.gz"
+prompt = "After running `gzip notes.txt`, the folder contains `notes.txt.gz`. Which command turns it back into the uncompressed `notes.txt`?"
+choices = [
+    "`mkdir notes.txt`",
+    "`gunzip notes.txt.gz` (or `gzip -d notes.txt.gz`)",
+    "`rm notes.txt.gz`",
+]
+answer = 1
+hint = "Think of the opposite of `gzip` (or the `-d` decompress flag)."
+note = "`gzip` compresses a single file into `.gz`, and `gunzip` (or `gzip -d`) restores the original file."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u7-l2-q5"
+prompt = "What makes `unzip -o backup.zip` risky compared to plain `unzip backup.zip`?"
+command = "unzip -o backup.zip"
+choices = [
+    "`-o` only extracts files starting with the letter `o`",
+    "`-o` sends the zip file over the network",
+    "`-o` overwrites existing files of the same name without asking first",
+    "`-o` deletes the zip file without unpacking it",
+]
+answer = 2
+risk = "destroys data"
+hint = "The `-o` flag stands for \"overwrite\"."
+note = "Plain `unzip` pauses and asks before replacing an existing file; `unzip -o` skips the question and overwrites right away."
+
+[[lessons]]
+id = "u7-symbolic-links"
+title = "Shortcuts with Symbolic Links"
+intro = "Create lightweight shortcuts to files and folders with ln -s, recognise them in ls -l, and avoid forcing overwrites with -f."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u7-l3-q1"
+command = "ln -s notes_v2.txt latest.txt"
+prompt = "What does `ln -s notes_v2.txt latest.txt` create?"
+choices = [
+    "A symbolic link (shortcut) named `latest.txt` that points to `notes_v2.txt`",
+    "A full duplicate copy of `notes_v2.txt`",
+    "Moves `notes_v2.txt` into the trash",
+    "A link named `notes_v2.txt` pointing to `latest.txt`",
+]
+answer = 0
+hint = "`ln -s` takes `TARGET` first and `LINK_NAME` second — just like `cp source destination`."
+note = "A symlink (`ln -s`) is a lightweight pointer: opening `latest.txt` opens `notes_v2.txt` without duplicating disk space."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u7-l3-q2"
+command = "ls -l"
+output = """
+total 4
+lrwxrwxrwx 1 sam sam 12 Nov 19 11:00 latest.txt -> notes_v2.txt
+-rw-r--r-- 1 sam sam 48 Nov 19 10:55 notes_v2.txt
+"""
+prompt = "Look at the first line of this `ls -l` listing. How can you tell `latest.txt` is a symbolic link?"
+choices = [
+    "Its owner is `sam`",
+    "Its permissions start with `l` and its name shows `-> notes_v2.txt`",
+    "Its size is `48` bytes",
+]
+answer = 1
+hint = "Check the very first character of `lrwxrwxrwx` and the arrow after the link name."
+note = "In `ls -l`, `l` means symbolic link and `-> target` shows exactly where the shortcut points."
+expect_output_match = true
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u7-l3-q3"
+prompt = "Create a symbolic link named `current.log` pointing to `today.log` using `ln -s`."
+accepted = [
+    "ln -s today.log current.log",
+    "ln --symbolic today.log current.log",
+    "ln -s ./today.log current.log",
+]
+hints = [
+    "Remember the order: `ln -s TARGET LINK_NAME` — the existing file comes first!",
+    "Type `ln -s today.log current.log`.",
+]
+note = "Nice! Putting the target first (`today.log`) and the new shortcut name second (`current.log`) matches `cp` and `mv`."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u7-l3-q4"
+prompt = "Print the SHA-256 fingerprint (checksum) of `release.tar.gz`."
+accepted = ["sha256sum release.tar.gz", "sha256sum ./release.tar.gz"]
+hints = [
+    "Use `sha256sum` followed by the filename.",
+    "Type `sha256sum release.tar.gz`.",
+]
+note = "`sha256sum` computes the fingerprint locally without modifying the file."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u7-l3-q5"
+prompt = "You want to create a symlink without accidentally replacing an existing file of the same name. Which command is DANGEROUS because `-f` forces an overwrite without asking?"
+choices = [
+    "ln -s new.txt current.txt",
+    "ls -l current.txt",
+    "ln -sf new.txt current.txt",
+    "diff old.txt new.txt",
+]
+answer = 2
+risk = "destroys data"
+hint = "Look for the `-f` (force) flag combined with `ln -s`."
+note = "Plain `ln -s` refuses if `current.txt` already exists; `ln -sf` replaces whatever was at `current.txt` without asking."
+
+[practice]
+id = "u7-link-up"
+title = "Create a Symlink & Clean Up"
+goal = "Create a symbolic link named `latest.txt` pointing to `notes_v2.txt`, and remove the leftover `old.tmp` file."
+hints = [
+    "Create the shortcut with `ln -s notes_v2.txt latest.txt`.",
+    "Remove the leftover temp file with `rm old.tmp`.",
+]
+
+[practice.setup]
+files = [
+    { path = "notes_v2.txt", content = "Version 2 notes\n" },
+    { path = "old.tmp", content = "temporary scratch\n" },
+]
+
+[[practice.checks]]
+kind = "is_symlink"
+path = "latest.txt"
+target = "notes_v2.txt"
+label = "`latest.txt` is a symlink pointing to `notes_v2.txt`"
+
+[[practice.checks]]
+kind = "not_exists"
+path = "old.tmp"
+label = "`old.tmp` has been removed"

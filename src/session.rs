@@ -8,7 +8,100 @@
 
 use anyhow::{Context, Result, anyhow};
 use std::io::{Read, Seek, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// Supported interactive shells for `huh shell-init` and `huh setup`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum ShellKind {
+    Bash,
+    Zsh,
+    Fish,
+}
+
+impl ShellKind {
+    #[allow(dead_code)]
+    pub fn name(self) -> &'static str {
+        match self {
+            ShellKind::Bash => "bash",
+            ShellKind::Zsh => "zsh",
+            ShellKind::Fish => "fish",
+        }
+    }
+}
+
+/// CLI selector for `huh shell-init --shell`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, clap::ValueEnum)]
+#[allow(dead_code)]
+pub enum ShellArg {
+    #[default]
+    Auto,
+    Bash,
+    Zsh,
+    Fish,
+}
+
+/// Detects the user's shell from `$SHELL` (defaults to `Bash` when unknown or unset).
+#[allow(dead_code)]
+pub fn detect_shell(shell_env: Option<&str>) -> ShellKind {
+    let Some(raw) = shell_env.map(str::trim).filter(|s| !s.is_empty()) else {
+        return ShellKind::Bash;
+    };
+    let base = Path::new(raw).file_name().and_then(|n| n.to_str()).unwrap_or(raw);
+    match base {
+        "zsh" => ShellKind::Zsh,
+        "fish" => ShellKind::Fish,
+        _ => ShellKind::Bash,
+    }
+}
+
+/// Resolves `--shell` against `$SHELL`.
+#[allow(dead_code)]
+pub fn resolve_shell(arg: ShellArg, shell_env: Option<&str>) -> ShellKind {
+    match arg {
+        ShellArg::Auto => detect_shell(shell_env),
+        ShellArg::Bash => ShellKind::Bash,
+        ShellArg::Zsh => ShellKind::Zsh,
+        ShellArg::Fish => ShellKind::Fish,
+    }
+}
+
+/// Returns the interactive rc file path for `shell` (`~/.bashrc`, `~/.zshrc`, or `config.fish`).
+#[allow(dead_code)]
+pub fn rc_path(shell: ShellKind, xdg_config: Option<&Path>, home: &Path) -> PathBuf {
+    rc_path_with_zdotdir(shell, xdg_config, None, home)
+}
+
+/// Like `rc_path`, honoring `$ZDOTDIR` for zsh when provided.
+#[allow(dead_code)]
+pub fn rc_path_with_zdotdir(
+    shell: ShellKind,
+    xdg_config: Option<&Path>,
+    zdotdir: Option<&Path>,
+    home: &Path,
+) -> PathBuf {
+    match shell {
+        ShellKind::Bash => home.join(".bashrc"),
+        ShellKind::Zsh => zdotdir.filter(|p| !p.as_os_str().is_empty()).unwrap_or(home).join(".zshrc"),
+        ShellKind::Fish => xdg_config
+            .filter(|p| !p.as_os_str().is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".config"))
+            .join("fish/config.fish"),
+    }
+}
+
+/// Returns `(record_line, hooks_line)` to add to the user's shell rc file.
+#[allow(dead_code)]
+pub fn init_lines(shell: ShellKind) -> (&'static str, &'static str) {
+    match shell {
+        ShellKind::Bash => (r#"eval "$(huh shell-init)""#, r#"eval "$(huh shell-init --hooks)""#),
+        ShellKind::Zsh => {
+            (r#"eval "$(huh shell-init --shell zsh)""#, r#"eval "$(huh shell-init --shell zsh --hooks)""#)
+        }
+        ShellKind::Fish => ("huh shell-init --shell fish | source", "huh shell-init --shell fish --hooks | source"),
+    }
+}
 
 /// Invisible terminal sequences (a private OSC number) printed by the shell hooks.
 const START: &str = "\x1b]7770;huh;start\x07";
@@ -37,12 +130,20 @@ fn env_nonempty(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|s| !s.is_empty())
 }
 
-/// Goes right after the "is this shell interactive" check in ~/.bashrc: replaces
-/// the shell with a recorded one. Does nothing when already recorded.
+/// Goes right after the "is this shell interactive" check in the shell's rc file:
+/// replaces the shell with a recorded one. Does nothing when already recorded.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn record_script() -> Result<String> {
+    record_script_for(ShellKind::Bash)
+}
+
+/// Shell-specific recording wrapper for `huh shell-init --shell <shell>`.
+pub fn record_script_for(shell: ShellKind) -> Result<String> {
     let huh = std::env::current_exe().context("cannot find the huh binary")?;
-    Ok(format!(
-        r#"# huh: record this terminal so `huh why` can read the last command's output.
+    let huh = shell_quote(&huh.to_string_lossy());
+    Ok(match shell {
+        ShellKind::Bash => format!(
+            r#"# huh: record this terminal so `huh why` can read the last command's output.
 if [[ $- == *i* && -z ${{HUH_NO_RECORD-}} && -t 0 && -t 1 ]] && command -v script >/dev/null; then
   if [[ ${{HUH_SESSION_TTY-}} != "$(tty)" ]]; then
     if [[ -n ${{HUH_SESSION_NEW-}} ]]; then
@@ -74,17 +175,105 @@ if [[ $- == *i* && -z ${{HUH_NO_RECORD-}} && -t 0 && -t 1 ]] && command -v scrip
     fi
   fi
 fi
-"#,
-        huh = shell_quote(&huh.to_string_lossy())
-    ))
+"#
+        ),
+        ShellKind::Zsh => format!(
+            r#"# huh: record this terminal so `huh why` can read the last command's output.
+if [[ -o interactive && -z ${{HUH_NO_RECORD-}} && -t 0 && -t 1 ]] && command -v script >/dev/null; then
+  if [[ ${{HUH_SESSION_TTY-}} != "$(tty)" ]]; then
+    if [[ -n ${{HUH_SESSION_NEW-}} ]]; then
+      # We are the shell inside the recorder.
+      export HUH_SESSION_TTY="$(tty)"
+      unset HUH_SESSION_NEW
+    else
+      __huh_dir="${{XDG_RUNTIME_DIR:-$HOME/.cache}}/huh"
+      if mkdir -p "$__huh_dir" && chmod 700 "$__huh_dir"; then
+        for __huh_old in "$__huh_dir"/*.log(N); do
+          __huh_pid=${{__huh_old##*/}}
+          [[ -d /proc/${{__huh_pid%.log}} ]] || rm -f "$__huh_old" "${{__huh_old%.log}}.status"
+        done
+        export HUH_SESSION_LOG="$__huh_dir/$$.log" HUH_SESSION_STATUS="$__huh_dir/$$.status"
+        __huh_pipe="$__huh_dir/$$.pipe"
+        rm -f "$__huh_pipe"
+        if [[ -x {huh} ]] && mkfifo -m 600 "$__huh_pipe"; then
+          (umask 077; : >| "$HUH_SESSION_STATUS")
+          # The reader is detached on purpose: `script` hangs at exit if it has a child of its own.
+          ({huh} record-sink "$HUH_SESSION_LOG" "$__huh_pipe" </dev/null >/dev/null 2>&1 &)
+          export HUH_SESSION_NEW=1
+          exec script -qf "$__huh_pipe" -c "$SHELL"
+          # Only reached when the recorder could not start: release the reader, carry on unrecorded.
+          : <> "$__huh_pipe"
+        fi
+        unset HUH_SESSION_LOG HUH_SESSION_STATUS HUH_SESSION_NEW __huh_pipe
+      fi
+      unset __huh_dir __huh_old __huh_pid
+    fi
+  fi
+fi
+"#
+        ),
+        ShellKind::Fish => format!(
+            r#"# huh: record this terminal so `huh why` can read the last command's output.
+if status is-interactive; and test -z "$HUH_NO_RECORD"; and test -t 0; and test -t 1; and command -v script >/dev/null
+    set -l __huh_tty (tty 2>/dev/null)
+    if test "$HUH_SESSION_TTY" != "$__huh_tty"
+        if test -n "$HUH_SESSION_NEW"
+            # We are the shell inside the recorder.
+            set -gx HUH_SESSION_TTY "$__huh_tty"
+            set -e HUH_SESSION_NEW
+        else
+            set -l __huh_dir "$XDG_RUNTIME_DIR/huh"
+            if test -z "$XDG_RUNTIME_DIR"
+                set __huh_dir "$HOME/.cache/huh"
+            end
+            if mkdir -p "$__huh_dir"; and chmod 700 "$__huh_dir"
+                for __huh_old in "$__huh_dir"/*.log
+                    set -l __huh_base (string replace -r '.*/' '' -- "$__huh_old")
+                    set -l __huh_pid (string replace -r '\.log$' '' -- "$__huh_base")
+                    if not test -d "/proc/$__huh_pid"
+                        rm -f "$__huh_old" "$__huh_dir/$__huh_pid.status"
+                    end
+                end
+                set -gx HUH_SESSION_LOG "$__huh_dir/$fish_pid.log"
+                set -gx HUH_SESSION_STATUS "$__huh_dir/$fish_pid.status"
+                set -l __huh_pipe "$__huh_dir/$fish_pid.pipe"
+                rm -f "$__huh_pipe"
+                if test -x {huh}; and mkfifo -m 600 "$__huh_pipe"
+                    set -l __huh_umask (umask)
+                    umask 077
+                    printf '' > "$HUH_SESSION_STATUS"
+                    umask $__huh_umask
+                    # The reader is detached on purpose: `script` hangs at exit if it has a child of its own.
+                    {huh} record-sink "$HUH_SESSION_LOG" "$__huh_pipe" </dev/null >/dev/null 2>&1 &
+                    disown $last_pid 2>/dev/null
+                    set -gx HUH_SESSION_NEW 1
+                    exec script -qf "$__huh_pipe" -c (status fish-path)
+                    # Only reached when the recorder could not start: release the reader, carry on unrecorded.
+                    printf '' > "$__huh_pipe"
+                end
+                set -e HUH_SESSION_LOG HUH_SESSION_STATUS HUH_SESSION_NEW
+            end
+        end
+    end
+end
+"#
+        ),
+    })
 }
 
 /// Goes at the end of ~/.bashrc: marks where each command's output starts and
 /// ends, notes its exit code (skipping `huh ...` commands),
 /// and binds a key (default Alt+h and Alt+f, or `$HUH_KEY`) to replace the prompt
 /// line with `huh`'s top suggestion without running it, and Alt+e to explain the prompt line.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn hooks_script() -> String {
-    r#"# huh: mark each command's output (only in a recorded terminal) and bind prompt suggestion.
+    hooks_script_for(ShellKind::Bash)
+}
+
+/// Shell-specific command marker hooks and keybindings for `huh shell-init --hooks --shell <shell>`.
+pub fn hooks_script_for(shell: ShellKind) -> String {
+    match shell {
+        ShellKind::Bash => r#"# huh: mark each command's output (only in a recorded terminal) and bind prompt suggestion.
 if [[ $- == *i* && -n ${HUH_SESSION_LOG-} && ${HUH_SESSION_TTY-} == "$(tty)" && -z ${__huh_hooked-} ]]; then
   __huh_hooked=1
   # Ghostty only sets up its shell integration in the first shell of a terminal.
@@ -147,7 +336,128 @@ if [[ $- == *i* && -z ${__huh_key_bound-} ]]; then
   fi
 fi
 "#
-    .to_string()
+        .to_string(),
+        ShellKind::Zsh => r#"# huh: mark each command's output (only in a recorded terminal) and bind prompt suggestion.
+if [[ -o interactive && -n ${HUH_SESSION_LOG-} && ${HUH_SESSION_TTY-} == "$(tty)" && -z ${__huh_hooked-} ]]; then
+  __huh_hooked=1
+  __huh_cmd=""
+  __huh_active=0
+  __huh_preexec() {
+    local line=${1#"${1%%[^[:space:]]*}"}
+    if [[ $line == huh* ]]; then
+      __huh_active=0
+      __huh_cmd=""
+    else
+      __huh_active=1
+      __huh_cmd=$line
+      builtin printf '\e]7770;huh;start\a'
+    fi
+  }
+  __huh_precmd() {
+    local st=$?
+    if (( __huh_active )); then
+      builtin printf '\e]7770;huh;end\a'
+      builtin printf '%s\n%s\n' "$st" "$__huh_cmd" >| "$HUH_SESSION_STATUS"
+      __huh_active=0
+      __huh_cmd=""
+    fi
+    return "$st"
+  }
+  autoload -Uz add-zsh-hook
+  add-zsh-hook preexec __huh_preexec
+  add-zsh-hook precmd __huh_precmd
+fi
+if [[ -o interactive && -z ${__huh_key_bound-} ]]; then
+  __huh_key_bound=1
+  __huh_complete() {
+    [[ -n ${BUFFER//[[:space:]]/} ]] || return 0
+    local suggestion
+    if suggestion=$(huh --no-ask --first-line-only "$BUFFER" 2>/dev/null) && [[ -n $suggestion ]]; then
+      BUFFER=$suggestion
+      CURSOR=${#BUFFER}
+    fi
+  }
+  # Alt+e: explain the line being typed, below the prompt, without running it.
+  __huh_explain() {
+    [[ -n ${BUFFER//[[:space:]]/} ]] || return 0
+    zle -I
+    builtin printf '\n'
+    huh explain "$BUFFER" 2>&1
+    zle reset-prompt
+  }
+  zle -N __huh_complete
+  zle -N __huh_explain
+  bindkey '\ee' __huh_explain
+  if [[ -n ${HUH_KEY+x} ]]; then
+    if [[ -n $HUH_KEY ]]; then
+      bindkey "$HUH_KEY" __huh_complete
+    fi
+  else
+    bindkey '\eh' __huh_complete
+    bindkey '\ef' __huh_complete
+  fi
+fi
+"#
+        .to_string(),
+        ShellKind::Fish => r#"# huh: mark each command's output (only in a recorded terminal) and bind prompt suggestion.
+set -l __huh_tty (tty 2>/dev/null)
+if status is-interactive; and test -n "$HUH_SESSION_LOG"; and test -n "$__huh_tty"; and test "$HUH_SESSION_TTY" = "$__huh_tty"; and not set -q __huh_hooked
+    set -g __huh_hooked 1
+    set -g __huh_active 0
+    set -g __huh_cmd ""
+    function __huh_preexec --on-event fish_preexec
+        set -l __huh_line (string trim -l -- "$argv[1]")
+        if string match -q 'huh*' -- "$__huh_line"
+            set -g __huh_active 0
+            set -g __huh_cmd ""
+        else
+            set -g __huh_active 1
+            set -g __huh_cmd "$__huh_line"
+            printf '\e]7770;huh;start\a'
+        end
+    end
+    function __huh_postexec --on-event fish_postexec
+        set -l __huh_st $status
+        if test "$__huh_active" = 1
+            printf '\e]7770;huh;end\a'
+            printf '%s\n%s\n' "$__huh_st" "$__huh_cmd" > "$HUH_SESSION_STATUS"
+            set -g __huh_active 0
+            set -g __huh_cmd ""
+        end
+    end
+end
+if status is-interactive; and not set -q __huh_key_bound
+    set -g __huh_key_bound 1
+    function __huh_complete
+        set -l __huh_line (commandline -b)
+        string match -rq '\S' -- "$__huh_line"; or return 0
+        set -l __huh_suggestion (huh --no-ask --first-line-only "$__huh_line" 2>/dev/null)
+        if test $status -eq 0; and test -n "$__huh_suggestion"
+            commandline -r -- "$__huh_suggestion"
+            commandline -C (string length -- "$__huh_suggestion")
+        end
+    end
+    # Alt+e: explain the line being typed, below the prompt, without running it.
+    function __huh_explain
+        set -l __huh_line (commandline -b)
+        string match -rq '\S' -- "$__huh_line"; or return 0
+        printf '\n'
+        huh explain "$__huh_line" 2>&1
+        commandline -f repaint
+    end
+    bind \ee __huh_explain
+    if set -q HUH_KEY
+        if test -n "$HUH_KEY"
+            bind "$HUH_KEY" __huh_complete
+        end
+    else
+        bind \eh __huh_complete
+        bind \ef __huh_complete
+    end
+end
+"#
+        .to_string(),
+    }
 }
 
 /// `huh record-sink <file> <pipe>`: copies the recorder's pipe to the file,
@@ -465,5 +775,106 @@ grep -q "ls -la" {status}
             String::from_utf8_lossy(&custom_out.stdout),
             String::from_utf8_lossy(&custom_out.stderr)
         );
+    }
+
+    #[test]
+    fn detect_and_resolve_shell_uses_basename() {
+        assert_eq!(detect_shell(Some("/bin/zsh")), ShellKind::Zsh);
+        assert_eq!(detect_shell(Some("/usr/local/bin/fish")), ShellKind::Fish);
+        assert_eq!(detect_shell(Some("/bin/bash")), ShellKind::Bash);
+        assert_eq!(detect_shell(Some("zsh")), ShellKind::Zsh);
+        assert_eq!(detect_shell(Some("fish")), ShellKind::Fish);
+        assert_eq!(detect_shell(Some("")), ShellKind::Bash);
+        assert_eq!(detect_shell(None), ShellKind::Bash);
+        assert_eq!(detect_shell(Some("/bin/sh")), ShellKind::Bash);
+
+        assert_eq!(resolve_shell(ShellArg::Auto, Some("/usr/bin/zsh")), ShellKind::Zsh);
+        assert_eq!(resolve_shell(ShellArg::Fish, Some("/bin/bash")), ShellKind::Fish);
+        assert_eq!(resolve_shell(ShellArg::Bash, Some("/usr/bin/fish")), ShellKind::Bash);
+        assert_eq!(resolve_shell(ShellArg::Zsh, None), ShellKind::Zsh);
+    }
+
+    #[test]
+    fn rc_path_and_init_lines_match_each_shell() {
+        let home = Path::new("/home/alice");
+        assert_eq!(rc_path(ShellKind::Bash, None, home), PathBuf::from("/home/alice/.bashrc"));
+        assert_eq!(rc_path(ShellKind::Zsh, None, home), PathBuf::from("/home/alice/.zshrc"));
+        assert_eq!(
+            rc_path_with_zdotdir(ShellKind::Zsh, None, Some(Path::new("/home/alice/.config/zsh")), home),
+            PathBuf::from("/home/alice/.config/zsh/.zshrc")
+        );
+        assert_eq!(rc_path(ShellKind::Fish, None, home), PathBuf::from("/home/alice/.config/fish/config.fish"));
+        assert_eq!(rc_path(ShellKind::Fish, Some(Path::new("/xdg")), home), PathBuf::from("/xdg/fish/config.fish"));
+
+        assert_eq!(init_lines(ShellKind::Bash), (r#"eval "$(huh shell-init)""#, r#"eval "$(huh shell-init --hooks)""#));
+        assert_eq!(
+            init_lines(ShellKind::Zsh),
+            (r#"eval "$(huh shell-init --shell zsh)""#, r#"eval "$(huh shell-init --shell zsh --hooks)""#)
+        );
+        assert_eq!(
+            init_lines(ShellKind::Fish),
+            ("huh shell-init --shell fish | source", "huh shell-init --shell fish --hooks | source")
+        );
+    }
+
+    #[test]
+    fn zsh_and_fish_scripts_contain_hooks_and_pass_installed_syntax_check() {
+        assert_eq!(record_script_for(ShellKind::Bash).unwrap(), record_script().unwrap());
+        assert_eq!(hooks_script_for(ShellKind::Bash), hooks_script());
+
+        let zsh_rec = record_script_for(ShellKind::Zsh).unwrap();
+        assert!(zsh_rec.contains("HUH_NO_RECORD"));
+        assert!(zsh_rec.contains("HUH_SESSION_LOG"));
+        assert!(zsh_rec.contains("HUH_SESSION_STATUS"));
+        assert!(zsh_rec.contains("HUH_SESSION_TTY"));
+        assert!(zsh_rec.contains(r#"script -qf "$__huh_pipe" -c "$SHELL""#));
+
+        let zsh_hooks = hooks_script_for(ShellKind::Zsh);
+        assert!(zsh_hooks.contains("add-zsh-hook preexec __huh_preexec"));
+        assert!(zsh_hooks.contains("add-zsh-hook precmd __huh_precmd"));
+        assert!(zsh_hooks.contains(r#"\e]7770;huh;start\a"#));
+        assert!(zsh_hooks.contains(r#"\e]7770;huh;end\a"#));
+        assert!(zsh_hooks.contains("HUH_SESSION_STATUS"));
+        assert!(zsh_hooks.contains("[[ $line == huh* ]]"));
+        assert!(zsh_hooks.contains("zle -N __huh_complete"));
+        assert!(zsh_hooks.contains(r#"bindkey '\eh' __huh_complete"#));
+        assert!(zsh_hooks.contains(r#"bindkey '\ef' __huh_complete"#));
+        assert!(zsh_hooks.contains(r#"bindkey '\ee' __huh_explain"#));
+        assert!(zsh_hooks.contains("HUH_KEY"));
+
+        let fish_rec = record_script_for(ShellKind::Fish).unwrap();
+        assert!(fish_rec.contains("HUH_NO_RECORD"));
+        assert!(fish_rec.contains("HUH_SESSION_LOG"));
+        assert!(fish_rec.contains("HUH_SESSION_STATUS"));
+        assert!(fish_rec.contains("HUH_SESSION_TTY"));
+        assert!(fish_rec.contains(r#"script -qf "$__huh_pipe" -c (status fish-path)"#));
+
+        let fish_hooks = hooks_script_for(ShellKind::Fish);
+        assert!(fish_hooks.contains("--on-event fish_preexec"));
+        assert!(fish_hooks.contains("--on-event fish_postexec"));
+        assert!(fish_hooks.contains(r#"\e]7770;huh;start\a"#));
+        assert!(fish_hooks.contains(r#"\e]7770;huh;end\a"#));
+        assert!(fish_hooks.contains("$HUH_SESSION_STATUS"));
+        assert!(fish_hooks.contains("string match -q 'huh*'"));
+        assert!(fish_hooks.contains(r#"bind \eh __huh_complete"#));
+        assert!(fish_hooks.contains(r#"bind \ef __huh_complete"#));
+        assert!(fish_hooks.contains(r#"bind \ee __huh_explain"#));
+        assert!(fish_hooks.contains("HUH_KEY"));
+
+        for (bin, scripts) in [("zsh", [zsh_rec, zsh_hooks]), ("fish", [fish_rec, fish_hooks])] {
+            for script in scripts {
+                let mut child = match std::process::Command::new(bin)
+                    .args(["-n", "/dev/stdin"])
+                    .stdin(std::process::Stdio::piped())
+                    .spawn()
+                {
+                    Ok(child) => child,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+                    Err(e) => panic!("failed to run {bin} -n: {e}"),
+                };
+                child.stdin.take().unwrap().write_all(script.as_bytes()).unwrap();
+                assert!(child.wait().unwrap().success(), "{bin} -n failed");
+            }
+        }
     }
 }

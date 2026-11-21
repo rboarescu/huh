@@ -1,36 +1,38 @@
-//! `huh tutor --side` and `huh find`: the ONLY module of huh that starts a program.
+//! `huh` (pane launcher) and `huh find`: the ONLY module of huh that starts a program.
 //!
-//! It starts exactly one thing at a time: `huh tutor --tty <tty>` (huh's own read-only viewer), or
+//! It starts exactly one thing at a time: `huh --here --tty <tty>` (huh's own interactive pane), or
 //! the program that hosts it: `tmux`, or a terminal emulator (`xdg-terminal-exec`, `$TERMINAL`,
 //! ghostty, kitty, ...); or `fzf`, given the list of names `huh find` built and asked for the
 //! line picked (fzf's preview runs `huh find --describe`, which only reads). It never starts a
 //! command that huh suggested, explained or was given on the command line, nor anything picked. A test in this file checks that no other source file (outside its
 //! `#[cfg(test)]` code) uses `std::process::Command`.
 //!
-//! Deciding what to start (`decide`) is a pure function of the environment, the installed
-//! programs and the terminal; starting it (`start`) is the only part with side effects.
+//! Deciding what to start (`decide` / `decide_for`) is a pure function of the environment, the
+//! installed programs and the terminal; starting it (`start`) is the only part with side effects.
 
 use crate::platform;
 use std::path::{Path, PathBuf};
 
-/// Name of the private tmux server `--side` creates when there is no tmux session (`tmux -L`).
+/// Name of the private tmux server `huh` creates when there is no tmux session (`tmux -L`).
 /// It keeps the user's own tmux server, sessions and ~/.tmux.conf out of it.
-pub const SOCKET: &str = "huh-tutor";
-/// Window title and class (app-id) given to the tutor window, for window rules.
-pub const CLASS: &str = "huh-tutor";
-/// Share of the width the tutor pane gets.
+pub const SOCKET: &str = "huh";
+/// Window title and class (app-id) given to the pane window, for window rules.
+pub const CLASS: &str = "huh";
+/// Share of the width the `huh` pane gets.
 const WIDTH: &str = "35%";
-/// The status line of the tutor's own tmux session.
-const STATUS: &str = "huh tutor \u{2014} Ctrl+B then arrow to switch, exit to close";
+/// The status line of `huh`'s own tmux session.
+const STATUS: &str = "huh \u{2014} Ctrl+B then arrow to switch, exit to close";
+/// Environment variable set inside a launched `huh` pane to block nested launches.
+pub const PANE_ENV: &str = "HUH_PANE";
 
-/// What `--side` will do.
+/// What launching the `huh` pane will do.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Plan {
     /// Inside tmux: split this pane. `argv` is the whole tmux command.
     Split(Vec<String>),
     /// Tiling desktop: open a terminal window. `argv` starts the terminal.
     Window { terminal: String, argv: Vec<String> },
-    /// Neither: replace huh with a new tmux session (shell left, tutor right).
+    /// Neither: replace this shell with a new tmux session (shell left, `huh` right).
     Session(Vec<String>),
     /// Nothing available: tmux and a tiling desktop are both missing.
     Unavailable { tty: String },
@@ -52,12 +54,19 @@ fn shell_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
-/// The tutor command: `huh tutor --tty <tty>` (plus `--quiet`), told where the recordings are
-/// (`--dir`) because a new window does not inherit this shell's environment, and to keep its
-/// window open on an error (`--hold`) so the message can be read.
-fn tutor_command(huh: &Path, tty: &str, quiet: bool, dir: Option<&Path>, log: Option<&Path>) -> Vec<String> {
-    let mut cmd = vec![huh.display().to_string(), "tutor".into(), "--tty".into(), tty.into()];
-    // The launching terminal's own recording: the tutor follows exactly this terminal.
+/// The pane command: `huh --here --tty <tty>` (plus `--quiet` and `--mode`), told where the
+/// recordings are (`--dir`) because a new window does not inherit this shell's environment, and to
+/// keep its window open on an error (`--hold`) so the message can be read.
+fn pane_command(
+    huh: &Path,
+    tty: &str,
+    quiet: bool,
+    dir: Option<&Path>,
+    log: Option<&Path>,
+    initial_mode: Option<&str>,
+) -> Vec<String> {
+    let mut cmd = vec![huh.display().to_string(), "--here".into(), "--tty".into(), tty.into()];
+    // The launching terminal's own recording: the pane follows exactly this terminal.
     if let Some(log) = log {
         cmd.extend(["--log".into(), log.display().to_string()]);
     }
@@ -67,6 +76,9 @@ fn tutor_command(huh: &Path, tty: &str, quiet: bool, dir: Option<&Path>, log: Op
     cmd.push("--hold".into());
     if quiet {
         cmd.push("--quiet".into());
+    }
+    if let Some(mode) = initial_mode.filter(|m| !m.is_empty()) {
+        cmd.extend(["--mode".into(), mode.into()]);
     }
     cmd
 }
@@ -81,19 +93,19 @@ fn joined(cmd: &[String]) -> String {
     cmd.iter().map(|w| shell_quote(w)).collect::<Vec<_>>().join(" ")
 }
 
-/// The command line that opens `terminal` running `cmd`, with the "huh-tutor" title and
+/// The command line that opens `terminal` running `cmd`, with the "huh" title and
 /// class where that terminal has such options.
 pub fn window_argv(terminal: &str, cmd: &[String]) -> Vec<String> {
     let head: Vec<String> = match terminal {
-        "xdg-terminal-exec" => strings(&["xdg-terminal-exec", "--app-id=huh-tutor", "--title=huh-tutor", "--"]),
+        "xdg-terminal-exec" => strings(&["xdg-terminal-exec", "--app-id=huh", "--title=huh", "--"]),
         // GTK application ids need a dot, and Ghostty is GTK.
-        "ghostty" => strings(&["ghostty", "--class=huh.tutor", "--title=huh-tutor", "-e"]),
+        "ghostty" => strings(&["ghostty", "--class=huh.pane", "--title=huh", "-e"]),
         "kitty" => strings(&["kitty", "--class", CLASS, "--title", CLASS]),
         "alacritty" => strings(&["alacritty", "--class", CLASS, "--title", CLASS, "-e"]),
         "foot" => strings(&["foot", "--app-id", CLASS, "--title", CLASS]),
         "wezterm" => strings(&["wezterm", "start", "--class", CLASS, "--"]),
         "konsole" => strings(&["konsole", "-e"]),
-        "gnome-terminal" => strings(&["gnome-terminal", "--class=huh-tutor", "--title=huh-tutor", "--"]),
+        "gnome-terminal" => strings(&["gnome-terminal", "--class=huh", "--title=huh", "--"]),
         "xterm" => strings(&["xterm", "-class", CLASS, "-T", CLASS, "-e"]),
         // `$TERMINAL`: the one flag nearly every terminal agrees on.
         other => vec![other.to_string(), "-e".into()],
@@ -112,19 +124,22 @@ fn split_argv(pane: Option<&str>, cmd: &[String]) -> Vec<String> {
 }
 
 /// tmux, new session on a private server with no user config: the user's shell on the left
-/// (closing it ends the session), the tutor on the right, following the left pane's tty.
-fn session_argv(huh: &Path, quiet: bool, id: u32, dir: Option<&Path>) -> Vec<String> {
+/// (closing it ends the session), the `huh` pane on the right, following the left pane's tty.
+fn session_argv(huh: &Path, quiet: bool, id: u32, dir: Option<&Path>, initial_mode: Option<&str>) -> Vec<String> {
     let name = format!("huh-{id}");
     let left = format!("{name}:0.0");
     let shell = format!("\"${{SHELL:-/bin/sh}}\"; tmux kill-session -t {name}");
     // `#` and `{` are joined at run time so no tmux version can expand the format early.
     let tty = format!("\"$(tmux display -p -t {left} \"$(printf '#%s' '{{pane_tty}}')\")\"");
-    let mut right = format!("exec {} tutor --tty {tty} --hold", shell_quote(&huh.display().to_string()));
+    let mut right = format!("{PANE_ENV}=1 exec {} --here --tty {tty} --hold", shell_quote(&huh.display().to_string()));
     if let Some(dir) = dir {
         right.push_str(&format!(" --dir {}", shell_quote(&dir.display().to_string())));
     }
     if quiet {
         right.push_str(" --quiet");
+    }
+    if let Some(mode) = initial_mode.filter(|m| !m.is_empty()) {
+        right.push_str(&format!(" --mode {}", shell_quote(mode)));
     }
     let mut argv = strings(&["tmux", "-L", SOCKET, "-f", "/dev/null", "new-session", "-s", &name, &shell]);
     let mut then = |words: &[&str]| {
@@ -132,6 +147,7 @@ fn session_argv(huh: &Path, quiet: bool, id: u32, dir: Option<&Path>) -> Vec<Str
         argv.extend(strings(words));
     };
     then(&["set-option", "-g", "mouse", "on"]);
+    then(&["set-option", "-g", "allow-passthrough", "on"]);
     then(&["set-option", "-g", "status-left-length", "100"]);
     then(&["set-option", "-g", "status-left", STATUS]);
     then(&["set-option", "-g", "status-right", ""]);
@@ -140,31 +156,31 @@ fn session_argv(huh: &Path, quiet: bool, id: u32, dir: Option<&Path>) -> Vec<Str
     argv
 }
 
-/// Chooses what to start. Pure: `env` reads an environment variable, `have` says whether a
-/// program is installed, `tty` is the terminal of standard input (None when it is not one),
-/// `huh` the absolute path of this binary, `id` any number unique to this run.
-pub fn decide(
+/// Chooses what to start, with an optional initial pane mode (`watch` or `lab`). Pure: `env`
+/// reads an environment variable, `have` says whether a program is installed, `tty` is the
+/// terminal of standard input (None when it is not one), `huh` the absolute path of this binary,
+/// `id` any number unique to this run.
+pub fn decide_for(
     env: &dyn Fn(&str) -> Option<String>,
     have: &dyn Fn(&str) -> bool,
     tty: Option<&str>,
     huh: &Path,
     quiet: bool,
+    initial_mode: Option<&str>,
     id: u32,
 ) -> Plan {
     let set = |name: &str| env(name).is_some_and(|v| !v.is_empty());
     let Some(tty) = tty else {
-        return Plan::Refuse("`huh tutor --side` needs a terminal to sit beside; standard input is not one.".into());
+        return Plan::Refuse("`huh` needs a terminal to sit beside; standard input is not one.".into());
     };
     let tmux = env("TMUX").filter(|v| !v.is_empty());
     let socket = tmux.as_deref().and_then(|t| Path::new(t.split(',').next().unwrap_or("")).file_name());
-    if socket.is_some_and(|n| n == SOCKET) {
-        return Plan::Refuse(
-            "this is already a `huh tutor --side` session: the tutor is the pane next to this one.".into(),
-        );
+    if socket.is_some_and(|n| n == SOCKET) || set(PANE_ENV) {
+        return Plan::Refuse("this is already a `huh` pane session: the pane is already next to this one.".into());
     }
     let dir = recordings_dir(env);
     let log = env("HUH_SESSION_LOG").filter(|v| !v.is_empty()).map(PathBuf::from);
-    let cmd = tutor_command(huh, tty, quiet, dir.as_deref(), log.as_deref());
+    let cmd = pane_command(huh, tty, quiet, dir.as_deref(), log.as_deref(), initial_mode);
     if tmux.is_some() {
         return Plan::Split(split_argv(env("TMUX_PANE").filter(|p| !p.is_empty()).as_deref(), &cmd));
     }
@@ -184,21 +200,34 @@ pub fn decide(
         }
     }
     if have("tmux") {
-        return Plan::Session(session_argv(huh, quiet, id, dir.as_deref()));
+        return Plan::Session(session_argv(huh, quiet, id, dir.as_deref(), initial_mode));
     }
     Plan::Unavailable { tty: tty.to_string() }
+}
+
+/// Backward-compatible alias for `decide_for(..., None, id)`.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn decide(
+    env: &dyn Fn(&str) -> Option<String>,
+    have: &dyn Fn(&str) -> bool,
+    tty: Option<&str>,
+    huh: &Path,
+    quiet: bool,
+    id: u32,
+) -> Plan {
+    decide_for(env, have, tty, huh, quiet, None, id)
 }
 
 /// The text for `Plan::Unavailable`: how to get tmux, how to open a second window.
 pub fn unavailable_message(tty: &str, platforms: &[String]) -> String {
     let install = match platform::install_advice("tmux", None, platforms) {
-        Some(a) if a.installs => format!("Install tmux with `{}`, then run `huh tutor --side` again.", a.command),
-        _ => "Install tmux with your package manager, then run `huh tutor --side` again.".to_string(),
+        Some(a) if a.installs => format!("Install tmux with `{}`, then run `huh` again.", a.command),
+        _ => "Install tmux with your package manager, then run `huh` again.".to_string(),
     };
     format!(
-        "huh tutor --side found no tmux and no tiling desktop (Hyprland, sway, i3).\n\
+        "huh found no tmux and no tiling desktop (Hyprland, sway, i3).\n\
          {install}\n\
-         Or open a second terminal window next to this one and run `huh tutor --tty {tty}` there."
+         Or open a second terminal window next to this one and run `huh --here --tty {tty}` there."
     )
 }
 
@@ -209,7 +238,7 @@ pub fn describe(plan: &Plan, platforms: &[String]) -> String {
         Plan::Window { terminal, argv } => {
             format!("tiling desktop: would open a {terminal} window, detached\n{}", joined(argv))
         }
-        Plan::Session(argv) => format!("would replace huh with a new tmux session\n{}", joined(argv)),
+        Plan::Session(argv) => format!("would replace this shell with a new tmux session\n{}", joined(argv)),
         Plan::Unavailable { tty } => unavailable_message(tty, platforms),
         Plan::Refuse(why) => why.clone(),
     }
@@ -248,7 +277,7 @@ pub fn start(plan: Plan, platforms: &[String]) -> anyhow::Result<()> {
         Plan::Window { terminal, argv } => {
             // A process group of its own, no terminal streams: closing this shell leaves it alone.
             build(&argv).process_group(0).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()?;
-            println!("huh tutor: opened a {terminal} window (class and title \"{CLASS}\") that follows this terminal.");
+            println!("huh: opened a {terminal} window (title \"{CLASS}\") that follows this terminal.");
         }
         Plan::Session(argv) => {
             let err = build(&argv).exec();
@@ -379,7 +408,7 @@ mod tests {
                 "35%",
                 "-t",
                 "%3",
-                "/opt/huh/bin/huh tutor --tty /dev/pts/4 --hold"
+                "/opt/huh/bin/huh --here --tty /dev/pts/4 --hold"
             ]))
         );
     }
@@ -389,8 +418,46 @@ mod tests {
         let env: HashMap<&str, &str> = [("TMUX", "/s,1,0"), ("SWAYSOCK", "/run/sway")].into();
         let p = decide(&|k| env.get(k).map(|v| v.to_string()), &|_| true, Some("/dev/pts/1"), Path::new(HUH), true, 1);
         let Plan::Split(argv) = p else { panic!("{p:?}") };
-        assert!(argv.last().unwrap().ends_with("--tty /dev/pts/1 --hold --quiet"));
+        assert!(argv.last().unwrap().ends_with("--here --tty /dev/pts/1 --hold --quiet"));
         assert!(!argv.contains(&"-t".to_string()), "no TMUX_PANE, no target");
+    }
+
+    #[test]
+    fn decide_for_passes_initial_mode() {
+        let split_env: HashMap<&str, &str> = [("TMUX", "/s,1,0")].into();
+        let Plan::Split(argv) = decide_for(
+            &|k| split_env.get(k).map(|v| v.to_string()),
+            &|_| true,
+            Some("/dev/pts/1"),
+            Path::new(HUH),
+            false,
+            Some("lab"),
+            1,
+        ) else {
+            panic!()
+        };
+        assert!(argv.last().unwrap().ends_with("--here --tty /dev/pts/1 --hold --mode lab"), "{argv:?}");
+
+        let win_env: HashMap<&str, &str> = [("HYPRLAND_INSTANCE_SIGNATURE", "1")].into();
+        let Plan::Window { argv, .. } = decide_for(
+            &|k| win_env.get(k).map(|v| v.to_string()),
+            &|p| p == "ghostty",
+            Some("/dev/pts/2"),
+            Path::new(HUH),
+            false,
+            Some("watch"),
+            1,
+        ) else {
+            panic!()
+        };
+        assert!(argv.ends_with(&strings(&["--hold", "--mode", "watch"])), "{argv:?}");
+
+        let Plan::Session(argv) =
+            decide_for(&|_| None, &|p| p == "tmux", Some("/dev/pts/3"), Path::new(HUH), true, Some("lab"), 5)
+        else {
+            panic!()
+        };
+        assert!(argv.last().unwrap().ends_with("--hold --quiet --mode lab"), "{argv:?}");
     }
 
     #[test]
@@ -418,21 +485,18 @@ mod tests {
 
     #[test]
     fn argv_for_each_terminal() {
-        let cmd = strings(&["/h/huh", "tutor", "--tty", "/dev/pts/9"]);
+        let cmd = strings(&["/h/huh", "--here", "--tty", "/dev/pts/9"]);
         let t = |name: &str| window_argv(name, &cmd);
         let with = |head: &[&str]| head.iter().map(|s| s.to_string()).chain(cmd.clone()).collect::<Vec<_>>();
-        assert_eq!(
-            t("xdg-terminal-exec"),
-            with(&["xdg-terminal-exec", "--app-id=huh-tutor", "--title=huh-tutor", "--"])
-        );
-        assert_eq!(t("ghostty"), with(&["ghostty", "--class=huh.tutor", "--title=huh-tutor", "-e"]));
-        assert_eq!(t("kitty"), with(&["kitty", "--class", "huh-tutor", "--title", "huh-tutor"]));
-        assert_eq!(t("alacritty"), with(&["alacritty", "--class", "huh-tutor", "--title", "huh-tutor", "-e"]));
-        assert_eq!(t("foot"), with(&["foot", "--app-id", "huh-tutor", "--title", "huh-tutor"]));
-        assert_eq!(t("wezterm"), with(&["wezterm", "start", "--class", "huh-tutor", "--"]));
+        assert_eq!(t("xdg-terminal-exec"), with(&["xdg-terminal-exec", "--app-id=huh", "--title=huh", "--"]));
+        assert_eq!(t("ghostty"), with(&["ghostty", "--class=huh.pane", "--title=huh", "-e"]));
+        assert_eq!(t("kitty"), with(&["kitty", "--class", "huh", "--title", "huh"]));
+        assert_eq!(t("alacritty"), with(&["alacritty", "--class", "huh", "--title", "huh", "-e"]));
+        assert_eq!(t("foot"), with(&["foot", "--app-id", "huh", "--title", "huh"]));
+        assert_eq!(t("wezterm"), with(&["wezterm", "start", "--class", "huh", "--"]));
         assert_eq!(t("konsole"), with(&["konsole", "-e"]));
-        assert_eq!(t("gnome-terminal"), with(&["gnome-terminal", "--class=huh-tutor", "--title=huh-tutor", "--"]));
-        assert_eq!(t("xterm"), with(&["xterm", "-class", "huh-tutor", "-T", "huh-tutor", "-e"]));
+        assert_eq!(t("gnome-terminal"), with(&["gnome-terminal", "--class=huh", "--title=huh", "--"]));
+        assert_eq!(t("xterm"), with(&["xterm", "-class", "huh", "-T", "huh", "-e"]));
         assert_eq!(t("st"), with(&["st", "-e"]));
     }
 
@@ -440,14 +504,15 @@ mod tests {
     fn elsewhere_with_tmux_makes_a_session() {
         let Plan::Session(argv) = plan(&[], &["tmux"], Some("/dev/pts/2")) else { panic!() };
         let text = argv.join(" ");
-        assert_eq!(argv[..6], strings(&["tmux", "-L", "huh-tutor", "-f", "/dev/null", "new-session"]));
+        assert_eq!(argv[..6], strings(&["tmux", "-L", "huh", "-f", "/dev/null", "new-session"]));
         assert!(text.contains("-s huh-7"));
         assert!(text.contains("tmux kill-session -t huh-7"), "closing the shell ends the session");
         assert!(text.contains("mouse on") && text.contains("Ctrl+B then arrow to switch, exit to close"));
+        assert!(text.contains("allow-passthrough on"), "{text}");
         assert!(text.contains("split-window -h -d -l 35% -t huh-7:0.0"), "right pane, focus stays left");
         let right = argv.last().unwrap();
         assert!(right.contains("tmux display -p -t huh-7:0.0") && right.contains("pane_tty"), "{right}");
-        assert!(right.starts_with("exec /opt/huh/bin/huh tutor --tty "));
+        assert!(right.starts_with("HUH_PANE=1 exec /opt/huh/bin/huh --here --tty "), "{right}");
         assert!(!right.contains("#{"), "the format is not written out whole");
         assert!(!text.contains("tmux.conf"));
     }
@@ -458,9 +523,9 @@ mod tests {
         assert_eq!(p, Plan::Unavailable { tty: "/dev/pts/5".into() });
         let text = unavailable_message("/dev/pts/5", &["arch".to_string()]);
         assert!(text.contains("pacman -S") && text.contains("tmux"), "{text}");
-        assert!(text.contains("huh tutor --tty /dev/pts/5"), "{text}");
+        assert!(text.contains("huh --here --tty /dev/pts/5"), "{text}");
         let none = unavailable_message("/dev/pts/5", &[]);
-        assert!(none.contains("package manager") && none.contains("--tty /dev/pts/5"));
+        assert!(none.contains("package manager") && none.contains("--here --tty /dev/pts/5"));
     }
 
     #[test]
@@ -471,8 +536,10 @@ mod tests {
     #[test]
     fn refuses_without_a_terminal_and_inside_its_own_session() {
         assert!(matches!(plan(&[("TMUX", "/t/default,1,0")], &["tmux"], None), Plan::Refuse(_)));
-        let p = plan(&[("TMUX", "/tmp/tmux-1000/huh-tutor,99,0")], &["tmux"], Some("/dev/pts/6"));
+        let p = plan(&[("TMUX", "/tmp/tmux-1000/huh,99,0")], &["tmux"], Some("/dev/pts/6"));
         assert!(matches!(p, Plan::Refuse(ref m) if m.contains("already")), "{p:?}");
+        let nested = plan(&[(PANE_ENV, "1")], &["tmux", "ghostty"], Some("/dev/pts/6"));
+        assert!(matches!(nested, Plan::Refuse(ref m) if m.contains("already")), "{nested:?}");
     }
 
     #[test]
@@ -482,7 +549,7 @@ mod tests {
         let Plan::Window { argv, .. } = plan(&env, &["ghostty"], Some("/dev/pts/2")) else { panic!() };
         let line = argv.join(" ");
         assert!(
-            line.contains("--tty /dev/pts/2 --log /run/user/1000/rec/42.log --dir /run/user/1000/rec --hold"),
+            line.contains("--here --tty /dev/pts/2 --log /run/user/1000/rec/42.log --dir /run/user/1000/rec --hold"),
             "{line}"
         );
         let Plan::Session(argv) = plan(&[("HUH_SESSION_LOG", "/r/1.log")], &["tmux"], Some("/dev/pts/2")) else {
@@ -497,7 +564,7 @@ mod tests {
         assert_eq!(
             describe(&p, &[]),
             "tiling desktop: would open a ghostty window, detached\n\
-             ghostty --class=huh.tutor --title=huh-tutor -e /opt/huh/bin/huh tutor --tty /dev/pts/2 --hold"
+             ghostty --class=huh.pane --title=huh -e /opt/huh/bin/huh --here --tty /dev/pts/2 --hold"
         );
         let q = plan(&[("TMUX", "/s,1,0")], &[], Some("/dev/pts/2"));
         assert!(

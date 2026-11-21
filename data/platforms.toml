@@ -163,11 +163,16 @@ udisks2 = { arch = "udisks2", debian = "udisks2", fedora = "udisks2", suse = "ud
 lm_sensors = { arch = "lm_sensors", debian = "lm-sensors", fedora = "lm_sensors", suse = "sensors", alpine = "lm-sensors", void = "lm_sensors", nixos = "lm_sensors", gentoo = "sys-apps/lm-sensors" }
 wl-clipboard = { "*" = "wl-clipboard", gentoo = "gui-apps/wl-clipboard" }
 wireplumber = { "*" = "wireplumber", gentoo = "media-video/wireplumber" }
+dosbox = { "*" = "dosbox", gentoo = "games-emulation/dosbox" }
+mpv = { "*" = "mpv", gentoo = "media-video/mpv" }
+wine = { "*" = "wine", gentoo = "app-emulation/wine-vanilla" }
+fuse2 = { arch = "fuse2", debian = "libfuse2t64", fedora = "fuse", suse = "libfuse2", alpine = "fuse", void = "fuse", nixos = "fuse", gentoo = "sys-fs/fuse" }
 
 [notes]
 eza = { debian = "eza is not in Debian 11/12 or Ubuntu before 24.04; there, find it with `apt-file search bin/eza` or install it from upstream." }
 btop = { debian = "btop is not in Debian 11 or Ubuntu 20.04; on those releases install it from a backport or upstream." }
 github-cli = { debian = "gh is not in Debian 11 or Ubuntu 20.04; on those releases use GitHub's own apt repository." }
+fuse2 = { debian = "Debian 12 and Ubuntu before 24.04 call this package libfuse2 instead of libfuse2t64." }
 
 [families.arch]
 ids = ["arch", "archarm", "artix", "manjaro", "endeavouros", "cachyos", "garuda", "arcolinux", "parabola", "blackarch", "steamos", "chimeraos", "archcraft", "rebornos"]

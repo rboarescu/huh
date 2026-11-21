@@ -1,0 +1,300 @@
+id = "files-and-folders"
+number = 2
+title = "Files & Folders"
+summary = "Create folders and files, copy and move them neatly, peek inside text files, and stay safe around rm."
+badge = "file_keeper"
+
+[[lessons]]
+id = "u2-making-things"
+title = "Making Things"
+intro = "Build fresh folders with mkdir (even nested ones with -p) and create empty files with touch."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u2-l1-q1"
+command = "mkdir games"
+prompt = "What does `mkdir games` do?"
+choices = [
+    "Creates a new empty folder named `games`",
+    "Opens a file named `games` to edit",
+    "Moves into an existing folder named `games`",
+    "Deletes the `games` folder",
+]
+answer = 0
+hint = "`mkdir` is short for \"make directory\"."
+note = "`mkdir` creates brand-new folders. Directory is just the classic Linux word for folder."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u2-l1-q2"
+command = "mkdir -p projects/game/art"
+prompt = "Neither `projects` nor `game` exists yet. Why is `-p` helpful in `mkdir -p projects/game/art`?"
+choices = [
+    "It makes the folders password-protected",
+    "It creates any missing parent folders along the way instead of stopping with an error",
+    "It prints every file inside the folder",
+]
+answer = 1
+hint = "The `-p` stands for \"parents\"."
+note = "`mkdir -p` builds the whole chain of folders in one go — and stays calm if some of them already exist."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u2-l1-q3"
+prompt = "Type the command to create a brand-new empty file named `todo.txt`."
+accepted = ["touch todo.txt", "touch ./todo.txt"]
+hints = [
+    "Linux uses a gentle word — `touch` — to create an empty file (or update its timestamp).",
+    "Type `touch` followed by the filename: `touch todo.txt`.",
+]
+note = "If `todo.txt` does not exist yet, `touch todo.txt` creates an empty file. If it already exists, `touch` keeps its contents untouched and only updates its time."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u2-l1-q4"
+prompt = "Create the nested folder path `school/science/labs` in one command, including any missing parent folders."
+accepted = [
+    "mkdir -p school/science/labs",
+    "mkdir -p school/science/labs/",
+    "mkdir -p ./school/science/labs",
+    "mkdir --parents school/science/labs",
+]
+hints = [
+    "Use `mkdir` with the `-p` flag for parent folders.",
+    "Pattern: `mkdir -p a/b/c`.",
+]
+note = "`mkdir -p` saves you from typing three separate `mkdir` commands one by one."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u2-l1-q5"
+command = "ls -l"
+output = """
+total 4
+drwxr-xr-x 2 sam sam 4096 Nov 19 10:02 backup
+-rw-r--r-- 1 sam sam    0 Nov 19 10:03 todo.txt
+-rw-r--r-- 1 sam sam  145 Nov 19 10:01 story.txt
+"""
+prompt = "After creating a few items, you run `ls -l`. Which file was just created empty with `touch`?"
+choices = [
+    "story.txt",
+    "backup",
+    "todo.txt",
+]
+answer = 2
+hint = "Check the size column right before the date: an empty file has a size of `0` bytes."
+note = "`todo.txt` starts with `-` (a regular file) and has size `0` bytes — the classic sign of a fresh empty file from `touch`."
+expect_output_match = true
+
+[[lessons]]
+id = "u2-copy-and-move"
+title = "Copy, Move & Rename"
+intro = "Duplicate files and folders with cp and cp -r, move or rename them with mv, and watch out for silent overwrites."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u2-l2-q1"
+prompt = "Make a copy of `notes.txt` named `notes-backup.txt` in the same folder."
+accepted = [
+    "cp notes.txt notes-backup.txt",
+    "cp ./notes.txt ./notes-backup.txt",
+    "cp ./notes.txt notes-backup.txt",
+]
+hints = [
+    "Use `cp` (copy) with the original file first and the new copy name second.",
+    "Pattern: `cp source destination`.",
+]
+note = "`cp` leaves the original `notes.txt` untouched and makes a separate duplicate called `notes-backup.txt`."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u2-l2-q2"
+command = "cp -r photos photos-backup"
+prompt = "Why does `cp -r photos photos-backup` need the `-r` flag?"
+choices = [
+    "To rename the folder instead of copying it",
+    "To copy a folder and everything inside it recursively",
+    "To make the copied files read-only",
+    "To remove the original folder after copying",
+]
+answer = 1
+hint = "`-r` stands for \"recursive\" — going into folders inside folders."
+note = "Plain `cp` skips folders on purpose. Adding `-r` tells `cp` to copy the whole folder and everything tucked inside."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u2-l2-q3"
+command = "mv draft.txt essay.txt"
+prompt = "There is no folder named `essay.txt`. What does `mv draft.txt essay.txt` do?"
+choices = [
+    "Creates a second copy named `essay.txt` and keeps `draft.txt`",
+    "Renames `draft.txt` to `essay.txt`",
+    "Deletes `draft.txt`",
+]
+answer = 1
+hint = "Linux does not need a separate `rename` command — `mv` handles both moving and renaming."
+note = "Moving a file to a new name in the same folder simply renames it. Moving it into an existing folder places it inside that folder."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u2-l2-q4"
+prompt = "Move `poster.png` into the existing `art` folder."
+accepted = [
+    "mv poster.png art",
+    "mv poster.png art/",
+    "mv poster.png ./art",
+    "mv poster.png ./art/",
+    "mv ./poster.png art",
+    "mv ./poster.png art/",
+    "mv poster.png art/poster.png",
+]
+hints = [
+    "Use `mv` with the file first and the target folder second.",
+    "Type `mv poster.png art` (or `mv poster.png art/`).",
+]
+note = "Adding a trailing slash like `art/` is a great habit when moving into a folder — if you mistype the folder name, Linux warns you instead of renaming the file!"
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u2-l2-q5"
+prompt = "Look carefully at `mv draft.txt final.txt`. What hidden danger does `huh` warn about if `final.txt` already exists?"
+command = "mv draft.txt final.txt"
+choices = [
+    "It refuses to run until you delete `final.txt`",
+    "It silently replaces the old `final.txt` without asking, losing what was inside it",
+    "It combines both files into one",
+]
+answer = 1
+risk = "destroys data"
+hint = "By default, `mv` and `cp` do not ask before replacing a file that already has the destination name."
+note = "Both `mv` and `cp` overwrite an existing destination file without asking! Add `-i` (interactive) if you want Linux to ask before replacing."
+
+[[lessons]]
+id = "u2-peeking-and-cleaning"
+title = "Peeking & Cleaning Up"
+intro = "Read text files with cat, head, and tail — and learn why rm and rm -r deserve extra care."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u2-l3-q1"
+command = "head -n 5 story.txt"
+prompt = "What does `head -n 5 story.txt` show?"
+choices = [
+    "The first 5 lines of `story.txt`",
+    "The last 5 lines of `story.txt`",
+    "Line 5 only",
+    "Every file in the folder except `story.txt`",
+]
+answer = 0
+hint = "`head` looks at the top (beginning) of a file, and `-n 5` sets how many lines."
+note = "`cat` prints a whole file, `head` shows the top lines (10 by default), and `tail` shows the bottom lines."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u2-l3-q2"
+prompt = "Type the command to print the last 10 lines of `game.log`."
+accepted = [
+    "tail game.log",
+    "tail -n 10 game.log",
+    "tail -n10 game.log",
+    "tail -10 game.log",
+    "tail --lines=10 game.log",
+    "tail ./game.log",
+]
+hints = [
+    "Think of the opposite of `head` — the end of an animal!",
+    "Type `tail game.log` (or `tail -n 10 game.log`).",
+]
+note = "`tail` shows the last 10 lines by default, which makes it super handy for checking the newest entries in a log file."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u2-l3-q3"
+command = "cat grocery.txt"
+output = """
+apples
+bread
+milk
+cheese
+"""
+prompt = "You ran `cat grocery.txt` and saw those 4 lines. What would `tail -n 2 grocery.txt` print?"
+choices = [
+    "`apples` and `bread`",
+    "`milk` and `cheese`",
+    "`apples` and `cheese`",
+]
+answer = 1
+hint = "`tail -n 2` picks the bottom 2 lines of the file."
+note = "`tail -n 2` prints the final 2 lines (`milk` and `cheese`), while `head -n 2` would print the first 2 (`apples` and `bread`)."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u2-l3-q4"
+prompt = "Which of these commands permanently deletes a whole folder and everything inside it with NO trash bin and NO confirmation?"
+choices = [
+    "ls -la old-project",
+    "mkdir -p old-project",
+    "rm -rf old-project",
+    "head -n 5 old-project/notes.txt",
+]
+answer = 2
+risk = "destroys data"
+hint = "Watch out for `rm` combined with `-r` (recursive) and `-f` (force)."
+note = "`rm -rf` erases folders and every file inside them immediately, with no Recycle Bin and no \"Are you sure?\" prompt. Always double-check the folder name!"
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u2-l3-q5"
+prompt = "Someone suggests running `rm -rf *` to \"tidy up\" your folder. Why does `huh` raise a big warning here?"
+command = "rm -rf *"
+choices = [
+    "The `*` only deletes empty files",
+    "The `*` matches EVERYTHING in the current folder — files and subfolders — and wipes it all for good",
+    "The `*` moves files into a folder called Trash",
+    "It only deletes files with a star in their name",
+]
+answer = 1
+risk = "destroys data"
+hint = "In the shell, `*` is a wildcard meaning \"every visible item right here\"."
+note = "Before ever running `rm` with `*`, run `ls *` (or `ls`) first so you can see every single thing the wildcard matches!"
+
+[practice]
+id = "u2-tidy-desk"
+title = "Tidy Your Desk"
+goal = "Create a folder named `notes`, move `draft.txt` into `notes/final.txt`, and create `notes/todo.txt` containing `learn linux`."
+hints = [
+    "Start with `mkdir notes`, then move the file with `mv draft.txt notes/final.txt`.",
+    "Write the todo note with `echo \"learn linux\" > notes/todo.txt`.",
+]
+
+[practice.setup]
+files = [
+    { path = "draft.txt", content = "hello from huh\n" },
+]
+
+[[practice.checks]]
+kind = "dir_exists"
+path = "notes"
+label = "Folder `notes` exists"
+
+[[practice.checks]]
+kind = "file_exists"
+path = "notes/final.txt"
+label = "File `notes/final.txt` exists"
+
+[[practice.checks]]
+kind = "file_equals"
+path = "notes/final.txt"
+text = "hello from huh"
+label = "`notes/final.txt` keeps the text from `draft.txt`"
+
+[[practice.checks]]
+kind = "not_exists"
+path = "draft.txt"
+label = "Old `draft.txt` was moved out of the top folder"
+
+[[practice.checks]]
+kind = "file_contains"
+path = "notes/todo.txt"
+text = "learn linux"
+label = "`notes/todo.txt` contains `learn linux`"

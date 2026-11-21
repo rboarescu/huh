@@ -1,0 +1,274 @@
+id = "processes-and-disk"
+number = 5
+title = "Processes & Disk"
+summary = "See running programs with ps and pgrep, stop runaway tasks carefully with kill, and check disk and memory with df, du, free, and uptime."
+badge = "process_tamer"
+
+[[lessons]]
+id = "u5-seeing-processes"
+title = "Seeing Running Programs"
+intro = "Every running app is a process with its own ID number (PID). Meet ps aux and pgrep to see what your computer is doing."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u5-l1-q1"
+command = "ps aux"
+prompt = "What does `ps aux` show you?"
+choices = [
+    "A snapshot of all running programs (processes) on the machine",
+    "All files inside your home folder",
+    "Your computer's Wi-Fi password",
+    "Only programs that crashed yesterday",
+]
+answer = 0
+hint = "`ps` stands for \"process status\"."
+note = "`ps aux` prints a table of every running process along with its user, PID, CPU/RAM share, and command name."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u5-l1-q2"
+command = "ps aux"
+output = """
+USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+sam         1042  0.5  1.2 412300 48200 pts/0    Sl+  09:15   0:04 python3 game.py
+sam         1180  0.0  0.1  14200  4200 pts/1    Ss   09:20   0:00 bash
+"""
+prompt = "In this `ps aux` output, what is the Process ID (PID) of `python3 game.py`?"
+choices = [
+    "1180",
+    "1042",
+    "48200",
+    "0.5",
+]
+answer = 1
+hint = "Read the second column (`PID`) on the `python3 game.py` row."
+note = "Every running process gets a unique `PID`. You pass that number to tools like `kill` when you need to target one specific program."
+expect_output_match = true
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u5-l1-q3"
+command = "pgrep firefox"
+prompt = "What does `pgrep firefox` print?"
+choices = [
+    "Every line containing `firefox` inside your files",
+    "Installs the Firefox browser",
+    "The process IDs (PIDs) of running programs matching `firefox`",
+    "Deletes Firefox's bookmarks",
+]
+answer = 2
+hint = "Think of `pgrep` as \"process grep\" — searching running processes instead of files."
+note = "`pgrep` saves you from scrolling through a giant `ps aux` table when you just want a program's PID."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u5-l1-q4"
+prompt = "Type the command to find the process ID (PID) of any running `python3` program using `pgrep`."
+accepted = ["pgrep python3", "pgrep -f python3", "pgrep -a python3"]
+hints = [
+    "Use `pgrep` followed by the program name `python3`.",
+    "Type `pgrep python3`.",
+]
+note = "`pgrep python3` prints just the matching PIDs, and `pgrep -a python3` prints the full command line beside each PID."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u5-l1-q5"
+prompt = "Type the classic command to show a full snapshot of all running processes (`ps` with `aux`)."
+accepted = ["ps aux", "ps -aux", "ps -ef"]
+hints = [
+    "Start with `ps` and pass the three letters `aux`.",
+    "Type `ps aux`.",
+]
+note = "`ps aux` (and `ps -ef`) are read-only and completely safe — run them anytime to see what is running."
+
+[[lessons]]
+id = "u5-stopping-processes"
+title = "Stopping Programs Safely"
+intro = "Ask stuck programs to close politely with kill before ever reaching for kill -9, and check how busy the system is with uptime."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u5-l2-q1"
+command = "kill 1042"
+prompt = "What does plain `kill 1042` (without `-9`) do?"
+choices = [
+    "Politely asks process `1042` to stop (SIGTERM) so it can save work and clean up",
+    "Immediately pulls the power plug on the whole computer",
+    "Deletes 1,042 files",
+    "Restarts process `1042` faster",
+]
+answer = 0
+hint = "Despite its dramatic name, plain `kill` sends the polite shutdown signal (signal 15, SIGTERM)."
+note = "Always try plain `kill <PID>` first so the program has a chance to save open files and close neatly."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u5-l2-q2"
+prompt = "Politely ask process `1042` to stop using plain `kill` (no `-9`)."
+accepted = ["kill 1042", "kill -15 1042", "kill -TERM 1042", "kill -s TERM 1042"]
+hints = [
+    "Use `kill` followed by the process ID `1042`.",
+    "Type `kill 1042`.",
+]
+note = "Good habit! Plain `kill 1042` gives the process a clean exit signal without yanking the rug out from under it."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u5-l2-q3"
+prompt = "Why does `huh` warn you before running `kill -9 1042`?"
+command = "kill -9 1042"
+choices = [
+    "Signal 9 restarts your whole operating system",
+    "Signal 9 (`SIGKILL`) stops the process instantly with no chance to save data or clean up temp files — try plain `kill` first",
+    "Signal 9 only works on folders",
+    "Signal 9 uninstalls the program from disk",
+]
+answer = 1
+risk = "kills work"
+hint = "Compare polite signal 15 (default) with forceful signal 9 (`KILL`)."
+note = "Save `kill -9` as a last resort for truly frozen programs that ignore plain `kill`."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u5-l2-q4"
+prompt = "You want to check on running apps without accidentally closing anything. Which command is risky because it stops EVERY running process whose name matches?"
+choices = [
+    "pgrep firefox",
+    "ps aux",
+    "pkill firefox",
+    "uptime",
+]
+answer = 2
+risk = "kills work"
+hint = "`pgrep` looks up PIDs by name, while its twin `pkill` actually terminates every match."
+note = "Run `pgrep -a <name>` first to see exactly what matches before ever sending signals with `pkill`."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u5-l2-q5"
+command = "uptime"
+output = " 10:42:15 up 3 days,  4:12,  1 user,  load average: 0.25, 0.30, 0.28"
+prompt = "Look at this `uptime` output. How long has this computer been running since it last booted?"
+choices = [
+    "10 hours and 42 minutes",
+    "3 days, 4 hours, and 12 minutes",
+    "25 minutes",
+]
+answer = 1
+hint = "Look right after the word `up` (`10:42:15` is the current clock time)."
+note = "`uptime` shows the clock time, how long the computer has been on, logged-in users, and the 1-, 5-, and 15-minute load averages."
+expect_output_match = true
+
+[[lessons]]
+id = "u5-disk-and-memory"
+title = "Disk Space & Memory"
+intro = "Check how full your drives are with df -h, measure folder sizes with du -sh, and read real RAM availability with free -h."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u5-l3-q1"
+command = "df -h"
+output = """
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/nvme0n1p2  250G  210G   40G  84% /
+tmpfs           7.8G   12M  7.8G   1% /dev/shm
+"""
+prompt = "Look at the `/` row in this `df -h` output. How much free space is still available on the main disk?"
+choices = [
+    "250G",
+    "210G",
+    "40G",
+    "7.8G",
+]
+answer = 2
+hint = "Follow the `/` row across to the `Avail` column."
+note = "`df -h` (disk free, human-readable) shows whole drives. Keep an eye on `Use%` — near 100% means apps can fail to save!"
+expect_output_match = true
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u5-l3-q2"
+command = "du -sh photos"
+prompt = "What does `du -sh photos` tell you?"
+choices = [
+    "A single human-readable total of how much disk space the `photos` folder uses",
+    "Deletes unused files inside `photos`",
+    "Shows how much RAM `photos` uses",
+    "Duplicates the `photos` folder",
+]
+answer = 0
+hint = "`du` is \"disk usage\", `-s` gives one summary total, and `-h` prints K, M, or G instead of raw blocks."
+note = "Remember the pair: `df -h` checks whole disks, while `du -sh <folder>` measures specific folders."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u5-l3-q3"
+prompt = "Type the command to check free space on all mounted disks in human-readable units (`df` with `-h`)."
+accepted = ["df -h", "df --human-readable"]
+hints = [
+    "Use `df` (disk free) with `-h` (human-readable).",
+    "Type `df -h`.",
+]
+note = "Adding `-h` turns huge raw block counts into friendly units like `40G` and `512M`."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u5-l3-q4"
+command = "free -h"
+output = """
+               total        used        free      shared  buff/cache   available
+Mem:            16Gi       5.2Gi       2.1Gi       300Mi       8.7Gi        10Gi
+Swap:           8.0Gi       0.0Bi       8.0Gi
+"""
+prompt = "Linux uses spare RAM as fast disk cache (`buff/cache`) and gives it right back when apps need it. In this `free -h` output, which column shows how much RAM programs can actually use?"
+choices = [
+    "`free` (2.1Gi)",
+    "`available` (10Gi)",
+    "`shared` (300Mi)",
+]
+answer = 1
+hint = "Look at the rightmost column on the `Mem:` row."
+note = "Do not panic when `free` looks small on Linux — `available` is the real number to watch because Linux happily puts spare RAM to work caching files."
+expect_output_match = true
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u5-l3-q5"
+prompt = "Show a single human-readable total size for the `videos` folder using `du`."
+accepted = [
+    "du -sh videos",
+    "du -hs videos",
+    "du -s -h videos",
+    "du -h -s videos",
+    "du -sh videos/",
+    "du -sh ./videos",
+]
+hints = [
+    "Combine `du` with `-s` (summary) and `-h` (human-readable), then the folder name.",
+    "Type `du -sh videos`.",
+]
+note = "Handy combo: `du -sh *` shows the total size of every item in your current folder at a glance!"
+
+[practice]
+id = "u5-disk-check"
+title = "Check File Sizes with du"
+goal = "Run `du -sh *` (or `du -h notes.txt`) inside the sandbox folder to inspect how much disk space `small.txt` and `notes.txt` use, and check what is inside `notes.txt`."
+hints = [
+    "Run `du -sh *` (or `du -h notes.txt`) in the sandbox folder.",
+    "If shell recording is off, peek at `notes.txt` with `cat notes.txt` to answer the quick check question.",
+]
+
+[practice.setup]
+files = [
+    { path = "small.txt", content = "tiny\n" },
+    { path = "notes.txt", content = "disk-detective\n" },
+]
+
+[[practice.checks]]
+kind = "recorded_output"
+program = "du"
+output_contains = "notes.txt"
+fallback_prompt = "What code word is written inside notes.txt?"
+fallback_answer = "disk-detective"
+label = "Inspect disk usage of `notes.txt` with `du`"

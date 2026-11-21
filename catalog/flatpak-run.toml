@@ -1,0 +1,11 @@
+name = "flatpak run"
+description = "Launch an installed Flatpak application"
+template = "flatpak run {package}"
+kind = "action"
+keywords = ["flatpak run", "run flatpak", "launch flatpak", "start flatpak app"]
+
+[[slots]]
+id = "package"
+kind = "text"
+type = "package"
+what = "the Flatpak application ID to launch"

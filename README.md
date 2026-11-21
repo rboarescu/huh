@@ -26,7 +26,7 @@ It has no AI inside and doesn't use the internet. Everything it knows comes from
   1. ITS OWN NOTEBOOK              2. YOUR COMPUTER
   (built into the program)         (it looks, never changes)
   ┌──────────────────────┐         ┌─────────────────────────┐
-  │ ~220 commands people │         │ • which Linux you have  │
+  │ ~310 commands people │         │ • which Linux you have  │
   │ wrote down by hand:  │         │ • which programs are    │
   │ what each does, its  │         │   installed             │
   │ options, and which   │         │ • file names in the     │
@@ -72,7 +72,7 @@ cat notes.txt 2>&1 | huh why
   Try: chmod u+r notes.txt
 ```
 
-It reads the error, checks your computer (does the file exist? who owns it?) and suggests a fix. If you set up [terminal recording](#terminal-recording-and-prompt-completion) once, `huh why` remembers the last command and its output by itself. That memory is private, held in memory, and gone when you log out.
+It reads the error, checks your computer (does the file exist? who owns it?) and suggests a fix. If you set up [terminal recording](#terminal-recording-and-prompt-completion) once (`huh setup`), `huh why` remembers the last command and its output by itself, and bare `huh` opens a live companion pane beside your shell. That memory is private, held in memory, and gone when you log out.
 
 **3. "Someone (or an AI) gave me a command. Is it safe?"** Ask it to explain before you run anything:
 
@@ -120,6 +120,19 @@ cargo build --release --target x86_64-unknown-linux-musl   # target/x86_64-unkno
 
 The default (glibc) build needs glibc 2.34 or newer and does not start on musl systems such as Alpine.
 
+### Companion pane (`huh`)
+
+Running bare `huh` in a terminal opens the unified [companion pane](#companion-pane-huh) beside your shell (defaulting to live `watch` mode, or `lab` mode for interactive Linux lessons). One-shot CLI commands (`cmd | huh`, `huh "..."`, `huh explain`, `huh why`, `huh find`, `huh tools`, `huh pet`, `huh themes`, `huh welcome`, `huh setup`, `huh shell-init`) stay instant:
+
+```bash
+huh                          # open the unified companion pane beside your shell
+huh --mode lab               # start directly in interactive Linux lab mode
+huh --here                   # run the companion pane in the current terminal
+huh --tty /dev/pts/3         # follow a specific recorded terminal in this pane
+huh --quiet                  # explain each program only once per run
+huh --dry-run                # print the launch command without starting the pane
+```
+
 ### Suggest a command
 
 ```bash
@@ -163,7 +176,7 @@ pbpaste | huh explain              # no argument and piped input: reads standard
 
 - **Parser**: pipes (`|`, `|&`), lists (`&&`, `||`, `;`, `&`), `$(...)`, backticks, `${VAR}`, `$((...))`, `<(...)`, subshells, `{ ...; }`, `for`/`while`/`until`/`if`/`case`, functions, `[[ ... ]]`, assignments (`A=1 cmd`), all redirections (`>`, `>>`, `2>&1`, `&>`, `<`, `<<`, `<<<`, `>|`), heredocs (bodies are captured, not run) and `\` line continuations. It never panics: unbalanced quotes and brackets are parsed best-effort and reported under NOTES.
 - **Recursion**: the inner command of `$(...)`, `bash -c '...'`, `sh -c`, `sudo`, `env`, `xargs`, `nohup`, `time`, `watch`, `timeout`, `find -exec`, `docker run/exec` (marked "inside the container") and `ssh host '...'` (marked "on the remote computer") is explained too, indented below.
-- **Flags are explained per program**, from three sources in order: the curated table (`src/knowledge.txt`, about 150 programs and subcommands: git, docker, find with `+N`/`-N` decoded, tar, ssh, sed, awk, chmod with octal and symbolic modes decoded, kill signals, systemctl, ...), then the catalog, then the program's **man page read from disk** (`/usr/share/man/man{1,8}`, plain or `.gz`; `.TP`, `.IP`, `.PP` and mdoc `.It` layouts), which is marked "(from the man page)". Combined short flags (`-xzvf`) are split per program; single-dash long options (`find -name`) are not.
+- **Flags are explained per program**, from three sources in order: the curated table (`src/knowledge.txt`, ~290 programs and subcommands: git, docker, find with `+N`/`-N` decoded, tar, ssh, sed, awk, chmod with octal and symbolic modes decoded, kill signals, systemctl, ffmpeg, dosbox, flatpak, mpv, gio, nano, huh, ...), then the catalog, then the program's **man page read from disk** (`/usr/share/man/man{1,8}`, plain or `.gz`; `.TP`, `.IP`, `.PP` and mdoc `.It` layouts), which is marked "(from the man page)". Combined short flags (`-xzvf`) are split per program; single-dash long options (`find -name`) are not.
 - **Warnings** (each one names its category, see [Warnings](#warnings)): deletes (`rm`, `find -delete`, `git clean`, `docker prune`, `dd of=`, `mkfs`, ...), overwrites (`>`, `sed -i`, `tee`, `cp`/`mv`), history rewrites (`git reset --hard`, `push --force`, `rebase`), privilege (`sudo`, `chmod 777`, `chown -R` on system folders), remote code (`curl | sh`, `bash <(curl ...)`), package installs (`pip --break-system-packages`, `npm -g`, `make install`), `kill -9` of computed PIDs, an unset variable in `rm "$DIR"/*`, and things that start a long build or run until Ctrl+C. Also turned-off checks (`curl -k`, `git config http.sslVerify false`, `StrictHostKeyChecking=no`, `setenforce 0`, `ufw disable`, `--no-verify`), services opened to the network (`python3 -m http.server`, `--host 0.0.0.0`, `ngrok`, `ssh -R`, `nc -l`), secrets on the command line or printed (`cat ~/.ssh/id_rsa`, `export TOKEN=...`), erased traces (`history -c`, `unset HISTFILE`, `journalctl --vacuum-*`, truncating `/var/log`), things set up to run later (`crontab -e`, shell startup files, `systemctl enable`), changes to shared things (`npm publish`, `docker push`, `git push origin main`, `kubectl apply`, `terraform apply`, cloud `delete`s), and rights handed out (`usermod -aG docker`, `visudo`, `ssh -A`, `docker run --privileged`).
 - huh does not open scripts or Makefiles named in the command, so for `./run.sh` or `make install` it says so instead of guessing.
 
@@ -194,7 +207,7 @@ A warning informs; it never forbids. huh shows it and you decide. Every warning 
 
 The list lives in `src/risk_kinds.rs`. In the catalog a warning is written as `warning = "..."` plus `risk = "weakens security"` (on the entry, an option, a flag, or a text slot); a test fails when a catalog warning has no `risk`, and another when this table misses a category.
 
-### Explain a failed command (`huh why` or bare `huh`)
+### Explain a failed command (`huh why` or `cmd | huh`)
 
 Without any shell setup, pipe a command's output directly into `huh` or `huh why`:
 
@@ -203,12 +216,12 @@ some-command 2>&1 | huh
 some-command 2>&1 | huh why
 ```
 
-In a recorded terminal (see below), typing `huh why` — or just `huh` after a non-zero exit code — reads the last command and its tail output (up to 40 lines / 4,000 characters) and prints the diagnosis:
+In a recorded terminal (see [terminal recording](#terminal-recording-and-prompt-completion)), typing `huh why` reads the last command and its tail output (up to 40 lines / 4,000 characters) and prints the diagnosis:
 
 ```
 $ jq . data.json
 bash: jq: command not found
-$ huh
+$ huh why
 Last command: jq . data.json (exit code 127)
 
 The command `jq` is not installed (`command not found`, exit code 127).
@@ -217,7 +230,7 @@ Try: omarchy pkg add jq
 (Nothing was run.)
 ```
 
-`huh why` says so when it does not know. Without an exit code, only a line shaped like an error message (`error: ...`, `fatal: ...`, `program: file: reason`) counts as a failure; output with none is called "not an error" only when it is recognised success text (a clean `git status`, a passing test run, a listing), and otherwise huh says it does not recognise the output and quotes the closest line. An unrecognised failure quotes the line that reports it instead of guessing a fix, an exit code is only stated when it was given, and facts about this computer (such as docker group membership) are labelled as checks made here. A refused write into a system path gets `sudo tee` (`tee -a` for `>>`, with a note that `>` replaces the whole file), never `chmod +x`; admin tools such as `useradd` or `apt-get install` refused for lack of privileges get `sudo` in front of your command; a missing command that is a known program (or a file in the current folder) is never called a typo; a clean `git commit` refusal with exit 1 is "made no commit", never "not an error"; table rows, prose sentences, list items, code lines (`except ...`), commit-log lines, timestamped log lines of other programs and warnings followed by a success line (`connected`, `done`) are not error lines, and `make: Nothing to be done` is success; `pacman` keeps the operation you ran; a missing library or header names the development package for your distro. Refused access to a file is checked against the file itself (owner and mode, read-only), so `sudo` is suggested only for other users' or system files; a missing Python or node module that looks like a typo is called one rather than installed.
+`huh why` says so when it does not know. Without an exit code, only a line shaped like an error message (`error: ...`, `fatal: ...`, `program: file: reason`) counts as a failure; output with none is called "not an error" only when it is recognised success text (a clean `git status`, a passing test run, a listing), and otherwise huh says it does not recognise the output and quotes the closest line. An unrecognised failure quotes the line that reports it instead of guessing a fix, an exit code is only stated when it was given, and facts about this computer (such as docker group membership) are labelled as checks made here. A refused write into a system path gets `sudo tee` (`tee -a` for `>>`, with a note that `>` replaces the whole file), never `chmod +x`; admin tools such as `useradd` or `apt-get install` refused for lack of privileges get `sudo` in front of your command; a missing command that is a known program (or a file in the current folder) is never called a typo; a clean `git commit` refusal with exit 1 is "made no commit", never "not an error"; table rows, prose sentences, list items, code lines (`except ...`), commit-log lines, timestamped log lines of other programs and warnings followed by a success line (`connected`, `done`) are not error lines, and `make: Nothing to be done` is success; `pacman` keeps the operation you ran; a missing library or header names the development package for your distro. Refused access to a file is checked against the file itself (owner and mode, read-only), so `sudo` is suggested only for other users' or system files; a missing Python or node module that looks like a typo is called one rather than installed. AppImage missing-FUSE 2 errors (`libfuse.so.2`, `AppImages require FUSE`, `cannot mount AppImage`) explain FUSE 2 mounting (`fuse2` / `libfuse2`) and suggest `Try: <target> --appimage-extract-and-run`; `Exec format error` is checked before exit-126 `chmod +x` rules so Windows/DOS `.exe`/`.com`/`.bat` targets suggest `Try: dosbox <target>` (and note `wine` / Steam Proton) while foreign-architecture or headerless binaries suggest `Try: file <target>`.
 
 ### Other commands
 
@@ -225,6 +238,7 @@ Try: omarchy pkg add jq
 huh check                                            # validate the catalog; "-" marks commands not installed here
 huh eval                                             # score evals/cases.toml
 huh eval --cases evals/heldout.toml                  # score the held-out suite
+huh eval --cases evals/everyday.toml               # score everyday desktop, gaming & media requests
 huh eval --cases evals/debian.toml --platform debian # score Debian platform filtering
 huh eval-errors                                      # score evals/errors.toml
 huh eval-errors --cases evals/errors-heldout.toml    # score held-out error cases
@@ -233,7 +247,7 @@ huh eval-errors --cases evals/errors-real.toml       # score failures from the r
 
 ### Expert mode
 
-Normal mode is cautious on purpose. If you know your way around a shell and find that too careful, switch on expert mode: `huh --expert "delete stuff"`, `HUH_MODE=expert`, or `mode = "expert"` in `~/.config/huh/config.toml`. `--normal` (or `HUH_MODE=normal`) overrides the file; the order is flag, then environment, then file, then normal. An unknown value is an error that lists the valid ones (`normal`, `expert`).
+Normal mode is cautious on purpose. If you know your way around a shell and find that too careful, switch on expert mode: `huh --expert "delete stuff"`, `HUH_MODE=expert`, or `mode = "expert"` in `~/.config/huh/config.toml`, or toggle it live inside the companion pane with `/safety expert` (saved to `~/.local/state/huh/prefs.toml`). `--normal` (or `HUH_MODE=normal`) overrides the file; the order is flag, then environment, then `config.toml`, then `prefs.toml`, then normal. An unknown value is an error that lists the valid ones (`normal`, `expert`).
 
 Expert mode relaxes only the beginner protections, so you get the best-ranked command instead of "No suggestion":
 
@@ -285,65 +299,58 @@ Output is coloured by role (command lines, flags, WARNING labels, risk categorie
 | `dark`, `light`, `nord`, `gruvbox`, `catppuccin` | built-in truecolour palettes (One Dark, One Light, Nord, Gruvbox, Catppuccin Mocha) |
 | `mono` | bold, dim and underline only |
 
-Run `huh themes` to see a sample of each. Choose one with `--theme NAME`, `HUH_THEME=NAME` or `theme = "nord"` in `~/.config/huh/config.toml` (flag, then environment, then file, then `babyblue`). To get the old look back, use `theme = "auto"` (the Omarchy theme's colours, else the terminal's 16 colours) or `theme = "omarchy"`. An unknown name lists the valid ones.
+Run `huh themes` to see a sample of each. Choose one with `--theme NAME`, `HUH_THEME=NAME`, `theme = "nord"` in `~/.config/huh/config.toml`, or `/theme NAME` inside the companion pane (saved to `~/.local/state/huh/prefs.toml`). Precedence: flag, environment, `config.toml`, `prefs.toml`, then `babyblue`. To get the old look back, use `theme = "auto"` (the Omarchy theme's colours, else the terminal's 16 colours) or `theme = "omarchy"`. An unknown name lists the valid ones.
 
-Colour is off when output is not a terminal (pipes), with `--first-line-only` (the Alt+h key binding), when `NO_COLOR` is set (any value), when `TERM=dumb`, and with `--color never`. `--color always` forces it on. `huh tutor` writes to a terminal, so it is coloured.
+Colour is off when output is not a terminal (pipes), with `--first-line-only` (the Alt+h key binding), when `NO_COLOR` is set (any value), when `TERM=dumb`, and with `--color never`. `--color always` forces it on. The `huh` companion pane writes to a terminal, so it is coloured.
 
 ## Welcome animation
 
-A small "huh" logo, in the theme's accent colour (baby blue by default), draws itself (under a second; any key skips it), followed by a five-line welcome with three example commands. It plays when `huh tutor` starts (also in the pane or window opened by `--side`), once the first time you run huh in a terminal (recorded in `$XDG_STATE_HOME/huh/welcomed`, default `~/.local/state/huh/welcomed`), and whenever you run `huh welcome`.
+The `L2b` slab "huh" logo (4 lines tall, 20 columns wide, with rounded `?` flipping to bold `!`), in the theme's accent colour (baby blue by default), draws itself in under a second (any key skips it), followed by a five-line welcome with three example commands. It plays when the `huh` companion pane starts (both bare `huh` and `huh --here`), once the first time you run huh in a terminal (recorded in `$XDG_STATE_HOME/huh/welcomed`, default `~/.local/state/huh/welcomed`), and whenever you run `huh welcome`.
 
 It never plays into a pipe or when input is not a terminal, with `--first-line-only`, in a terminal narrower than the art, with `TERM=dumb`, with `HUH_NO_ANIMATION=1`, or with `animation = false` in `~/.config/huh/config.toml`. To switch it off for good, set `animation = false`. To see it again after the first run, use `huh welcome` or delete the `welcomed` file.
 
-### Pinned header in the tutor pane
+### Pinned header in the companion pane
 
-When `huh tutor` runs in a terminal at least 15 rows tall (and wide enough for the logo), the animation plays first and then settles as a header that stays pinned at the top of the pane: the logo, its caption and one dim line, `following /dev/pts/N · huh> to ask · Ctrl+C quits`. Everything the tutor prints scrolls underneath it, and the `huh> ` prompt stays on the bottom row. It uses a terminal scroll region (`ESC[top;bottom r`), so the header is drawn once, not redrawn on every block. Resizing the pane redraws it for the new size (the region is dropped if the pane becomes shorter than 15 rows and comes back when it grows). While `/find` runs, the region is off, and it returns afterwards. On exit (Ctrl+C or an error) the region is reset and the cursor is left below everything.
+When the `huh` companion pane runs in a terminal at least 15 rows tall (and wide enough for the logo), the animation plays first and then settles as a header pinned at the top of the pane: the logo and caption on the left, **Pebble** beside it starting at column 25 (when at least 38 columns wide), a live status bar on row 6, and a rotating usage tip on row 7 (when tips are enabled):
 
-It is not used when output is not a terminal, in a terminal shorter than 15 rows or narrower than the logo, with `TERM=dumb`, with `HUH_NO_PIN=1`, or with `pin = false` in `~/.config/huh/config.toml`; the tutor then prints its usual one-line start message. The header clears the pane when the tutor starts. If the tutor is killed without a chance to clean up (`kill -9`, SIGTERM), run `reset` to get the terminal's scrolling back.
+- `watch` mode: `[WATCH] /dev/pts/N · normal · /mode · /help` (or `no hook` until recording starts)
+- `lab` mode: `[LAB] XP 120 · 3d · /dev/pts/N · /mode · /help`
+- Row 7 (`src/tips.rs`, `src/pin.rs`): `tip: ...` cycling through 18 concise tips every ~15 s (68 ticks), refreshing only row 7 in place with zero flicker on the logo or Pebble sprite. Toggle or cycle live with `/tips [on|off|next]` (the scroll region switches seamlessly between 6 and 7 header rows), or disable persistently via `prefs.toml`, `tips = false` in `~/.config/huh/config.toml`, or `HUH_NO_TIPS=1` (`HUH_NO_TIPS=1` > `config.toml` > `prefs.toml` > enabled by default).
 
-## Terminal recording and prompt completion
+Everything the pane prints scrolls underneath using a terminal scroll region (`ESC[top;bottom r`), so the header is drawn once and not redrawn on every block, and the `huh> ` prompt stays on the bottom row. Resizing the pane redraws it for the new size (dropping the region below 15 rows and restoring it when it grows). While `/find` runs, both the scroll region and any Kitty Graphics image are suspended cleanly and restored afterwards. On exit (Ctrl+C or an error) the region and image are cleared and the cursor is left below everything.
 
-Add two lines to `~/.bashrc` (bash) to enable `huh why` without piping and `Alt+h` / `Alt+f` prompt-line replacement:
+It is not used when output is not a terminal, in a terminal shorter than 15 rows or narrower than the logo, with `TERM=dumb`, with `HUH_NO_PIN=1`, or with `pin = false` in `~/.config/huh/config.toml`; the pane then prints a plain start message. If the pane is killed without a chance to clean up (`kill -9`, SIGTERM), run `reset` to get the terminal's scrolling back.
 
-```bash
-[[ $- != *i* ]] && return
-eval "$(huh shell-init)"            # right after the interactive check, before anything that prints
+### Terminal pet (Pebble)
 
-# ... the rest of your ~/.bashrc ...
+A `#!` companion named **Pebble** lives beside the logo in the pinned header (at least 38 columns wide; auto-hides on narrower panes). Clean commands (`exit 0`) in the followed terminal and right answers or practice clears in `lab` mode feed Pebble and build streaks (`happy` / `celebrating`), idle hours make it `sleepy` or `hungry` (floored at 10 fullness / 20 happiness so it never dies), and failed or warned commands briefly show `alert` without punishing its stats. Header updates redraw in place without disturbing scroll state.
 
-eval "$(huh shell-init --hooks)"    # last line
-```
+- **Species roster (4 species × 6 moods)**:
+  - **Penguin chick** (`penguin`, default): `P1` Modern Indie Chibi 32×32 pixel sprite / `A1` rounded ASCII
+  - **Terminal Cat** (`cat`): `P4` 16-Bit RPG pixel sprite / `A4` UNIX BBS ASCII
+  - **Shell-Turtle** (`turtle`): `P1` pixel sprite / `A1` rounded ASCII
+  - **Snowy Owl** (`owl`): `P4` 16-Bit RPG wizard pixel sprite / `A1` rounded ASCII
+- **32×32 Kitty Graphics + animated ASCII fallback**: In Ghostty, Kitty, and WezTerm — including inside `huh`'s own private `tmux -L huh` session (`allow-passthrough on`) or outer tmux with `HUH_KITTY_GRAPHICS=1` — Pebble renders as 32×32 pixel art tinted to the active theme (`accent`, `warning`, `success`, `note`, `dim`, `shadow`) with a `#!` belly badge. Everywhere else (or with `style = "ascii"`), Pebble renders as animated 4×10 pure printable ASCII art carrying `#!`.
+- **Dual-track unlocks**: Every extra species unlocks via **either** its `lab` unit badge **or** a `watch` milestone:
+  - **Cat** (`cat`): `pathfinder` badge (Unit 1 in `lab`) **or** 25 unique commands in `watch`
+  - **Turtle** (`turtle`): `pipe_plumber` badge (Unit 3 in `lab`) **or** 100 commands fed or a 7-day streak in `watch`
+  - **Owl** (`owl`): `night_watch` badge (Unit 8 in `lab`) **or** 250 commands fed or 5 warnings heeded in `watch`
+- **Custom sprite sheets**: Export the built-in 32×32 TOML sheet to `$XDG_CONFIG_HOME/huh/sprites/<species>.toml` (default `~/.config/huh/sprites/<species>.toml`) with `huh pet --customize` or `/pet customize` (existing files are never overwritten; invalid overrides fall back cleanly to the built-in sheet).
 
-- **Prompt completion (`Alt+h`, `Alt+f`)**: Pressing `Alt+h` (or `Alt+f`, configurable with `HUH_KEY`) replaces the current prompt line (`READLINE_LINE`) with `huh`'s top suggestion (`huh --no-ask --first-line-only "$READLINE_LINE"`) without executing anything.
-- **Terminal recording**: `huh shell-init` runs the shell inside util-linux `script`, streaming output through `huh record-sink` to a private 1 MB ring buffer in `$XDG_RUNTIME_DIR/huh/<pid>.log` (`0600` permissions, memory-backed, gone at logout).
-- **Skipping & opt-out**: `huh ...` commands are skipped in hooks so asking about a failure does not overwrite it. Disable recording for a shell with `HUH_NO_RECORD=1`.
+Check status, rename, switch species/render style, or export a custom sprite with `huh pet` (`--name NAME`, `--species SPECIES`, `--style auto|pixel|ascii|off`, `--customize`), or type `/pet ...` / `pet` inside the companion pane. State stays local in `$XDG_STATE_HOME/huh/pet.toml` (default `~/.local/state/huh/pet.toml`). Hide Pebble with `HUH_NO_PET=1`, `pet = false` / `pet = "off"` in `~/.config/huh/config.toml`, or `--style off`.
 
-## Tutor mode
+## Companion pane (`huh`)
 
-For people who use the terminal now and then. Two parts, both read-only (huh runs nothing):
+Running bare `huh` opens one unified companion pane that combines live shell watching (`watch` mode) and the offline Linux course (`lab` mode), replacing the old `huh tutor` and `huh learn` subcommands. Nothing typed in the pane is ever executed.
 
-- **`cmd | huh`** (or `cmd | huh explain`): when the piped text is the normal output of a common command, huh says what its columns and fields mean. It covers `ls -l`, `df`, `du`, `lsblk`, `stat`, `findmnt`, `free`, `ps aux`/`ps -ef`, `top`, `ip addr`/`ip -br addr`, `ss`, `ping`, `git status`/`log`/`branch -vv`, `systemctl status`, `journalctl`, `docker ps`, `uname -a`, `uptime`, `who`, `last`, `id`, `sensors` and `nmcli dev`. Recognition is by header line or shape; text with an error-shaped line, or anything it is unsure about, is left to the error doctor as before. The table is `src/outputs.txt`.
-- **`huh tutor`**: needs the [terminal recording](#terminal-recording-and-prompt-completion). Run it in a second pane (a Ghostty or tmux split) next to a recorded terminal. For each command that finishes there it prints the command line with its exit code, a few lines on what the command and its first flags do, then the diagnosis if it failed (as `huh why`), or the field explanations if the output is recognised. Full-screen programs (`vim`, `htop`) get one line. It follows the newest recording other than its own pane's, or `--tty /dev/pts/N`; `--quiet` explains each program only once per run; Ctrl+C stops it. Without a recording it says how to set one up.
-- **`huh tutor --side`**: opens the tutor beside the terminal you are in, with one command. It looks at the situation:
-  1. **Inside tmux** (`$TMUX` set): `tmux split-window -h -d -l 35%` next to this pane: a pane on the right, about a third wide, and focus stays in yours. It runs `huh tutor --tty <this pane's tty>`.
-  2. **Not in tmux, on a tiling desktop** (Hyprland, sway or i3): a new terminal window running `huh tutor --tty <this tty>`, which the window manager places beside this one. The terminal is `xdg-terminal-exec` (Omarchy has it), else `$TERMINAL -e`, else the first installed of ghostty, kitty, alacritty, foot, wezterm, konsole, gnome-terminal, xterm, each with its own "run this" syntax and the title/class `huh-tutor` (Ghostty: class `huh.tutor`, as GTK needs a dot). The window is detached, so `huh tutor --side` returns at once and closing your shell leaves it open. To size it on Hyprland, add a rule of your own, for example `windowrule = float on, size 600 800, match:class ^huh-tutor$` (the syntax depends on your Hyprland version; huh never edits your config).
-  3. **Anywhere else, with tmux installed**: huh replaces itself with a new tmux session: your shell on the left, the tutor on the right following the left pane. The session lives on a private tmux server (`tmux -L huh-tutor -f /dev/null ...`) with its settings given on the command line, so `~/.tmux.conf` and your own tmux sessions are untouched. Mouse is on (scroll, click to focus), the status line says "huh tutor — Ctrl+B then arrow to switch, exit to close", and leaving the shell on the left ends the session. The new shell has a new tty, so `huh shell-init` records it as usual; with `HUH_NO_RECORD` set it is not recorded and the tutor finds nothing to follow.
-  4. **Neither tmux nor a tiling desktop**: one message with the install command for tmux on this system and how to run `huh tutor --tty <this tty>` in a second window.
+- **Side-by-side launch (`huh`)**: When run without arguments in a terminal, `huh` opens the pane next to your shell:
+  1. **Inside tmux** (`$TMUX` set): `tmux split-window -h -d -l 35%` next to this pane (focus stays in yours), running `huh --here --tty <this pane's tty>`.
+  2. **Not in tmux, on a tiling desktop** (Hyprland, sway, or i3): opens a detached terminal window running `huh --here --tty <this tty>` using `xdg-terminal-exec` (Omarchy), else `$TERMINAL -e`, else the first installed of `ghostty`, `kitty`, `alacritty`, `foot`, `wezterm`, `konsole`, `gnome-terminal`, `xterm`. Window title/class is `huh` (Ghostty uses `--class=huh.pane --title=huh`, as GTK requires a dot). On Hyprland you can add a rule such as `windowrule = float on, size 600 800, match:class ^huh(\.pane)?$` (huh never edits your WM config).
+  3. **Anywhere else, with tmux installed**: replaces your shell with a private tmux session (`tmux -L huh -f /dev/null`) with `mouse on`, `allow-passthrough on` (enabling 32×32 Kitty Graphics inside the split), status bar `"huh — Ctrl+B then arrow to switch, exit to close"`, your shell on the left, and the `huh` pane (`HUH_PANE=1`) on the right. Closing the left shell ends the session.
+  4. **Neither tmux nor a tiling desktop**: prints the `tmux` install command for your distro and how to run `huh --here --tty <this tty>` in a second window.
 
-  `--side` passes `--quiet` on, refuses when standard input is not a terminal or when run inside its own tmux session, and `--dry-run` (or `HUH_DRY_RUN=1`) prints the command it would start instead of starting it. It only ever starts huh's own tutor, or the tmux or terminal that hosts it, never a suggested command. All starting is in `src/launch.rs`, and a test checks that no other source file uses `std::process::Command`.
-- **Type in the tutor pane**: the tutor also reads lines typed in its own pane, after a dim `huh> ` prompt that follows each block. It is line-based (no full-screen UI), nothing typed is ever run, and it works only when standard input is a terminal. Answers and blocks from the followed terminal are printed one at a time, never mixed. Ctrl+C stops the tutor; Ctrl+D ends the typing and the tutor keeps following.
-
-  | You type | What you get |
-  |---|---|
-  | a command line (`tar -xzf a.tgz`, `ls \| wc -l`) | the `huh explain` breakdown |
-  | plain words (`make deploy.sh executable`) | the suggestions of `huh "..."`, with WARNINGs and hints, in the current mode (normal, or expert with `--expert`, `HUH_MODE` or the config file) |
-  | `?word [word...]` | the `huh tools` filter: at most 20 lines, then "N more: huh tools words" |
-  | `why` | the `huh why` answer for the last command that finished in the followed terminal |
-  | an empty line | the last block again, with every flag and field explained even under `--quiet` |
-  | `/find [words]` | [`huh find`](#find-a-command-or-tool) with the words as the first query; when it ends you are back in the tutor |
-  | `help` or `/help` | a 5-line list of these |
-
-- **`Alt+e`** (with `huh shell-init --hooks`): shows `huh explain` for the line you are typing, below the prompt, without running it.
+  Use `huh --here` to run in the current pane, `huh --mode watch|lab` to pick the starting mode, `huh --tty /dev/pts/N` to follow a specific recorded terminal, `huh --quiet` to explain each program once per run, and `huh --dry-run` (or `HUH_DRY_RUN=1`) to print the launch command instead of starting it. Nested launches inside `tmux -L huh` or `HUH_PANE=1` are refused cleanly. All process launching lives in `src/launch.rs` (a test checks that no other source file uses `std::process::Command`).
+- **`cmd | huh`** (or `cmd | huh explain`): instant one-shot output explanations for piped output from common commands (`ls -l`, `df`, `du`, `lsblk`, `stat`, `findmnt`, `free`, `ps aux`/`ps -ef`, `top`, `ip addr`/`ip -br addr`, `ss`, `ping`, `git status`/`log`/`branch -vv`, `systemctl status`, `journalctl`, `docker ps`, `uname -a`, `uptime`, `who`, `last`, `id`, `sensors`, `nmcli dev`), defined in `src/outputs.txt`. Error-shaped or unrecognized text falls through to `huh why`.
 
 ```
 $ lsblk | huh
@@ -356,6 +363,126 @@ This looks like the output of `lsblk`: disks and partitions.
   [SWAP]       used as swap space (overflow memory), not as a folder
 * to unmount something, use a path from MOUNTPOINTS, not from NAME.
 ```
+
+### Watch mode
+
+`watch` mode is the default when opening `huh` (configurable via `default_mode = "watch" | "lab" | "last"` in `~/.config/huh/config.toml`).
+
+- **Smooth startup without hooks**: If shell recording is not active yet, `watch` mode starts cleanly (`[WATCH] no hook`), shows a brief note pointing to `huh setup`, lets you type commands or questions or switch to `/mode lab` right away, and attaches automatically once a recorded shell appears.
+- **Live command following**: For each finished command in the watched terminal, it prints the command and exit code, a concise breakdown of its flags and arguments, then `huh why` diagnosis on failure or `outputs.txt` field meanings on recognized output. Full-screen programs (`vim`, `htop`) get one line.
+- **Interactive `huh> ` prompt**: Type directly in the pane (on interactive Linux TTYs, `tui::LineEditor` supports `←`/`→`, `Home`/`End`, `Ctrl+A`/`E`/`U`/`W`, 100-item `↑`/`↓` history, and live `/` fuzzy completions, falling back cleanly to cooked line reading in non-TTY/piped sessions; `Ctrl+C` quits, `Ctrl+D` on an empty line closes input while continuing to watch):
+  - a command line (`tar -xzf a.tgz`, `ls | wc -l`, `/etc/hosts`) → `huh explain` breakdown (multi-segment Unix paths are never treated as slash commands)
+  - plain words (`make deploy.sh executable`) → `huh "..."` suggestions with WARNINGs and hints
+  - `?word [word...]` → `huh tools` filter (capped at 20 lines)
+  - `why` → `huh why` on the last finished command in the watched terminal
+  - `pet` → Pebble's status card
+  - `/...` → fuzzy slash commands (live dropdown on TTY, submit-time resolution everywhere)
+  - empty line (`Enter`) → replay the last watched command block in full (even under `--quiet`)
+
+### Lab mode
+
+Switch into `lab` mode at launch (`huh --mode lab`) or live from any prompt (`/mode lab` or `/lab`) for an offline, beginner-friendly Linux course built directly on `huh`'s parser, explainer, output table, platform detector, and safety warnings.
+
+- **Full 11-unit curriculum (33 lessons, 165 questions, 9 hands-on labs, 19 badges)** embedded at build time from `lessons/01..11-*.toml` (core Units 1–8 plus 3 real-world tracks unlocked immediately after Unit 1 via `unlock_after`, while *Continue next lesson* stays on the core path until Unit 8 finishes):
+  - **Core track** (completing all 8 core units earns `shell_grad`):
+    1. *Finding Your Way* (`pwd`, `ls`, `cd`) — badge `pathfinder` (also unlocks **Terminal Cat**), plus practice lab
+    2. *Files & Folders* (`mkdir`, `touch`, `cp`, `mv`, `rm`, `cat`, `head`, `tail`) — badge `file_keeper`, plus practice lab
+    3. *Searching & Pipes* (`grep`, `find`, `wc`, `sort`, `uniq`, `|`, `>`, `>>`) — badge `pipe_plumber` (also unlocks **Shell-Turtle**), plus practice lab
+    4. *Reading Permissions* (`ls -l` rwx bits, `chmod`, `whoami`, `id`) — badge `locksmith`, plus practice lab
+    5. *Processes & Disk* (`ps aux`, `pgrep`, `kill`, `uptime`, `df -h`, `du -sh`, `free -h`) — badge `process_tamer`, plus practice lab
+    6. *Packages & Manuals* (`which`, `man`, `--help`, and **distro-aware** package commands resolved via `src/platform.rs` for Arch, Omarchy, Debian/Ubuntu, Fedora, SUSE, Alpine, Void, Gentoo, or Nix) — badge `package_pro`
+    7. *Archives & Links* (`tar`, `gzip`, `unzip`, `diff`, `sha256sum`, `ln -s`) — badge `archive_ace`, plus practice lab
+    8. *Networking & Stay Safe* (`ping`, `ip -br addr`, `ss`, `curl`, `ssh`, plus the 5-risk *Spot the Danger* boss lesson) — badge `night_watch` (also unlocks **Snowy Owl**), plus `shell_grad` upon finishing all 8 core units
+  - **3 Real-World Tracks** (tagged `real-world`; unlocked right after Unit 1 *Finding Your Way*):
+    9. *Apps & Games on Linux* (AppImages & FUSE 2, Flatpak & Flathub, DOSBox & `.exe` checks) — badge `game_runner`, plus practice lab (*Game Night Setup*)
+    10. *Media & Everyday Files* (`xdg-open`, `file`, `gio trash`, `mpv`, `vlc`, `ffmpeg` basics) — badge `media_wrangler`, plus practice lab (*Downloads Cleanup*)
+    11. *Paint Your Own Pet* (`huh pet --customize`, `~/.config/huh/sprites/`, pixel/palette TOML editing, backups & safe fallback) — badge `pixel_painter`, plus practice lab (*Sprite Studio*)
+- **4 question types**: *What does it do?* (condensed `huh explain`), *Type the command* (graded structurally via `shell::parse` so equivalent flags, quotes, and safe redirects match), *Read the output* (`outputs::describe`), and *Spot the danger* (`huh`'s 14 risk categories).
+- **Live auto-checking hands-on practice labs**: Prepares a safe throwaway folder under `$XDG_DATA_HOME/huh/practice` (default `~/.local/share/huh/practice`) using pure `std::fs` with canonicalized symlink-escape guards (zero command execution). As you run real Linux commands in your shell beside the pane, `lab` mode monitors the sandbox and recorded output live, nudges gently with `huh why` on non-zero exits, ticks off checklist items automatically, awards 30 XP and the `hands_on` badge, celebrates with Pebble, and cleans up the folder when done (with manual `Enter`/`check`/`hint`/`reset` and check-question fallback if recording is off).
+- **Kid-friendly 5-heart loop & spaced review**: Right answers earn XP and feed Pebble; misses re-queue once at the end of the lesson. Reaching 0 hearts never locks you out (`[r]` heart-free review, `[t]` fresh retry, `[q]` menu). Missed questions enter a 6-box Leitner deck (intervals `0, 1, 3, 7, 14, 30` days), paired with UTC daily streaks, streak freezes (start with 1, +1 per 7-day milestone, cap 3), `daily_goal = 50` in `config.toml`, and local progress in `$XDG_STATE_HOME/huh/progress.toml`.
+- **Arrow-key navigation & live `/` commands**: On interactive TTYs (`src/tui.rs`, `src/learn.rs`, `src/pane.rs`), Lab unit/lesson/practice menus, multiple-choice questions, and out-of-hearts choices support inline `↑`/`↓` (plus `j`/`k`, `Home`/`End`) + `Enter` + `Esc` (`q`), alongside number/letter hotkeys and a `/` shortcut to invoke slash commands directly from any menu. Lab text prompts also use `LineEditor` for live `/` fuzzy completion while polling practice sandboxes, falling back to numbered plain-text prompts on non-TTY streams.
+
+### Slash commands, fuzzy palette & persistent preferences
+
+Slash commands work from **every** prompt in both `watch` and `lab` modes, always print instantaneously (never typewritten), and save live preferences atomically to `$XDG_STATE_HOME/huh/prefs.toml` (default `~/.local/state/huh/prefs.toml`) without ever modifying your user-owned `~/.config/huh/config.toml`:
+
+| Slash command | Effect |
+|---|---|
+| `/mode [watch\|lab]`, `/watch`, `/lab` | Switch live between `watch` and `lab` modes (bare `/mode` opens a Watch/Lab arrow picker) |
+| `/safety [normal\|expert]` | Switch safety guardrails live (`prefs.toml` `safety`) |
+| `/theme [name]` | Open the 9-theme arrow picker (pre-selecting the active theme) or switch colour palette live and re-tint Pebble's 32×32 sprite (`prefs.toml` `theme`) |
+| `/pet [status\|name <N>\|species <S>\|style <auto\|pixel\|ascii\|off>\|customize]` | View Pebble's card + dual-track unlocks, rename, pick/switch species (showing unlocked vs lock condition), pick/change render style, or export `~/.config/huh/sprites/<species>.toml` |
+| `/speed [off\|fast\|normal\|slow\|<ms>]` | Open the typewriter speed picker or set budget (`off`, `fast` ~0.8s, `normal` ~2s, `slow` ~3.2s, or `0`–`5000` ms) |
+| `/quiet [on\|off]` | Toggle per-program quiet deduplication live (`prefs.toml` `quiet`) |
+| `/tips [on\|off\|next]` | Toggle, enable/disable, or cycle the Row-7 rotating header tip (`prefs.toml` `tips`) |
+| `/find [words]` | Open [`huh find`](#find-a-command-or-tool) (suspends and restores the pinned header cleanly) |
+| `/help` or `help` | Instant summary of pane inputs and slash commands |
+
+- **Live `/` fuzzy dropdown (`src/slash.rs`, `src/tui.rs`)**: Typing `/` at the companion prompt opens a live inline dropdown (up to 6 rows) across all 11 slash commands (`/mode`, `/watch`, `/lab`, `/safety`, `/theme`, `/pet`, `/speed`, `/quiet`, `/tips`, `/find`, `/help`) plus Stage 2/3 sub-arguments (`/theme cat`, `/pet sp tur`, `/mode `, `/safety `, `/speed `, `/quiet `, `/tips `, `/lab `, `/pet style `). `Tab` completes and advances into Stage 2/3 sub-arguments, `↑`/`↓` navigates the dropdown (or cycles prompt history when closed), `Esc` closes the dropdown (or clears the line if already closed), and `Enter` submits or fills commands expecting text (such as `/pet name `).
+- **Submit-time fuzzy resolution (Option A fallback) & Unix path guardrail**: Submitting directly (both in raw mode and cooked/non-TTY fallback) resolves abbreviations and 1-edit typos via `slash::resolve_submit`: unique matches print a dim `→ /canonical` note and run immediately (`/th cat` → `→ /theme catppuccin`, `/thme` → `→ /theme`), bare `/` or ambiguous prefixes (`/s`, `/t`) open an interactive picker (`tui::select_menu` on TTY, numbered list on non-TTY), and unknown slash tokens (`/finder`, `/modeled`) print a concise unknown-command notice without executing. Multi-segment Unix paths with a second `/` (`/etc/hosts`, `/usr/bin/env`) are never hijacked and stay normal input.
+- **Inline arrow-key pickers**: Bare `/mode`, `/theme`, `/speed`, `/pet species`, and `/pet style` open `tui::select_menu` (`↑`/`↓` + `Enter` + `Esc`, plus hotkeys and `/`) on interactive TTYs while preserving plain-text output on non-TTY streams.
+
+### Variable-rate typewriter
+
+Narrative explanations inside the companion pane stream through an ANSI-safe variable-rate typewriter (`src/typewriter.rs`):
+
+- **Adaptive pacing**: Targets a ~2s starter budget (`normal` = 2000 ms, `fast` = 800 ms, `slow` = 3200 ms, or `0–5000` ms). Short explanations pace character-by-character (16–35 ms/char) so they feel crisp rather than artificially dragged out; long blocks stream smoothly at ~60fps (16 ms ticks) to finish within budget.
+- **Narrative only**: Applies to companion-pane explanations (`watch` command blocks, `huh explain`, `huh "..."`, `why`, Enter-replay, and `lab` lesson text). Slash commands, `?tools`, menus/prompts, and all one-shot CLI commands are always instant.
+- **Instant flush & disable**: Pressing Enter (or arrival of a new watched command) flushes the rest of the text in one unbroken write. Disable or tune via `/speed`, `HUH_NO_TYPEWRITER=1`, `HUH_TYPEWRITER_MS=<ms>`, or `typewriter = false` / `typewriter = "fast"` / `typewriter_ms = 800` in `~/.config/huh/config.toml`.
+
+## Setup and shell integration
+
+### Guided setup (`huh setup`)
+
+Run `huh setup` once for an Omarchy-style interactive walkthrough:
+
+1. Detects your login shell (`bash`, `zsh`, or `fish`), shell rc path, and Kitty Graphics capability (Ghostty, Kitty, WezTerm, including `huh`'s `tmux -L huh` passthrough).
+2. Prompts via inline arrow-key menus (`↑`/`↓` + `Enter`, or number hotkeys on interactive TTYs; Enter-for-Recommended numbered fallback when non-interactive) for default pane mode (`watch`, `lab`, `last`), theme, pet render style (`auto`, `ascii`, `off`), typewriter speed, and rotating header tooltips (`on` Recommended / `off`).
+3. Saves choices atomically to `~/.local/state/huh/prefs.toml` while preserving any existing `~/.config/huh/config.toml` untouched.
+4. Previews the exact shell integration lines and prompts for confirmation (arrow selector on TTY, `[y/N]` fallback on non-TTY) before inserting or updating idempotent marked blocks (`# >>> huh shell-init (record) >>>` and `# >>> huh shell-init (hooks) >>>`) in your shell's rc file.
+
+### Terminal recording and prompt completion
+
+To configure shell integration manually (for `huh why`, live `watch` mode, `Alt+h`/`Alt+f`, and `Alt+e`), add the two lines for your shell using `huh shell-init [--shell auto|bash|zsh|fish] [--hooks]`:
+
+- **Bash** (`~/.bashrc`):
+
+```bash
+[[ $- != *i* ]] && return
+eval "$(huh shell-init)"            # right after the interactive check, before anything that prints
+
+# ... the rest of your ~/.bashrc ...
+
+eval "$(huh shell-init --hooks)"    # last line
+```
+
+- **Zsh** (`${ZDOTDIR:-~}/.zshrc`):
+
+```zsh
+[[ -o interactive ]] || return
+eval "$(huh shell-init --shell zsh)"
+
+# ... the rest of your ~/.zshrc ...
+
+eval "$(huh shell-init --shell zsh --hooks)"
+```
+
+- **Fish** (`~/.config/fish/config.fish`):
+
+```fish
+if status is-interactive
+    huh shell-init --shell fish | source
+
+    # ... the rest of your config.fish ...
+
+    huh shell-init --shell fish --hooks | source
+end
+```
+
+- **Prompt completion (`Alt+h`, `Alt+f`)**: Replaces the current prompt line with `huh`'s top suggestion (`huh --no-ask --first-line-only "..."`) without executing anything (customizable via `HUH_KEY`).
+- **Explain before Enter (`Alt+e`)**: Shows `huh explain` for the line you are typing, below the prompt, without running it.
+- **Terminal recording**: `huh shell-init` runs the shell inside util-linux `script`, streaming output through `huh record-sink` to a private 1 MB ring buffer in `$XDG_RUNTIME_DIR/huh/<pid>.log` (`0600` permissions, memory-backed, gone at logout).
+- **Skipping & opt-out**: `huh ...` commands are skipped in hooks so asking about a failure does not overwrite it. Disable recording for a shell with `HUH_NO_RECORD=1`.
 
 ## Platforms, missing programs, and catalog
 
@@ -432,7 +559,7 @@ nmcli = { mylinux = "nm-cli" }         # package name where it differs (omit a f
 **Other**
 - Catalog entries can set `platform` to any family name (or an os-release ID). Only entries matching this system are offered by default; `huh --all-commands` offers the rest.
 - **Questions and instructions** (`kind`, `opposites`). huh reads the opening of the request: "is/are/do i have/what/which/who/where/how much/check if" is a question about state; "can you", "please", "how do i", "i want", "what command" and plain imperatives are instructions. A question about state strongly demotes entries that change the system, so "is vlc installed" gets `pacman -Q vlc` and not an install, and "what wifi am i connected to" gets a query and not `nmcli ... connect`; an instruction mildly demotes a bare query when an action fits as well (unless it asks to show, list or check). Each entry has `kind = "query"` (shows, lists, checks) or `kind = "action"` (starts, stops, sets, installs, deletes, connects). Left out, it is derived from the name and template (destructive entries and names or templates with words like start, stop, set, install, toggle, connect, power are actions); set it where the guess is wrong. `kind = "mixed"` marks an entry whose options are both (`tar` lists or creates) and is never demoted. `opposites = ["sleep", ...]` on an entry, or on a choice option, lists words that rule it out when the request says them without a negation ("put it to sleep" rules out `stay-awake`; "stop it from going to sleep" does not): the entry is dropped when the option the matcher would pick has an opposite in the request. A minimum-evidence floor rejects a match that rests only on generic words ("order" for `sort`, "make" for `cp`, "last" for `tail`) or on a program name many entries share ("git"). `evals/intent.toml` holds these cases and must stay at 100% in `cargo test`.
-- All 289 catalog entries (`catalog/*.toml`) are embedded into the binary at compile time via `build.rs`, so `huh` runs from any directory. Override lookup order: `--catalog`, `$HUH_CATALOG`, `~/.config/huh/catalog`, then the embedded catalog.
+- All 310 catalog entries (`catalog/*.toml`) are embedded into the binary at compile time via `build.rs`, so `huh` runs from any directory (including everyday gaming, app, and media tools such as `dosbox`, `flatpak` install/run/search/list/uninstall, `mpv`, `appimage run` for AppImages without FUSE, and expanded `xdg-open`, paired with `wine` hints in `src/hints.txt`, `dosbox`/`mpv`/`wine`/`fuse2` package mappings in `data/platforms.toml`, and domain-coherence guards in `src/matcher.rs`). Override lookup order: `--catalog`, `$HUH_CATALOG`, `~/.config/huh/catalog`, then the embedded catalog.
 - **Safety**: a suggestion that deletes data, powers off or restarts the machine, stops services or processes, or rewrites git history prints a `WARNING (category):` line saying what is lost or opened up. A catalog entry sets `destructive = true` and `warning = "..."`; a single option (`[[slots.options]]`) or flag can carry its own `warning`, so `systemctl status` is quiet while `systemctl stop` warns. `shutdown` and `reboot` honour a time ("reboot in 10 minutes", "shut down at 23:00", "cancel the shutdown"). Requests to undo or recover something are never answered with a delete, and "what does rm -rf do" points to `huh explain "rm -rf"` instead of suggesting `rm`. `evals/safety.toml` (cases may set `warn = true/false`) must stay at 100% in `cargo test`.
 - Slot readers (`extract = "..."` on a slot, `src/extract.rs`) now also include `percent` (`50%`), `device` (`/dev/sdb1`), `mac`, `filename`, `local_port`/`remote_port`, `json`, `user_name`, `image_tag`, `rebase_target`, `context_dir` and `versioned_program`.
 - **Never mislead** (`src/guard.rs`, `evals/mislead.toml`): a wrong answer is worse than "No suggestion", so huh abstains, with a short reason, in these cases. (1) A question about state ("is ssh running", "what's my volume", "sound isnt working") is never answered with an action entry; if no query fits, nothing is suggested. (2) A dangerous suggestion (one that prints a WARNING) needs the verb and something to act on: a named value, a typed pattern or mode, or at least the kind of thing ("close a program"); "delete stuff" and "remove it" get nothing. (3) A common word the request does not present as a name ("slow", "synced", `PATH` as a file, the command's own name) stays a `<placeholder>`. (4) A copy or move onto a file that exists warns that it overwrites; `chmod 777` and `-R 777` warn that everyone can change it; a typed mode (777, 755, 600) is kept and "only i can read it" means 600. (5) "is X dangerous", "is it safe to run X" and "should i run X" point to `huh explain "X"`; hacking someone else's wifi or account, formatting or wiping a drive, and installing an operating system get no command. (6) A line made only of placeholders never claims more than 60%.
@@ -443,21 +570,21 @@ nmcli = { mylinux = "nm-cli" }         # package name where it differs (omit a f
 
 | File | Role |
 |---|---|
-| `build.rs` | Embeds sorted `catalog/*.toml` entries at compile time |
-| `src/main.rs` | CLI (`huh`), request pipeline (`suggest`), `explain` & `why` entry points, output formatting |
-| `src/matcher.rs` | `LocalMatcher`: BM25F index, stems/concepts; `rank` orders the catalog, `details` scores fit, flags and slot values |
+| `build.rs` | Embeds sorted `catalog/*.toml`, `lessons/*.toml`, and `sprites/*.toml` files at compile time |
+| `src/main.rs` | CLI (`huh`), request pipeline (`suggest`), `explain`, `why`, `setup`, and companion-pane launch entry points |
+| `src/matcher.rs` | `LocalMatcher`: BM25F index, stems/concepts, domain-coherence guards; `rank` orders the catalog, `details` scores fit, flags and slot values |
 | `src/candidates.rs` | Request token/phrase/size/extension extraction and `$PWD` entries |
 | `src/sysinfo.rs` | Read-only user, group, shell and service-unit lists for typed slots (fixture: `tests/fixtures/sysinfo`) |
 | `src/readers.rs` | Readers for the sysadmin entries (`extract = "sys_..."`): refs, stash messages, container paths, substitutions, and the `crontab -e` line |
 | `src/assemble.rs` | Decision thresholds, shortlisting, slot filling, shell quoting, and suggestion `parts` |
 | `src/platform.rs` | System detection (os-release, then package manager on PATH), package managers and names, PATH lookup |
-| `data/platforms.toml` | Package manager commands and per-family package names (embedded; `~/.config/huh/platforms.toml` extends it) |
+| `data/platforms.toml` | Package manager commands and per-family package names (including `dosbox`, `mpv`, `wine`, `fuse2`; embedded; `~/.config/huh/platforms.toml` extends it) |
 | `src/catalog.rs` | Catalog loading, validation, platform filtering, filling `{pkg_*}` placeholders, `NOTE:` text |
-| `src/doctor.rs` | Deterministic Error Doctor (`huh why`) |
+| `src/doctor.rs` | Deterministic Error Doctor (`huh why`), including AppImage FUSE 2 (`libfuse.so.2`) and `Exec format error` (`.exe`/DOSBox, foreign binaries) diagnoses |
 | `src/explain.rs` | `huh explain` entry point (`explain_command`) |
 | `src/shell.rs` | Bash-subset lexer/parser for `huh explain` (never panics, never runs anything) |
 | `src/breakdown.rs` | The explainer engine: walks the parse tree, explains flags and arguments, recurses into nested commands |
-| `src/knowledge.rs`, `src/knowledge.txt` | Curated per-program table of options, subcommands and argument roles |
+| `src/knowledge.rs`, `src/knowledge.txt` | Curated per-program table of options, subcommands and argument roles (291 `@` entries, including `@dosbox`, `@flatpak`, `@mpv`, `@vlc`, `@gio`, `@nano`, `@ffmpeg`, `@huh`) |
 | `src/manpage.rs` | Reads option descriptions from man pages on disk (`flate2` for `.gz`) |
 | `src/decode.rs` | chmod modes, `find` tests, signals, docker ports/volumes, sed/awk programs, git refs |
 | `src/risk.rs` | Warnings for `huh explain`: deletes, overwrites, history rewrites, privilege, remote code, installs, long builds |
@@ -465,10 +592,26 @@ nmcli = { mylinux = "nm-cli" }         # package name where it differs (omit a f
 | `src/risk_kinds.rs` | The 14 risk categories and their one-line meanings |
 | `src/render.rs` | 80-column output of the explanation |
 | `evals/explain.toml` | 70+ real-world command lines with expected text and warnings (run by `cargo test`) |
-| `src/session.rs` | Terminal recording (`script` + `record-sink`), shell hooks, readline binding |
+| `evals/everyday.toml` | 17 everyday desktop, gaming, media, and `wine` hint cases (`dosbox`, `flatpak`, `mpv`, `appimage run`, `xdg-open`, `wine`; run by `cargo test`) |
+| `src/session.rs` | Terminal recording (`script` + `record-sink`), bash/zsh/fish shell hooks, prompt key bindings |
+| `src/setup.rs` | `huh setup`: Omarchy-style interactive setup (`tui::select_menu` on TTY), Kitty detection, rotating-tips preference, and idempotent bash/zsh/fish rc block installation |
 | `src/outputs.rs`, `src/outputs.txt` | Output explanations (`lsblk`, `df`, `git status` ...) for `cmd \| huh`; cases in `evals/outputs.toml` (run by `cargo test`) |
-| `src/launch.rs` | `huh tutor --side`: the only module that starts a program (the tutor, tmux or a terminal) |
-| `src/tutor.rs` | `huh tutor`: follows the recording and explains each command and its output |
+| `src/launch.rs` | Side-pane launcher (`tmux` split, tiling window, private `tmux -L huh` with `allow-passthrough on`) and `fzf` runner — the only module that starts a program |
+| `src/pane.rs` | Unified `huh` companion pane (`watch` + `lab` modes), `poll` event loop, `LineEditor` + arrow-key slash pickers, fuzzy slash execution, dual-track pet observation, and interactive prompt |
+| `src/tui.rs` | Zero-crate Linux raw-mode key decoder, inline `select_menu` (`↑`/`↓`/`Enter`/`Esc`/hotkeys/`/`), and live `/` fuzzy dropdown `LineEditor` with 100-item history |
+| `src/slash.rs` | Definitions for all 11 slash commands, Stage 1–3 fuzzy/typo completions, submit-time fuzzy resolution, and Unix path guardrails |
+| `src/tips.rs` | 18 rotating header usage tips (`~15 s` cadence) and `HUH_NO_TIPS=1` > `config.toml` > `prefs.toml` precedence |
+| `src/prefs.rs` | Atomic state preferences (`~/.local/state/huh/prefs.toml`, including `tips`) and initial pane mode precedence (`--mode` > `config.toml` > `prefs.toml`) |
+| `src/typewriter.rs` | ANSI-safe variable-rate typewriter streaming (~2s starter budget, 60fps chunking, instant flush on Enter) |
+| `src/pin.rs` | Pinned DECSTBM companion header (`L2b` logo + `[WATCH]`/`[LAB]` status bar + Row-7 rotating tips), Kitty Graphics lifecycle, and flicker-free in-place refresh |
+| `src/pet.rs`, `src/date.rs` | `#!` terminal pet state machine (**Pebble**), animated 4×10 ASCII fallback, watch/lab dual-track unlocks, lazy decay, atomic persistence, UTC civil dates |
+| `src/sprite.rs`, `sprites/*.toml` | Embedded 32×32 pixel sprite sheets (`penguin`, `cat`, `turtle`, `owl`), theme tinting, Kitty Graphics APC encoding (with tmux DCS wrapping), and `~/.config/huh/sprites/*.toml` overrides |
+| `src/learn.rs` | `/mode lab` interactive course runner (`LabHost` with `select_menu` arrow navigation), non-linear `unlock_after` prerequisite tracks (`real-world` side quests), structural command grader, 4 question types, 5-heart loop, live auto-checking practice runner, spaced review |
+| `src/practice.rs` | Safe throwaway practice sandbox (`$XDG_DATA_HOME/huh/practice`), symlink-guarded filesystem checks, recorded output + fallback evaluator |
+| `src/lessons.rs`, `lessons/*.toml` | Embedded 11-unit curriculum (8 core + 3 real-world tracks unlocking after Unit 1; 33 lessons, 165 questions, 9 practice labs), `unlock_after` dependency/cycle validation, distro-aware `{pkg_*}` resolution |
+| `src/progress.rs`, `src/srs.rs` | Local XP, daily goals, UTC streaks with freezes, 19 badges (`shell_grad` for core Units 1–8), unlock checks, practice tracking, and 6-box Leitner spaced repetition |
+| `src/style.rs`, `src/welcome.rs` | Colour themes (`babyblue` default, live `set()` switching) and `L2b` welcome logo animation |
+| `src/find.rs` | `huh find`: fuzzy search over catalog entries and installed programs |
 | `src/eval.rs` | Evaluation runners (`eval` and `eval-errors`) |
 | `src/mode.rs` | Normal/expert mode and its config loader |
 | `src/tools.rs` | `huh tools`: PATH scan and man page descriptions |

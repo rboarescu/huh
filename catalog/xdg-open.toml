@@ -1,7 +1,7 @@
 name = "xdg-open"
 description = "Open a file or folder with its usual desktop program"
 template = "xdg-open {target}"
-keywords = ["open file", "open folder", "launch in gui", "open with default app", "image viewer", "file manager", "open pdf"]
+keywords = ["open file", "open folder", "launch in gui", "open with default app", "image viewer", "file manager", "open pdf", "open photo", "open picture", "open document", "open url", "open link", "default program", "open website"]
 
 [[slots]]
 id = "target"

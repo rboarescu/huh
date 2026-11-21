@@ -64,3 +64,4 @@ npm | node+dependencies, npm, node+package, package+json | Install and run JavaS
 pip | pip, python+package, python+packages, pypi | Install Python packages | install (add a package), list (what is installed) |
 cargo | rust+format, rust+lint, format+rust, rust+code, clippy, rustfmt, rust+project, cargo | Build and manage Rust projects | fmt (format code), clippy (lint it), check (find errors fast) |
 make | makefile, makefiles | Build things from a Makefile | -n (show what would run), -j (parallel jobs) |
+wine | wine, windows+exe, windows+game, windows+program, run+exe | Run Windows programs and games on Linux | winecfg (open Wine settings) |

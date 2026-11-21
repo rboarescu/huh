@@ -1,0 +1,87 @@
+# Kids & everyday desktop, gaming, and media workflow evals.
+
+[[case]]
+request = "play doom.exe in dosbox"
+command = "dosbox"
+expect = "dosbox doom.exe"
+
+[[case]]
+request = "run a classic dos game"
+command = "dosbox"
+expect = "dosbox <target>"
+
+[[case]]
+request = "flatpak install org.gimp.GIMP"
+command = "flatpak install"
+expect = "flatpak install flathub org.gimp.GIMP"
+
+[[case]]
+request = "install gimp from flathub"
+command = "flatpak install"
+expect = "flatpak install flathub gimp"
+
+[[case]]
+request = "flatpak run org.gimp.GIMP"
+command = "flatpak run"
+expect = "flatpak run org.gimp.GIMP"
+
+[[case]]
+request = "flatpak search vlc"
+command = "flatpak search"
+expect = "flatpak search vlc"
+
+[[case]]
+request = "search flathub for gimp"
+command = "flatpak search"
+expect = "flatpak search gimp"
+
+[[case]]
+request = "list installed flatpaks"
+command = "flatpak list"
+expect = "flatpak list"
+
+[[case]]
+request = "flatpak uninstall org.gimp.GIMP"
+command = "flatpak uninstall"
+expect = "flatpak uninstall org.gimp.GIMP"
+warn = true
+
+[[case]]
+request = "play big_video.mp4"
+command = "mpv"
+expect = "mpv big_video.mp4"
+
+[[case]]
+request = "watch movie.mkv"
+command = "mpv"
+expect = "mpv movie.mkv"
+
+[[case]]
+request = "play podcast.mp3 audio only"
+command = "mpv"
+expect = "mpv --no-video podcast.mp3"
+
+[[case]]
+request = "play clip.mp4 on loop forever"
+command = "mpv"
+expect = "mpv --loop-file=inf clip.mp4"
+
+[[case]]
+request = "run SpaceQuest.AppImage without fuse"
+command = "appimage run"
+expect = "env APPIMAGE_EXTRACT_AND_RUN=1 SpaceQuest.AppImage"
+
+[[case]]
+request = "open https://example.com"
+command = "xdg-open"
+expect = "xdg-open https://example.com"
+
+[[case]]
+request = "open photo vacation.jpg"
+command = "xdg-open"
+expect = "xdg-open vacation.jpg"
+
+[[case]]
+request = "run a windows game"
+command = "none"
+pointer = "wine"

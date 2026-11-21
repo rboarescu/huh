@@ -1,0 +1,222 @@
+id = "packages-and-manuals"
+number = 6
+title = "Packages & Manuals"
+summary = "Read built-in help with man and --help, locate programs with which, and manage software with your Linux distro's package manager."
+badge = "package_pro"
+
+[[lessons]]
+id = "u6-finding-help"
+title = "Manuals & Built-in Help"
+intro = "Linux tools come with their own manuals built right in. Use which, man, and --help whenever you want to know what a command can do."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u6-l1-q1"
+command = "which python3"
+prompt = "What does `which python3` tell you?"
+choices = [
+    "Which version of Linux you are using",
+    "The full path of the `python3` program your shell will run (if installed)",
+    "Downloads Python from the internet",
+    "Opens Python's tutorial book",
+]
+answer = 1
+hint = "`which` looks through the folders in your `PATH` to locate a program."
+note = "`which` is a quick way to check whether a tool is installed and where it lives (for example `/usr/bin/python3`)."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u6-l1-q2"
+command = "man grep"
+prompt = "What does `man grep` open, and which single key closes it when you are finished reading?"
+choices = [
+    "Opens the manual page for `grep`; press `q` to quit",
+    "Runs `grep` across your whole hard drive; press `x` to quit",
+    "Installs a tool named `man`; press `Esc` to quit",
+]
+answer = 0
+hint = "`man` is short for \"manual\", and the viewer uses the first letter of \"quit\"."
+note = "Almost every Linux command has a manual page. Inside `man`, use arrow keys or `/` to search, and press `q` anytime to exit."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u6-l1-q3"
+prompt = "Type the command to open the built-in manual page for `tar`."
+accepted = ["man tar"]
+hints = [
+    "Use `man` followed by the command name.",
+    "Type `man tar`.",
+]
+note = "Nice! Whenever you forget a flag, `man <command>` has the official reference right on your computer — even offline."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u6-l1-q4"
+prompt = "Ask `ls` to print its quick built-in usage summary using `--help`."
+accepted = ["ls --help"]
+hints = [
+    "Most Linux commands accept `--help` after the command name.",
+    "Type `ls --help`.",
+]
+note = "`--help` prints a shorter cheat sheet straight to your terminal without opening a full manual viewer."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u6-l1-q5"
+command = "which git"
+output = "/usr/bin/git"
+prompt = "You ran `which git` and saw `/usr/bin/git`. What does that mean?"
+choices = [
+    "`git` is not installed yet",
+    "`git` is a folder of photos",
+    "`git` is installed and lives inside `/usr/bin` on your `PATH`",
+]
+answer = 2
+hint = "`which` prints a path only when it finds an executable program on your `PATH`."
+note = "When a command is found in `/usr/bin`, you can run it from any folder just by typing its short name (`git`)."
+
+[[lessons]]
+id = "u6-searching-and-checking"
+title = "Searching & Checking Packages"
+intro = "Linux distros install software through a trusted package manager. Practice the exact search, query, and install commands for your system."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u6-l2-q1"
+command = "{pkg_search:ripgrep}"
+prompt = "On your Linux system, what does `{pkg_search:ripgrep}` do?"
+choices = [
+    "Uninstalls `ripgrep` immediately",
+    "Searches your distro's official software repositories for packages matching `ripgrep` without installing anything",
+    "Deletes every file named `ripgrep` on your hard drive",
+    "Opens `ripgrep` in a web browser",
+]
+answer = 1
+hint = "Searching the package catalog is read-only — it just lists matching packages."
+note = "Package search lets you check exact package names and descriptions before deciding what to install."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u6-l2-q2"
+prompt = "Type your system's package-search command (`{pkg_search}`) to search for the package `ripgrep`."
+accepted = ["{pkg_search:ripgrep}"]
+hints = [
+    "Use your system's search command (`{pkg_search}`) with the package name `ripgrep`.",
+    "Type `{pkg_search:ripgrep}`.",
+]
+note = "Great job! Different Linux families spell package commands differently, and `huh` adapts to the distro you are on."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u6-l2-q3"
+command = "{pkg_query:git}"
+prompt = "What does `{pkg_query:git}` check on your system?"
+choices = [
+    "Uploads your code to GitHub",
+    "Erases your git history",
+    "Whether the `git` package is currently installed (and its package details)",
+]
+answer = 2
+hint = "Querying a package checks your local installed-package database."
+note = "Checking if a package is installed is read-only and never downloads or modifies anything."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u6-l2-q4"
+prompt = "Type your system's package-query command (`{pkg_query}`) to check whether `git` is installed."
+accepted = ["{pkg_query:git}"]
+hints = [
+    "Start with your system's package-query command (`{pkg_query}`) and add `git`.",
+    "Type `{pkg_query:git}`.",
+]
+note = "Checking installed packages is super handy when troubleshooting missing tools or versions."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u6-l2-q5"
+command = "{pkg_install:htop}"
+prompt = "What does `{pkg_install:htop}` do on your system?"
+choices = [
+    "Downloads and installs the `htop` package from your distro's trusted repositories",
+    "Only prints the manual page for `htop`",
+    "Stops every running process on the machine",
+    "Removes `htop` from your computer",
+]
+answer = 0
+hint = "Your distro's package manager downloads signed packages and sets them up cleanly."
+note = "Installing from your distro's official repositories keeps software verified, tidy, and easy to update later."
+
+[[lessons]]
+id = "u6-updating-and-staying-safe"
+title = "Updating & Staying Safe"
+intro = "Keep your system up to date with your package manager, remove software cleanly, and spot risky install shortcuts."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u6-l3-q1"
+command = "{pkg_update}"
+prompt = "What does `{pkg_update}` do on your system?"
+choices = [
+    "Resets your computer to factory settings and wipes your files",
+    "Updates your installed system software to the latest versions from your distro",
+    "Only updates the system clock",
+]
+answer = 1
+hint = "Package managers can refresh and upgrade all installed packages together."
+note = "Regular updates bring bug fixes and security patches cleanly through your distro's package manager."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u6-l3-q2"
+prompt = "Type your system's command to install `htop` (using `{pkg_install}`)."
+accepted = ["{pkg_install:htop}"]
+hints = [
+    "Start with your distro's install command (`{pkg_install}`) and pass `htop`.",
+    "Type `{pkg_install:htop}`.",
+]
+note = "Awesome! Whenever you want to install a tool safely, check your distro's package manager first."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u6-l3-q3"
+command = "{pkg_remove:htop}"
+prompt = "What does `{pkg_remove:htop}` do when you no longer need a package?"
+choices = [
+    "Hides `htop` inside a dotfile",
+    "Installs a second copy of `htop`",
+    "Uninstalls the `htop` package cleanly through your package manager",
+]
+answer = 2
+hint = "Package managers track every file a package installed so they can remove it cleanly."
+note = "Always uninstall software through your package manager instead of deleting random files out of `/usr/bin`!"
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u6-l3-q4"
+prompt = "Why does `huh` warn against running `pip install --break-system-packages requests`?"
+command = "pip install --break-system-packages requests"
+choices = [
+    "It deletes your browser bookmarks",
+    "It turns off your OS's safety guard and writes into the system-wide Python, which can break system tools — use a virtualenv (`python -m venv`) or `pipx` instead",
+    "`pip` cannot install a package named `requests`",
+    "It opens port 80 to the internet",
+]
+answer = 1
+risk = "weakens security"
+hint = "Read the flag name literally: `--break-system-packages` overrides your operating system's protection."
+note = "Keep system Python clean! For Python packages, use your distro's package manager, a virtual environment (`python3 -m venv`), or `pipx`."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u6-l3-q5"
+prompt = "Which way of getting a tool is DANGEROUS because it pipes unread code straight from the internet into a shell?"
+choices = [
+    "which htop",
+    "man htop",
+    "curl -s https://example.com/setup.sh | sh",
+    "{pkg_search:htop}",
+]
+answer = 2
+risk = "runs code from the internet"
+hint = "Look for a download tool (`curl`) piped straight into a shell (`sh`)."
+note = "Prefer your distro's signed packages over `curl ... | sh`. If you ever must use an installer script, download and read it first!"

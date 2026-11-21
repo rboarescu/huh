@@ -1692,17 +1692,26 @@ pos: the file or URL
 pos: the input image ; the output image
 
 @ffmpeg | Convert audio and video
+!single
 -i FILE | the input file is FILE
 -y | overwrite the output without asking
 -n | never overwrite the output
 -c CODEC | use the codec CODEC
+-c:v CODEC | use the video codec CODEC
+-c:a CODEC | use the audio codec CODEC
+-crf N | constant rate factor N (lower value means higher quality, e.g. 18-28)
+-q:a N | audio quality level N for variable-bitrate audio
+-r FPS | set the frame rate to FPS frames per second
 -vf FILTER | apply the video filter FILTER
 -ss TIME | start at TIME
 -t DURATION | stop after DURATION
+-to TIME | stop at timestamp TIME
+-preset NAME | use encoding speed preset NAME (e.g. fast, medium, slow)
+-map STREAM | pick input stream STREAM to include in the output
 -b BITRATE | the bitrate
 -an | drop the audio
 -vn | drop the video
-pos: the output file
+pos: the output file...
 
 @crontab | Edit or list scheduled jobs
 -l | list the scheduled jobs
@@ -1882,3 +1891,69 @@ pos: the computer (USER@HOST)
 -w, --follow | keep running and print new messages
 -T | show human-readable time stamps
 -H | human-friendly output with colours
+
+@dosbox | Run a classic MS-DOS game or program in DOSBox
+!single
+-c CMD | run the DOS command CMD inside DOSBox
+-conf FILE | load settings from the config file FILE
+-fullscreen | start DOSBox in full-screen mode
+-exit | close DOSBox when the command or program finishes
+pos: a folder or DOS program (.exe, .com, .bat)...
+
+@flatpak | Install, search, and run sandboxed desktop apps (Flatpak)
+-y, --assumeyes | answer yes to every question without asking
+--user | work on apps installed for your user only
+--system | work on apps installed system-wide
+--delete-data | also delete the app's stored data and settings when uninstalling
+pos: what to do (install, run, search, list, uninstall, update) ; remote or app ID...
+=install | install a Flatpak application from a remote (such as flathub)
+=run | launch an installed Flatpak application
+=search | search remotes (such as flathub) for available Flatpak applications
+=list | list installed Flatpak applications
+=uninstall | uninstall a Flatpak application from your system
+=update | update installed Flatpak applications to newer versions
+
+@mpv | Play video and audio files or streams
+--no-video | play audio only without opening a video window
+--loop-file VALUE | repeat the file (inf loops forever, or a number of times)
+--fs, --fullscreen | start playback in full-screen mode
+--speed VALUE | playback speed multiplier (for example 1.5 or 0.5)
+--start TIME | jump to TIME when starting playback (for example 01:30 or 50%)
+--volume N | set the starting volume to N percent
+pos: media file, folder, or URL...
+
+@vlc | Play media files and playlists with VLC
+!single
+--fullscreen | start playback in full-screen mode
+--loop | repeat the playlist forever
+--no-video | play audio only without opening a video window
+--play-and-exit | close VLC when playback finishes
+pos: media file or playlist...
+
+@gio | Work with desktop files, the trash, and file info (GLib)
+--empty | empty the trash permanently (with trash)
+pos: what to do (trash, open, info, list) ; path...
+=trash | move files to the desktop trash instead of deleting them permanently
+=open | open a file or URL with its default desktop application
+=info | show details and metadata for a file or folder
+=list | list files in a folder or location (such as trash://)
+
+@nano | Edit a text file in the terminal
+-l, --linenumbers | display line numbers in front of text
+-w, --nowrap | turn off automatic wrapping of long lines
+-B, --backup | save a backup (~) copy before overwriting the file
+-v, --view | open the file read-only so you cannot change it
+pos: the file to edit...
+
+@huh | Ask huh for a command, an explanation, or open the companion pane
+--mode MODE | start the companion pane in MODE (watch or lab)
+--here | run the companion pane directly inside this terminal
+--customize | export an editable 32x32 sprite template for your pet
+--dry-run | print how the companion pane would start without launching it
+-h, --help | show help and options
+pos: request or subcommand...
+=why | diagnose why the last command failed (or explain piped output)
+=explain | break down a shell command line part by part
+=pet | check on, rename, switch, or customize your terminal pet
+=setup | run guided setup for shell hooks, theme, and companion pane
+=find | search the catalog and installed programs interactively

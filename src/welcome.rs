@@ -1,7 +1,7 @@
 //! The startup animation and the short welcome: a small "huh" logo that draws itself and turns its
 //! "?" into "!" in well under a second, then at most five lines on how to use huh.
 //!
-//! It plays when `huh tutor` starts, the first time a person runs huh in a terminal, and on
+//! It plays when the `huh` companion pane starts, the first time a person runs huh in a terminal, and on
 //! `huh welcome`. It never plays into a pipe, with `--first-line-only`, in a terminal narrower than
 //! the art, with `TERM=dumb`, `HUH_NO_ANIMATION=1` or `animation = false` in the config file.
 //! Any key press skips the rest of the animation.
@@ -14,10 +14,10 @@ use std::time::Duration;
 /// Lines of every frame.
 pub const HEIGHT: usize = 5;
 
-const H: [&str; 4] = ["█   ", "█▀▀▄", "█  █", "█  █"];
-const U: [&str; 4] = ["    ", "█  █", "█  █", "▀▄▄▀"];
-const QUESTION: [&str; 4] = ["▄▀▄", " ▄▀", "   ", " ▀ "];
-const BANG: [&str; 4] = [" █ ", " █ ", "   ", " ▀ "];
+const H: [&str; 4] = ["█   ", "█▀▀█", "█  █", "▀  ▀"];
+const U: [&str; 4] = ["    ", "█  █", "█  █", "▀▀▀▀"];
+const QUESTION: [&str; 4] = ["▄▀▀▄", "  ▄▀", "    ", "  ▀ "];
+const BANG: [&str; 4] = [" ██ ", " ██ ", "    ", " ▀▀ "];
 /// Columns of the logo itself: three letters of four columns and two gaps.
 const LOGO_WIDTH: usize = 14;
 const INDENT: &str = "  ";
@@ -25,8 +25,8 @@ const INDENT: &str = "  ";
 /// What the animation is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Trigger {
-    /// `huh tutor` starting.
-    Tutor,
+    /// The unified `huh` companion pane starting.
+    Pane,
     /// The first interactive run of huh.
     FirstRun,
     /// `huh welcome`.
@@ -78,8 +78,8 @@ pub fn frame_time(n: usize, total: usize) -> Duration {
 /// The lines printed after the animation: what huh is, three examples, and one more line.
 pub fn welcome_lines(trigger: Trigger) -> Vec<String> {
     let last = match trigger {
-        Trigger::Tutor => "Tutor: explaining each command you run in the other pane — Ctrl+C to quit",
-        _ => "More: huh tutor --side, huh themes, huh --help",
+        Trigger::Pane => "Pane: live watch + /mode lab lessons — /help for commands, Ctrl+C to quit",
+        _ => "More: huh, huh setup, huh themes, huh --help",
     };
     vec![
         "huh turns plain words into terminal commands, and explains them.".to_string(),
@@ -243,8 +243,8 @@ pub fn show(trigger: Trigger, first_line_only: bool, text_always: bool) -> Shown
     show_with(trigger, first_line_only, text_always, true)
 }
 
-/// `show`, but with `print_text` false the five welcome lines are left to the caller (the tutor
-/// prints them itself once its header is pinned). `Played` still says whether they are due.
+/// `show`, but with `print_text` false the five welcome lines are left to the caller (the companion
+/// pane prints them itself once its header is pinned). `Played` still says whether they are due.
 pub fn show_with(trigger: Trigger, first_line_only: bool, text_always: bool, print_text: bool) -> Shown {
     let path = welcomed_path(std::env::var("XDG_STATE_HOME").ok().as_deref(), std::env::var("HOME").ok().as_deref());
     let welcomed = path.as_deref().is_some_and(is_welcomed);
@@ -463,9 +463,14 @@ mod tests {
             }
         }
         assert!(art_width() <= MAX_WIDTH);
-        let last = all.last().unwrap().join("\n");
+        let final_frame = all.last().unwrap();
+        let row0_chars: Vec<char> = final_frame[0].chars().collect();
+        assert_eq!(row0_chars.get(2), Some(&'█'), "left h ascender: {:?}", final_frame[0]);
+        assert_eq!(row0_chars.get(12), Some(&'█'), "right h ascender: {:?}", final_frame[0]);
+        assert_eq!(BANG[0], " ██ ");
+        let last = final_frame.join("\n");
         assert!(last.contains("huh"), "{last}");
-        assert!(last.contains("█") && last.contains(" █ "), "the logo and the !");
+        assert!(last.contains("█") && last.contains(" ██"), "the logo and the !");
         // The letters are drawn in: each frame shows at least as much as the one before.
         let ink = |f: &Vec<String>| f.iter().map(|l| l.chars().filter(|c| *c != ' ').count()).sum::<usize>();
         assert!(all[..8].windows(2).all(|w| ink(&w[0]) <= ink(&w[1])));
@@ -482,7 +487,7 @@ mod tests {
 
     #[test]
     fn welcome_is_short() {
-        for trigger in [Trigger::Tutor, Trigger::FirstRun, Trigger::Welcome] {
+        for trigger in [Trigger::Pane, Trigger::FirstRun, Trigger::Welcome] {
             let lines = welcome_lines(trigger);
             assert!(lines.len() <= 5);
             let text = lines.join("\n");
@@ -490,14 +495,17 @@ mod tests {
                 assert!(text.contains(example), "{example}");
             }
         }
-        let tutor = welcome_lines(Trigger::Tutor).join("\n");
-        assert!(tutor.contains("explaining each command you run in the other pane — Ctrl+C to quit"));
-        assert!(!welcome_lines(Trigger::Welcome).join("\n").contains("Ctrl+C"));
+        let pane = welcome_lines(Trigger::Pane).join("\n");
+        assert!(pane.contains("live watch + /mode lab lessons") && pane.contains("Ctrl+C to quit"), "{pane}");
+        assert!(!pane.contains("huh tutor"), "{pane}");
+        let welcome = welcome_lines(Trigger::Welcome).join("\n");
+        assert!(welcome.contains("More: huh, huh setup, huh themes, huh --help"), "{welcome}");
+        assert!(!welcome.contains("Ctrl+C"));
     }
 
     #[test]
     fn animates_on_a_terminal() {
-        for trigger in [Trigger::Tutor, Trigger::FirstRun, Trigger::Welcome] {
+        for trigger in [Trigger::Pane, Trigger::FirstRun, Trigger::Welcome] {
             assert!(should_animate(&tty(), trigger, false), "{trigger:?}");
         }
     }
@@ -515,17 +523,17 @@ mod tests {
             ("too narrow", Inputs { width: Some(art_width() - 1), ..tty() }),
         ];
         for (why, inputs) in cases {
-            for trigger in [Trigger::Tutor, Trigger::FirstRun, Trigger::Welcome] {
+            for trigger in [Trigger::Pane, Trigger::FirstRun, Trigger::Welcome] {
                 assert!(!should_animate(&inputs, trigger, false), "{why} {trigger:?}");
             }
         }
-        assert!(should_animate(&Inputs { width: Some(art_width()), ..tty() }, Trigger::Tutor, false));
+        assert!(should_animate(&Inputs { width: Some(art_width()), ..tty() }, Trigger::Pane, false));
     }
 
     #[test]
     fn first_run_plays_once_but_the_others_replay() {
         assert!(!should_animate(&tty(), Trigger::FirstRun, true));
-        assert!(should_animate(&tty(), Trigger::Tutor, true));
+        assert!(should_animate(&tty(), Trigger::Pane, true));
         assert!(should_animate(&tty(), Trigger::Welcome, true));
     }
 

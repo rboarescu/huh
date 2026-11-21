@@ -109,6 +109,14 @@ const COMMON_COMMANDS: &[&str] = &[
     "jq",
     "rg",
     "nmap",
+    "dosbox",
+    "flatpak",
+    "mpv",
+    "vlc",
+    "ffmpeg",
+    "xdg-open",
+    "wine",
+    "gio",
 ];
 
 #[cfg(test)]
@@ -239,6 +247,9 @@ fn diagnose(last: &Last) -> String {
         return ans;
     }
     if let Some(ans) = diagnose_service_daemons(last) {
+        return ans;
+    }
+    if let Some(ans) = diagnose_appimage_and_exec_format(last) {
         return ans;
     }
     if let Some(ans) = diagnose_not_executable(last) {
@@ -474,6 +485,214 @@ fn diagnose_service_daemons(last: &Last) -> Option<String> {
             &try_cmd,
         ));
     }
+    None
+}
+
+fn is_context_noise(t: &str) -> bool {
+    t.is_empty()
+        || is_long_listing_line(t)
+        || is_table_row(t)
+        || is_prose(t)
+        || is_code_line(t)
+        || is_commit_line(t)
+        || is_log_line(t)
+}
+
+fn is_non_error_context_line(line: &str) -> bool {
+    let t = line.trim();
+    is_context_noise(t) || t.starts_with("- ") || t.starts_with("* ") || t.starts_with("# ") || t.starts_with('•')
+}
+
+fn quote_shell_arg(arg: &str) -> String {
+    if arg.contains(char::is_whitespace) && !arg.starts_with(['\'', '"']) {
+        format!("'{}'", arg.replace('\'', r"'\''"))
+    } else {
+        arg.to_string()
+    }
+}
+
+/// First non-env/sudo wrapper command token in `command`, ignoring generic shells.
+fn first_command_target(command: &str) -> Option<String> {
+    let mut iter = command.split_whitespace().peekable();
+    while let Some(tok) = iter.next() {
+        if matches!(tok, "sudo" | "doas" | "env" | "command" | "time" | "nohup" | "exec") {
+            if tok == "env" {
+                while let Some(&next) = iter.peek() {
+                    if matches!(next, "-u" | "--unset") {
+                        iter.next();
+                        iter.next();
+                    } else if next.starts_with('-') {
+                        iter.next();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        if tok.contains('=') && !tok.starts_with('-') {
+            continue;
+        }
+        let cleaned = tok.trim_matches(['\'', '"']);
+        if cleaned.is_empty() || cleaned.starts_with('-') {
+            continue;
+        }
+        if matches!(cleaned, "bash" | "-bash" | "sh" | "zsh" | "dash" | "fish") {
+            return None;
+        }
+        return Some(cleaned.to_string());
+    }
+    None
+}
+
+fn has_appimage_ext(tok: &str) -> bool {
+    let low = tok.to_lowercase();
+    low.ends_with(".appimage") && low.len() > ".appimage".len() && !low.ends_with("/.appimage")
+}
+
+fn extract_appimage_target(last: &Last) -> String {
+    let cmd = last.command.trim();
+    if let Some(quoted) = extract_quoted(cmd, &['\'', '"'])
+        && has_appimage_ext(&quoted)
+    {
+        return quoted;
+    }
+    for tok in cmd.split_whitespace() {
+        let cleaned = tok.trim_matches(['\'', '"', '`']);
+        if !cleaned.starts_with('-')
+            && !(cleaned.contains('=') && !cleaned.starts_with(['.', '/']))
+            && has_appimage_ext(cleaned)
+        {
+            return cleaned.to_string();
+        }
+    }
+    for tok in last.output.split_whitespace() {
+        let cleaned = tok.trim_matches(['\'', '"', '`', ':', ',', ';', '(', ')', '[', ']']);
+        if !cleaned.starts_with('-') && !cleaned.contains("://") && has_appimage_ext(cleaned) {
+            return cleaned.to_string();
+        }
+    }
+    first_command_target(cmd).unwrap_or_else(|| "./app.AppImage".to_string())
+}
+
+fn extract_exec_format_target(last: &Last) -> Option<String> {
+    for line in last.output.lines().filter(|l| !is_non_error_context_line(l)) {
+        let t = line.trim();
+        let low = t.to_lowercase();
+        if low.starts_with("fish:")
+            && let Some(path) = extract_quoted(t, &['\'']).filter(|p| !p.is_empty())
+        {
+            return Some(path);
+        }
+        if !low.contains("exec format error") && !low.contains("cannot execute binary file") {
+            continue;
+        }
+        if low.starts_with("zsh:")
+            && let Some(pos) = low.find("exec format error:")
+        {
+            let rest = t[pos + "exec format error:".len()..].trim().trim_matches(['\'', '"', '`']);
+            if !rest.is_empty() && !rest.to_lowercase().contains("cannot execute") {
+                return Some(rest.to_string());
+            }
+        }
+        for part in t.split(':').map(str::trim) {
+            let p_low = part.to_lowercase();
+            let is_shell = matches!(
+                p_low.as_str(),
+                "bash"
+                    | "-bash"
+                    | "sh"
+                    | "-sh"
+                    | "zsh"
+                    | "-zsh"
+                    | "dash"
+                    | "fish"
+                    | "ash"
+                    | "/bin/sh"
+                    | "/bin/bash"
+                    | "/usr/bin/bash"
+                    | "/usr/bin/sh"
+                    | "exec"
+            );
+            let is_err_phrase = p_low.contains("cannot execute")
+                || p_low.contains("exec format error")
+                || p_low.contains("binary file")
+                || p_low.contains("permission denied");
+            if !part.is_empty()
+                && !part.chars().all(|c| c.is_ascii_digit())
+                && !is_line_prefix(part)
+                && !is_shell
+                && !is_err_phrase
+            {
+                return Some(part.trim_matches(['\'', '"', '`']).to_string());
+            }
+        }
+    }
+    first_command_target(&last.command)
+}
+
+/// Diagnoses AppImage FUSE 2 loader failures and `Exec format error` (Windows/DOS binaries or
+/// foreign-architecture/malformed executables) before `diagnose_not_executable` treats exit 126
+/// as a missing `chmod +x`.
+fn diagnose_appimage_and_exec_format(last: &Last) -> Option<String> {
+    let relevant_lower = last
+        .output
+        .lines()
+        .filter(|l| !is_non_error_context_line(l))
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .to_lowercase();
+
+    if relevant_lower.contains("libfuse.so.2")
+        || relevant_lower.contains("appimages require fuse")
+        || relevant_lower.contains("cannot mount appimage")
+        || (relevant_lower.contains("fusermount") && relevant_lower.contains("appimage"))
+    {
+        let target = extract_appimage_target(last);
+        let quoted = quote_shell_arg(&target);
+        let try_cmd = if quoted.contains("--appimage-extract-and-run") {
+            quoted
+        } else {
+            format!("{quoted} --appimage-extract-and-run")
+        };
+        let which = if target == "./app.AppImage" { "this AppImage".to_string() } else { format!("`{target}`") };
+        return Some(format_answer(
+            &format!(
+                "An AppImage bundles an app into one self-contained file and normally mounts itself using FUSE 2 (`libfuse.so.2` / `libfuse2`), which is not installed or available here, so {which} could not mount. You can extract and run it right away with `--appimage-extract-and-run`, or install `fuse2` / `libfuse2` via your package manager so AppImages launch directly next time."
+            ),
+            &try_cmd,
+        ));
+    }
+
+    if relevant_lower.contains("exec format error") {
+        let target = extract_exec_format_target(last);
+        let subject = target.as_deref().map_or_else(|| "This file".to_string(), |t| format!("`{t}`"));
+        let is_dos_or_windows = target.as_deref().is_some_and(|t| {
+            let low = t.to_lowercase();
+            low.ends_with(".exe") || low.ends_with(".com") || low.ends_with(".bat")
+        });
+        if is_dos_or_windows {
+            let try_cmd = match &target {
+                Some(t) if !t.is_empty() => format!("dosbox {}", quote_shell_arg(t)),
+                _ => "dosbox".to_string(),
+            };
+            return Some(format_answer(
+                &format!(
+                    "{subject} is a Windows or classic MS-DOS executable, which Linux cannot run directly in bash (`Exec format error`). Classic DOS games and programs run inside `dosbox`, while modern Windows programs and games use `wine` or Steam Proton."
+                ),
+                &try_cmd,
+            ));
+        }
+        let try_target = target.as_deref().map(quote_shell_arg).unwrap_or_else(|| "<file>".to_string());
+        return Some(format_answer(
+            &format!(
+                "{subject} is not runnable on this CPU or OS (`Exec format error`) — for example, it may be an ARM binary on an x86_64 PC, or a damaged or non-Linux binary without a `#!` header."
+            ),
+            &format!("file {try_target}"),
+        ));
+    }
+
     None
 }
 
@@ -2434,7 +2653,7 @@ fn is_success_line(line: &str) -> bool {
 /// The shape of one line, ignoring the lines around it.
 fn line_shape(line: &str) -> Shape {
     let t = line.trim();
-    if t.is_empty() || is_long_listing_line(t) || is_table_row(t) || is_prose(t) {
+    if is_context_noise(t) {
         return Shape::No;
     }
     let lower = t.to_lowercase();
@@ -2444,9 +2663,6 @@ fn line_shape(line: &str) -> Shape {
         .any(|s| lower.starts_with(s))
         || (lower.starts_with("make: '") && lower.ends_with("is up to date."))
     {
-        return Shape::No;
-    }
-    if is_code_line(t) || is_commit_line(t) || is_log_line(t) {
         return Shape::No;
     }
     const STRONG: &[&str] = &[
@@ -2478,6 +2694,7 @@ fn line_shape(line: &str) -> Shape {
         "the following paths are ignored",
         "segmentation fault",
         "bus error",
+        "dlopen():",
     ];
     const WEAK_OPENERS: &[&str] = &[
         "failed ",
@@ -2560,7 +2777,13 @@ fn line_shape(line: &str) -> Shape {
     }
     let words = t.split_whitespace().count();
     // A sentence ending in a period, a list item or a heading is documentation, not a message.
-    if t.starts_with(['-', '*', '#', '•']) || (t.ends_with('.') && words >= 5 && !t.contains(": ")) {
+    if t.starts_with(['-', '*', '#', '•']) {
+        return Shape::No;
+    }
+    if lower.starts_with("cannot mount appimage") || lower.trim_end_matches('.') == "exec format error" {
+        return Shape::Weak;
+    }
+    if t.ends_with('.') && words >= 5 && !t.contains(": ") {
         return Shape::No;
     }
     if WEAK_OPENERS.iter().any(|o| lower.starts_with(o)) {
@@ -5197,6 +5420,104 @@ mod tests {
     fn no_try_line_means_the_word_nothing_never_shows() {
         for case in ["", " ", "nothing", "Nothing"] {
             assert!(!format_answer("It broke.", case).contains("Try:"), "{case:?}");
+        }
+    }
+
+    #[test]
+    fn appimage_missing_fuse2_suggests_extract_and_run() {
+        let last = Last {
+            command: "./RetroGame.AppImage".into(),
+            exit: Some(127),
+            output: "dlopen(): error loading libfuse.so.2\nAppImages require FUSE to run.".into(),
+        };
+        let ans = diagnose(&last);
+        let low = ans.to_lowercase();
+        assert!(low.contains("fuse") && low.contains("libfuse2") && low.contains("fuse2"), "got: {ans}");
+        assert_eq!(suggested(&ans), Some("./RetroGame.AppImage --appimage-extract-and-run"), "got: {ans}");
+
+        let already_flagged = Last {
+            command: "  ./RetroGame.AppImage --appimage-extract-and-run  ".into(),
+            exit: Some(1),
+            output: "dlopen(): error loading libfuse.so.2\nAppImages require FUSE to run.".into(),
+        };
+        assert_eq!(suggested(&diagnose(&already_flagged)), Some("./RetroGame.AppImage --appimage-extract-and-run"));
+
+        let fusermount_err = Last {
+            command: String::new(),
+            exit: None,
+            output: "fusermount: mount failed: Operation not permitted\nCannot mount AppImage ./Obsidian.AppImage, please check your FUSE setup.".into(),
+        };
+        assert_eq!(suggested(&diagnose(&fusermount_err)), Some("./Obsidian.AppImage --appimage-extract-and-run"));
+    }
+
+    #[test]
+    fn appimage_piped_without_command_falls_back_cleanly() {
+        let piped = Last {
+            command: String::new(),
+            exit: None,
+            output: "dlopen(): error loading libfuse.so.2\nAppImages require FUSE to run.".into(),
+        };
+        let ans = diagnose(&piped);
+        let low = ans.to_lowercase();
+        assert!(low.contains("fuse") && low.contains("appimage"), "got: {ans}");
+        assert_eq!(suggested(&ans), Some("./app.AppImage --appimage-extract-and-run"), "got: {ans}");
+    }
+
+    #[test]
+    fn exec_format_error_handles_dos_windows_and_foreign_cpu() {
+        let dos_exe = Last {
+            command: "./DOOM.EXE".into(),
+            exit: Some(126),
+            output: "bash: ./DOOM.EXE: cannot execute binary file: Exec format error".into(),
+        };
+        let ans = diagnose(&dos_exe);
+        let low = ans.to_lowercase();
+        assert!(!low.contains("chmod +x"), "must not suggest chmod +x: {ans}");
+        assert!(low.contains("windows") && low.contains("dosbox") && low.contains("wine"), "got: {ans}");
+        assert_eq!(suggested(&ans), Some("dosbox ./DOOM.EXE"), "got: {ans}");
+
+        let dos_bat = Last {
+            command: String::new(),
+            exit: None,
+            output: "bash: line 1: ./INSTALL.BAT: cannot execute binary file: Exec format error".into(),
+        };
+        assert_eq!(suggested(&diagnose(&dos_bat)), Some("dosbox ./INSTALL.BAT"));
+
+        let arm_bin = Last {
+            command: "./arm-binary".into(),
+            exit: Some(126),
+            output: "bash: ./arm-binary: cannot execute binary file: Exec format error".into(),
+        };
+        let ans = diagnose(&arm_bin);
+        let low = ans.to_lowercase();
+        assert!(!low.contains("chmod +x"), "must not suggest chmod +x: {ans}");
+        assert!(low.contains("arm") || low.contains("cpu"), "got: {ans}");
+        assert_eq!(suggested(&ans), Some("file ./arm-binary"), "got: {ans}");
+
+        let no_target = Last { command: String::new(), exit: None, output: "Exec format error".into() };
+        assert_eq!(suggested(&diagnose(&no_target)), Some("file <file>"));
+    }
+
+    #[test]
+    fn appimage_prose_with_no_exit_does_not_trigger_fuse_diagnosis() {
+        for line in [
+            "I downloaded a new AppImage from their releases page.",
+            "Some AppImages require FUSE 2 (libfuse.so.2) to run on older systems.",
+            "- Fixed an issue where AppImages require FUSE to mount.",
+        ] {
+            let last = Last { command: String::new(), exit: None, output: line.into() };
+            let ans = diagnose(&last);
+            assert!(
+                !ans.contains("--appimage-extract-and-run") && !ans.to_lowercase().contains("libfuse2"),
+                "false positive for {line:?}: {ans}"
+            );
+        }
+    }
+
+    #[test]
+    fn common_commands_includes_everyday_media_and_gaming_tools() {
+        for tool in ["dosbox", "flatpak", "mpv", "vlc", "ffmpeg", "xdg-open", "wine", "gio"] {
+            assert!(COMMON_COMMANDS.contains(&tool), "missing {tool} from COMMON_COMMANDS");
         }
     }
 }

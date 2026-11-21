@@ -1,0 +1,5 @@
+name = "flatpak list"
+description = "List installed Flatpak applications"
+template = "flatpak list"
+kind = "query"
+keywords = ["flatpak list", "list flatpak", "installed flatpaks", "list flatpak apps"]

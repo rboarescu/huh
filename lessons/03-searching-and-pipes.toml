@@ -1,0 +1,291 @@
+id = "searching-and-pipes"
+number = 3
+title = "Searching & Pipes"
+summary = "Hunt for words and files with grep and find, count and sort lines, and connect commands with pipes and redirects."
+badge = "pipe_plumber"
+unlocks_species = "turtle"
+
+[[lessons]]
+id = "u3-finding-text"
+title = "Finding Text & Files"
+intro = "Search inside files with grep (-i, -r) and hunt for filenames across folders with find."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u3-l1-q1"
+command = "grep dragon story.txt"
+prompt = "What does `grep dragon story.txt` print?"
+choices = [
+    "Every line in `story.txt` that contains the word `dragon`",
+    "The number of letters in the word `dragon`",
+    "All files whose name is `dragon`",
+    "Replaces `dragon` with blank spaces inside `story.txt`",
+]
+answer = 0
+hint = "`grep` searches *inside* files for matching text — it never edits the file."
+note = "`grep` filters lines matching your search word. By default it cares about UPPERCASE vs lowercase."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u3-l1-q2"
+prompt = "Search `app.log` for the word `error`, ignoring UPPERCASE vs lowercase differences."
+accepted = [
+    "grep -i error app.log",
+    "grep -i \"error\" app.log",
+    "grep -i 'error' app.log",
+    "grep --ignore-case error app.log",
+    "grep --ignore-case \"error\" app.log",
+    "grep --ignore-case 'error' app.log",
+    "grep error -i app.log",
+]
+hints = [
+    "Use `grep` with the `-i` flag (ignore case), followed by the word and the file.",
+    "Pattern: `grep -i word file`.",
+]
+note = "Adding `-i` makes `grep` match `error`, `Error`, and `ERROR` all at once."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u3-l1-q3"
+command = "grep -r TODO notes/"
+prompt = "What does the `-r` flag do in `grep -r TODO notes/`?"
+choices = [
+    "Removes every line with `TODO`",
+    "Searches through `notes/` and every subfolder inside it",
+    "Prints matching lines in reverse order",
+]
+answer = 1
+hint = "Just like in `cp -r`, `-r` means \"recursive\" — dive into subfolders too."
+note = "`grep -r` is your flashlight for a whole project folder: it checks every file inside `notes/` and all nested subfolders."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u3-l1-q4"
+prompt = "Use `find` to search inside the current folder `.` for all files whose names end with `.txt`."
+accepted = [
+    "find . -name '*.txt'",
+    "find . -name \"*.txt\"",
+    "find ./ -name '*.txt'",
+    "find ./ -name \"*.txt\"",
+    "find -name '*.txt'",
+    "find -name \"*.txt\"",
+]
+hints = [
+    "Start with `find .` and use the `-name` test with a quoted `'*.txt'` pattern.",
+    "Type `find . -name '*.txt'` (quotes keep the shell from expanding `*` too early).",
+]
+note = "`grep` searches *inside* files for text; `find` searches the folder tree for *file names*! Quoting `'*.txt'` lets `find` check every subfolder."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u3-l1-q5"
+prompt = "You want to preview which `.tmp` files exist before tidying up. Which of these commands is DANGEROUS because it deletes every match right away with no confirmation?"
+choices = [
+    "find . -name '*.tmp'",
+    "find . -name '*.tmp' | wc -l",
+    "find . -name '*.tmp' -delete",
+]
+answer = 2
+risk = "destroys data"
+hint = "Watch for the flag that actually removes matching files instead of just listing them."
+note = "Always run `find . -name '*.tmp'` WITHOUT `-delete` first so you can inspect the exact list of files before removing anything!"
+
+[[lessons]]
+id = "u3-counting-and-sorting"
+title = "Counting & Sorting"
+intro = "Count lines in a flash with wc -l, put lists in order with sort, and clean up duplicates with uniq."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u3-l2-q1"
+command = "wc -l players.txt"
+prompt = "What does `wc -l players.txt` tell you?"
+choices = [
+    "The length of the longest word in `players.txt`",
+    "How many lines are in `players.txt`",
+    "The size of `players.txt` in megabytes",
+    "Every line in `players.txt` that starts with `l`",
+]
+answer = 1
+hint = "`wc` stands for \"word count\", and `-l` asks specifically for lines."
+note = "`wc -l` counts lines fast — even in huge files with millions of lines!"
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u3-l2-q2"
+prompt = "Type the command to sort the lines of `scores.txt` alphabetically."
+accepted = ["sort scores.txt", "sort ./scores.txt"]
+hints = [
+    "The command has the exact same name as the action: `sort`.",
+    "Type `sort` followed by the filename: `sort scores.txt`.",
+]
+note = "`sort` prints the sorted lines on your screen and leaves the original `scores.txt` file untouched."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u3-l2-q3"
+command = "cat pets.txt"
+output = """
+cat
+owl
+cat
+turtle
+"""
+prompt = "`uniq` only collapses *neighbouring* duplicate lines. If you run `uniq pets.txt` without sorting first, what happens to the two `cat` lines?"
+choices = [
+    "Both `cat` lines stay, because `owl` sits between them",
+    "Only one `cat` line is printed",
+    "`uniq` deletes the entire file",
+]
+answer = 0
+hint = "`uniq` only compares each line to the line right above it."
+note = "That is why people almost always pair `sort` and `uniq` together: `sort` groups identical lines next to each other, and then `uniq` removes the duplicates!"
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u3-l2-q4"
+prompt = "Type the command to count how many lines are in `journal.txt`."
+accepted = [
+    "wc -l journal.txt",
+    "wc --lines journal.txt",
+    "wc -l ./journal.txt",
+    "cat journal.txt | wc -l",
+]
+hints = [
+    "Use `wc` with the flag for lines (`-l`).",
+    "Type `wc -l journal.txt`.",
+]
+note = "Plain `wc` prints lines, words, and bytes. Adding `-l` gives you just the clean line count."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u3-l2-q5"
+command = "sort pets.txt | uniq -c"
+output = """
+      2 cat
+      1 owl
+      1 turtle
+"""
+prompt = "What did `uniq -c` add in front of each pet name?"
+choices = [
+    "The line number where the pet first appeared",
+    "How many times each unique line appeared",
+    "How many letters are in each word",
+]
+answer = 1
+hint = "The `-c` flag stands for \"count\"."
+note = "`sort file | uniq -c` is one of the handiest combos in Linux — it counts how often every item appears in a list!"
+
+[[lessons]]
+id = "u3-pipes-and-redirects"
+title = "Pipes & Redirects"
+intro = "Connect tools together with pipes (|), save output safely with > and >>, and spot risky web-to-shell pipelines."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u3-l3-q1"
+command = "cat scores.txt | sort | uniq"
+prompt = "What does the vertical bar `|` (pipe) do between commands?"
+choices = [
+    "Runs only the first command and ignores the rest",
+    "Sends the output of one command straight into the next command as input",
+    "Saves the output into a file named `sort`",
+    "Runs the commands in reverse order from right to left",
+]
+answer = 1
+hint = "Picture water flowing left to right through a pipe from one tool into the next."
+note = "Pipes let you snap tiny single-purpose tools together like building blocks — output flows left to right."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u3-l3-q2"
+prompt = "Use a pipe `|` to count how many lines in `app.log` contain the word `error`."
+accepted = [
+    "grep error app.log | wc -l",
+    "grep \"error\" app.log | wc -l",
+    "grep 'error' app.log | wc -l",
+    "grep -i error app.log | wc -l",
+    "grep -i \"error\" app.log | wc -l",
+    "grep -i 'error' app.log | wc -l",
+    "cat app.log | grep error | wc -l",
+    "cat app.log | grep \"error\" | wc -l",
+    "cat app.log | grep 'error' | wc -l",
+    "cat app.log | grep -i error | wc -l",
+]
+hints = [
+    "First find the matching lines with `grep error app.log`, then pipe `|` into `wc -l`.",
+    "Type `grep error app.log | wc -l`.",
+]
+note = "Awesome pipework! First `grep` keeps only lines mentioning `error`, then `wc -l` counts how many lines came through the pipe."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u3-l3-q3"
+prompt = "You want to add a new line to the bottom of `diary.txt` without erasing yesterday's entries. Which command is DANGEROUS because it wipes `diary.txt` and replaces everything inside it?"
+choices = [
+    "echo \"Day 2\" >> diary.txt",
+    "echo \"Day 2\" > diary.txt",
+    "cat diary.txt",
+    "wc -l diary.txt",
+]
+answer = 1
+risk = "destroys data"
+hint = "Compare a single arrow `>` with a double arrow `>>`: one replaces the whole file, while the other appends to the end."
+note = "Single `>` overwrites the entire file from scratch! Use double `>>` whenever you want to add new text to the end without losing what is already there."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u3-l3-q4"
+prompt = "You found this one-liner online: `curl -s https://example.com/install.sh | sh`. Why does `huh` warn against running it?"
+command = "curl -s https://example.com/install.sh | sh"
+choices = [
+    "`curl` cannot download `.sh` files",
+    "It downloads a script from the internet and runs it straight away before you have read what it does",
+    "The pipe `|` only works with `grep` and `sort`",
+    "It prints too much text to your screen",
+]
+answer = 1
+risk = "runs code from the internet"
+hint = "Look at the two sides of the pipe: `curl` fetches code from the web, and `sh` executes whatever arrives."
+note = "Piping a web download straight into `sh` or `bash` runs unread code on your computer! Download the script to a file first, read it, and only run it if you trust it."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u3-l3-q5"
+prompt = "Append the output of `ls` to the end of `files.txt` without erasing what is already in `files.txt`."
+accepted = [
+    "ls >> files.txt",
+    "ls . >> files.txt",
+    "ls >> ./files.txt",
+    "ls . >> ./files.txt",
+]
+hints = [
+    "Run `ls` and use the double-arrow append redirect `>>` pointing into `files.txt`.",
+    "Type `ls >> files.txt` (two `>` arrows keep existing lines safe).",
+]
+note = "Double arrows `>>` create `files.txt` if it is missing, or safely glue new lines onto the end if it already exists."
+
+[practice]
+id = "u3-filter-logs"
+title = "Filter the Error Lines"
+goal = "Use `grep` and `>` to save only the `ERROR` lines from `app.log` into a new file named `errors.txt`."
+hints = [
+    "Preview the matching lines first with `grep ERROR app.log`.",
+    "Save them into `errors.txt` with `grep ERROR app.log > errors.txt`.",
+]
+
+[practice.setup]
+files = [
+    { path = "app.log", content = "INFO: game server started\nINFO: player sam joined\nERROR: disk almost full\nINFO: autosave skipped\nERROR: failed to write checkpoint\n" },
+]
+
+[[practice.checks]]
+kind = "file_exists"
+path = "errors.txt"
+label = "File `errors.txt` exists"
+
+[[practice.checks]]
+kind = "file_contains"
+path = "errors.txt"
+text = "ERROR: disk almost full"
+label = "`errors.txt` contains the ERROR line from `app.log`"

@@ -7,7 +7,7 @@
 use anyhow::{Result, bail};
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::RwLock;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
@@ -396,16 +396,71 @@ fn load_omarchy() -> Option<Palette> {
 // Style
 // ---------------------------------------------------------------------------
 
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpriteRgb {
+    pub light: bool,
+    pub accent: (u8, u8, u8),
+    pub warning: (u8, u8, u8),
+    pub success: (u8, u8, u8),
+    pub note: (u8, u8, u8),
+    pub dim: (u8, u8, u8),
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn ansi_to_rgb(code: u8, light: bool) -> (u8, u8, u8) {
+    match (code, light) {
+        (30, false) => (80, 88, 102),
+        (30, true) => (36, 41, 47),
+        (31, false) => (224, 108, 117),
+        (31, true) => (198, 40, 40),
+        (32, false) => (152, 195, 121),
+        (32, true) => (27, 127, 62),
+        (33, false) => (229, 192, 123),
+        (33, true) => (184, 92, 0),
+        (34, false) => (97, 175, 239),
+        (34, true) => (31, 127, 184),
+        (35, false) => (198, 120, 221),
+        (35, true) => (136, 57, 239),
+        (36, false) => (86, 182, 194),
+        (36, true) => (1, 132, 188),
+        (37, false) => (205, 214, 244),
+        (37, true) => (92, 102, 114),
+        (90, _) => (127, 132, 142),
+        (91, _) => (243, 139, 168),
+        (92, _) => (166, 227, 161),
+        (93, _) => (249, 226, 175),
+        (94, _) => (137, 180, 250),
+        (95, _) => (245, 194, 231),
+        (96, _) => (148, 226, 213),
+        (97, _) => (255, 255, 255),
+        _ if light => (36, 41, 47),
+        _ => (205, 214, 244),
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn col_to_rgb(col: Col, light: bool, fallback: (u8, u8, u8)) -> (u8, u8, u8) {
+    match col {
+        Col::Rgb(r, g, b) => (r, g, b),
+        Col::Ansi(code) => ansi_to_rgb(code, light),
+        Col::Default => fallback,
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Style {
     on: bool,
     truecolor: bool,
+    #[cfg_attr(not(test), allow(dead_code))]
+    light: bool,
     looks: [Look; ROLES],
 }
 
 impl Style {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn plain() -> Style {
-        Style { on: false, truecolor: true, looks: [PLAIN; ROLES] }
+        Style { on: false, truecolor: true, light: false, looks: [PLAIN; ROLES] }
     }
 
     /// `omarchy` falls back to `auto` when the desktop theme file is missing or unreadable.
@@ -428,16 +483,38 @@ impl Style {
     }
 
     fn build(theme: Theme, on: bool, omarchy: Option<Palette>, term: TermEnv) -> Style {
+        let light = match theme {
+            Theme::Light => true,
+            Theme::Dark | Theme::Nord | Theme::Gruvbox | Theme::Catppuccin => false,
+            _ => term.light,
+        };
         if !on {
-            return Style::plain();
+            return Style { on: false, truecolor: term.truecolor, light, looks: [PLAIN; ROLES] };
         }
         let looks = match theme {
-            Theme::BabyBlue => babyblue_looks(term.light),
+            Theme::BabyBlue => babyblue_looks(light),
             Theme::Mono => mono_looks(),
             Theme::Auto | Theme::Omarchy => omarchy.unwrap_or_else(Palette::auto).looks(),
             other => Palette::builtin(other).unwrap_or_else(Palette::auto).looks(),
         };
-        Style { on, truecolor: term.truecolor, looks }
+        Style { on, truecolor: term.truecolor, light, looks }
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn sprite_rgb(&self) -> SpriteRgb {
+        let (fb_accent, fb_warning, fb_success, fb_note, fb_dim) = if self.light {
+            ((31, 127, 184), (198, 40, 40), (27, 127, 62), (106, 79, 196), (127, 127, 127))
+        } else {
+            ((137, 207, 240), (229, 72, 77), (47, 174, 94), (138, 116, 224), (127, 132, 142))
+        };
+        SpriteRgb {
+            light: self.light,
+            accent: col_to_rgb(self.looks[index(Role::Accent)].col, self.light, fb_accent),
+            warning: col_to_rgb(self.looks[index(Role::Warning)].col, self.light, fb_warning),
+            success: col_to_rgb(self.looks[index(Role::Success)].col, self.light, fb_success),
+            note: col_to_rgb(self.looks[index(Role::Note)].col, self.light, fb_note),
+            dim: col_to_rgb(self.looks[index(Role::Dim)].col, self.light, fb_dim),
+        }
     }
 
     pub fn paint(&self, role: Role, text: &str) -> String {
@@ -508,33 +585,47 @@ impl Style {
     }
 }
 
-static GLOBAL: OnceLock<Style> = OnceLock::new();
+static GLOBAL: RwLock<Option<Style>> = RwLock::new(None);
 
-/// Sets the style used by `paint` for the rest of the run (the first call wins).
+/// Sets the style used by `paint` if not yet initialized (the first call wins).
 pub fn init(style: Style) {
-    let _ = GLOBAL.set(style);
+    let mut guard = GLOBAL.write().unwrap_or_else(|p| p.into_inner());
+    if guard.is_none() {
+        *guard = Some(style);
+    }
 }
 
-fn global() -> Option<&'static Style> {
-    GLOBAL.get().filter(|s| s.on)
+/// Replaces the active style immediately (used for live `/theme` switching).
+#[allow(dead_code)]
+pub fn set(style: Style) {
+    let mut guard = GLOBAL.write().unwrap_or_else(|p| p.into_inner());
+    *guard = Some(style);
+}
+
+fn with_active<R>(f: impl FnOnce(&Style) -> R) -> Option<R> {
+    let guard = GLOBAL.read().unwrap_or_else(|p| p.into_inner());
+    guard.as_ref().filter(|s| s.on).map(f)
 }
 
 /// Whether output is being styled.
 pub fn enabled() -> bool {
-    global().is_some()
+    with_active(|_| ()).is_some()
 }
 
 pub fn paint(role: Role, text: &str) -> String {
-    match global() {
-        Some(style) => style.paint(role, text),
-        None => text.to_string(),
-    }
+    with_active(|style| style.paint(role, text)).unwrap_or_else(|| text.to_string())
 }
 
 pub fn answer(text: &str) -> String {
-    match global() {
-        Some(style) => style.answer(text),
-        None => text.to_string(),
+    with_active(|style| style.answer(text)).unwrap_or_else(|| text.to_string())
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn active_sprite_rgb() -> SpriteRgb {
+    let guard = GLOBAL.read().unwrap_or_else(|p| p.into_inner());
+    match guard.as_ref() {
+        Some(style) => style.sprite_rgb(),
+        None => Style::for_terminal(Theme::BabyBlue, true, TermEnv::default()).sprite_rgb(),
     }
 }
 
@@ -576,8 +667,14 @@ pub fn theme_from_config_text(text: &str) -> Result<Option<Theme>> {
     }
 }
 
-/// Flag beats environment, environment beats the file, the file beats `babyblue`.
-pub fn resolve_theme(flag: Option<&str>, env: Option<&str>, file: Option<&Path>) -> Result<Theme> {
+/// Flag beats environment, environment beats `config.toml`, `config.toml` beats `prefs.toml`,
+/// and `prefs.toml` beats `babyblue`.
+pub fn resolve_theme_with_prefs(
+    flag: Option<&str>,
+    env: Option<&str>,
+    file: Option<&Path>,
+    pref: Option<&str>,
+) -> Result<Theme> {
     if let Some(value) = flag {
         return Theme::parse(value);
     }
@@ -586,12 +683,20 @@ pub fn resolve_theme(flag: Option<&str>, env: Option<&str>, file: Option<&Path>)
     }
     if let Some(path) = file
         && let Ok(text) = std::fs::read_to_string(path)
+        && let Some(theme) = theme_from_config_text(&text).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?
     {
-        return Ok(theme_from_config_text(&text)
-            .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?
-            .unwrap_or(Theme::BabyBlue));
+        return Ok(theme);
+    }
+    if let Some(value) = pref.filter(|v| !v.trim().is_empty()) {
+        return Theme::parse(value);
     }
     Ok(Theme::BabyBlue)
+}
+
+/// Flag beats environment, environment beats the file, the file beats `babyblue`.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn resolve_theme(flag: Option<&str>, env: Option<&str>, file: Option<&Path>) -> Result<Theme> {
+    resolve_theme_with_prefs(flag, env, file, None)
 }
 
 /// `huh themes`: a sample of every theme.
@@ -854,5 +959,65 @@ mod tests {
         assert_eq!(nearest_256(255, 0, 0), 196);
         // Truecolour terminals are unchanged.
         assert!(Style::new(Theme::BabyBlue, true).paint(Role::Accent, "x").contains("38;2;137;207;240"));
+    }
+
+    #[test]
+    fn resolve_theme_with_prefs_precedence() {
+        let no_theme = scratch("no-theme.toml", "mode = \"expert\"\n");
+        let nord = scratch("pref-nord.toml", "theme = \"nord\"\n");
+        assert_eq!(resolve_theme_with_prefs(None, None, None, Some("catppuccin")).unwrap(), Theme::Catppuccin);
+        assert_eq!(
+            resolve_theme_with_prefs(None, None, Some(&no_theme), Some("catppuccin")).unwrap(),
+            Theme::Catppuccin
+        );
+        assert_eq!(resolve_theme_with_prefs(None, None, Some(&nord), Some("catppuccin")).unwrap(), Theme::Nord);
+        assert_eq!(
+            resolve_theme_with_prefs(None, Some("gruvbox"), Some(&nord), Some("catppuccin")).unwrap(),
+            Theme::Gruvbox
+        );
+        assert_eq!(
+            resolve_theme_with_prefs(Some("mono"), Some("gruvbox"), Some(&nord), Some("catppuccin")).unwrap(),
+            Theme::Mono
+        );
+        assert_eq!(resolve_theme_with_prefs(None, None, Some(&no_theme), Some("  ")).unwrap(), Theme::BabyBlue);
+        assert!(resolve_theme_with_prefs(None, None, None, Some("neon")).is_err());
+    }
+
+    #[test]
+    fn sprite_rgb_handles_rgb_ansi_and_default_roles() {
+        let dark_bb = Style::for_terminal(Theme::BabyBlue, true, TermEnv { truecolor: true, light: false });
+        assert_eq!(
+            dark_bb.sprite_rgb(),
+            SpriteRgb {
+                light: false,
+                accent: (0x89, 0xcf, 0xf0),
+                warning: (0xe5, 0x48, 0x4d),
+                success: (0x2f, 0xae, 0x5e),
+                note: (0x8a, 0x74, 0xe0),
+                dim: (127, 132, 142),
+            }
+        );
+        assert_eq!(active_sprite_rgb(), dark_bb.sprite_rgb());
+
+        let light_bb = Style::for_terminal(Theme::BabyBlue, true, TermEnv { truecolor: true, light: true });
+        assert!(light_bb.sprite_rgb().light);
+        assert_eq!(light_bb.sprite_rgb().accent, (0x1f, 0x7f, 0xb8));
+
+        let light_theme = Style::for_terminal(Theme::Light, true, TermEnv { truecolor: true, light: false });
+        assert!(light_theme.sprite_rgb().light);
+
+        let nord = Style::new(Theme::Nord, true).sprite_rgb();
+        assert!(!nord.light);
+        assert_eq!(nord.accent, (0x88, 0xc0, 0xd0));
+        assert_eq!(nord.warning, (0xbf, 0x61, 0x6a));
+        assert_eq!(nord.dim, (0x61, 0x6e, 0x88));
+
+        let auto = Style::with_omarchy(Theme::Auto, true, None).sprite_rgb();
+        assert_ne!(auto.accent, (0, 0, 0));
+        assert_ne!(auto.warning, auto.success);
+
+        let mono = Style::new(Theme::Mono, true).sprite_rgb();
+        assert_eq!(mono.accent, dark_bb.sprite_rgb().accent);
+        assert_eq!(Style::plain().sprite_rgb(), dark_bb.sprite_rgb());
     }
 }

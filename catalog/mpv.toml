@@ -1,0 +1,22 @@
+name = "mpv"
+description = "Play a video, movie, song, or audio file with mpv"
+template = "mpv {no_video} {loop} {target}"
+kind = "action"
+package = "mpv"
+keywords = ["mpv", "play video", "watch movie", "watch video", "play movie", "play music", "play song", "play audio", "video player", "media player"]
+opposites = ["convert", "transcode", "extract", "download", "youtube", "vimeo", "recommend", "shrink", "resize", "crop", "trim", "record", "playlist", "burn"]
+
+[[flags]]
+id = "no_video"
+value = "--no-video"
+question = "Does the user want audio only with no picture?"
+
+[[flags]]
+id = "loop"
+value = "--loop-file=inf"
+question = "Does the user want to loop forever continuously?"
+
+[[slots]]
+id = "target"
+kind = "path"
+what = "the video, audio file, or media URL to play"

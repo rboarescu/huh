@@ -1,0 +1,263 @@
+id = "networking-and-stay-safe"
+number = 8
+title = "Networking & Stay Safe"
+summary = "Inspect connections with ping, ip, ss, curl, and ssh — and beat the Spot the Danger boss lesson to unlock the Snowy Owl!"
+badge = "night_watch"
+unlocks_species = "owl"
+
+[[lessons]]
+id = "u8-network-basics"
+title = "Checking Your Network"
+intro = "See your IP address with ip -br addr, check listening ports with ss, and test connectivity neatly with ping -c 4."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u8-l1-q1"
+command = "ping -c 4 1.1.1.1"
+prompt = "Why is `-c 4` so helpful when running `ping -c 4 1.1.1.1` on Linux?"
+choices = [
+    "`-c 4` makes your internet 4 times faster",
+    "Plain `ping` on Linux runs forever until Ctrl+C; `-c 4` stops automatically after 4 packets",
+    "`-c 4` blocks connections from 4 computers",
+    "`-c 4` copies 4 files",
+]
+answer = 1
+hint = "The `-c` flag stands for \"count\"."
+note = "On Linux, `ping` keeps sending packets until you press Ctrl+C unless you pass `-c N` to set a count."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u8-l1-q2"
+command = "ip -br addr"
+output = """
+lo               UNKNOWN        127.0.0.1/8 ::1/128
+wlan0            UP             192.168.1.42/24
+eth0             DOWN
+"""
+prompt = "Look at this `ip -br addr` output. Which address is this computer's local network IPv4 address (not loopback)?"
+choices = [
+    "127.0.0.1",
+    "192.168.1.42",
+    "::1",
+]
+answer = 1
+hint = "`lo` (`127.0.0.1`) is loopback (this computer talking to itself); look at the `UP` interface."
+note = "`ip -br addr` gives a clean one-line-per-interface table. Your network address lives on the `UP` Wi-Fi or cable interface."
+expect_output_match = true
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u8-l1-q3"
+prompt = "Show a short summary of your network interfaces and IP addresses using `ip -br addr`."
+accepted = [
+    "ip -br addr",
+    "ip -br a",
+    "ip --brief addr",
+    "ip --brief address",
+    "ip -br address",
+]
+hints = [
+    "Start with `ip`, add `-br` (brief), and ask for `addr`.",
+    "Type `ip -br addr`.",
+]
+note = "`ip -br addr` is much easier to read than full `ip addr` when you just need your IP and link status."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u8-l1-q4"
+command = "ss -tuln"
+output = """
+Netid State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process
+tcp   LISTEN 0      128    127.0.0.1:8000     0.0.0.0:*
+tcp   LISTEN 0      128    0.0.0.0:22         0.0.0.0:*
+"""
+prompt = "In this `ss` output, which listening port is ONLY reachable from this computer itself (localhost) and NOT from other machines on the network?"
+choices = [
+    "Port 22 (on `0.0.0.0`)",
+    "Both ports are reachable from anywhere",
+    "Port 8000 (on `127.0.0.1`)",
+]
+answer = 2
+hint = "`127.0.0.1` means \"only this machine\", while `0.0.0.0` listens on every network interface."
+note = "Checking `ss -tuln` lets you verify which services stay safely local (`127.0.0.1`) versus open to the network (`0.0.0.0`)."
+expect_output_match = true
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u8-l1-q5"
+prompt = "Send exactly 4 ping packets to `1.1.1.1` so `ping` stops automatically."
+accepted = ["ping -c 4 1.1.1.1", "ping -c4 1.1.1.1", "ping 1.1.1.1 -c 4"]
+hints = [
+    "Use `ping` with `-c 4` and the address `1.1.1.1`.",
+    "Type `ping -c 4 1.1.1.1`.",
+]
+note = "Awesome! `ping -c 4` is a great quick check whenever you wonder if your network connection is alive."
+
+[[lessons]]
+id = "u8-web-and-remote"
+title = "Fetching & Remote Shells"
+intro = "Fetch headers or files cleanly with curl, read ping statistics, and open encrypted remote sessions with ssh."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u8-l2-q1"
+command = "curl -I https://example.com"
+prompt = "What does `curl -I https://example.com` fetch?"
+choices = [
+    "Only the HTTP response headers (such as status `200 OK`) without downloading the whole page body",
+    "Installs `example.com` as a system package",
+    "Deletes the website",
+    "Opens a remote terminal on `example.com`",
+]
+answer = 0
+hint = "`-I` sends an HTTP HEAD request to inspect just the headers."
+note = "`curl -I` is handy for checking whether a web server responds and seeing status codes or redirects cleanly."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u8-l2-q2"
+prompt = "Use `curl` with `-o` to download `https://example.com/guide.txt` and save it into a local file named `guide.txt`."
+accepted = [
+    "curl -o guide.txt https://example.com/guide.txt",
+    "curl https://example.com/guide.txt -o guide.txt",
+    "curl -O https://example.com/guide.txt",
+    "curl --output guide.txt https://example.com/guide.txt",
+]
+hints = [
+    "Use `curl -o <filename> <url>` to save a download straight to disk.",
+    "Type `curl -o guide.txt https://example.com/guide.txt`.",
+]
+note = "Saving a file to disk first lets you read and verify it with `cat` or `head` before doing anything else!"
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u8-l2-q3"
+command = "ssh sam@192.168.1.50"
+prompt = "What does `ssh sam@192.168.1.50` do?"
+choices = [
+    "Sends an email to `sam`",
+    "Copies every file from `192.168.1.50` automatically",
+    "Opens an encrypted remote terminal session as user `sam` on the machine at `192.168.1.50`",
+    "Shuts down `192.168.1.50`",
+]
+answer = 2
+hint = "`ssh` stands for Secure Shell — `user@host` says who you log in as and where."
+note = "SSH encrypts everything you type and see over the network, and verifies the remote computer's identity using host keys."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u8-l2-q4"
+command = "ping -c 4 1.1.1.1"
+output = """
+PING 1.1.1.1 (1.1.1.1) 56(84) bytes of data.
+64 bytes from 1.1.1.1: icmp_seq=1 ttl=57 time=12.4 ms
+64 bytes from 1.1.1.1: icmp_seq=2 ttl=57 time=11.9 ms
+
+--- 1.1.1.1 ping statistics ---
+4 packets transmitted, 4 received, 0% packet loss, time 3004ms
+rtt min/avg/max/mdev = 11.8/12.2/12.7/0.3 ms
+"""
+prompt = "Look at the summary line of this `ping` output. What does `0% packet loss` tell you?"
+choices = [
+    "The network cable is unplugged",
+    "Every ping packet got a healthy reply back",
+    "The server rejected all 4 packets",
+]
+answer = 1
+hint = "4 packets were sent (`transmitted`) and 4 came back (`received`)."
+note = "`0% packet loss` means a healthy connection; `100% packet loss` means the target is unreachable or blocking pings."
+expect_output_match = true
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u8-l2-q5"
+prompt = "Connect over SSH as user `alex` to the server `lab.local`."
+accepted = ["ssh alex@lab.local", "ssh -l alex lab.local"]
+hints = [
+    "Use `ssh` followed by `username@hostname`.",
+    "Type `ssh alex@lab.local`.",
+]
+note = "You are ready for the final boss lesson — put all your safety instincts to the test!"
+
+[[lessons]]
+id = "u8-boss-spot-danger"
+title = "Boss Level: Spot the Danger"
+intro = "Final challenge! Spot five different kinds of real-world terminal risks to earn the Night Watch badge and unlock the Snowy Owl."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u8-l3-q1"
+prompt = "Boss round 1 of 5! Someone posts `curl -s https://example.com/get.sh | bash` in a chat room. What is the main danger?"
+command = "curl -s https://example.com/get.sh | bash"
+choices = [
+    "It prints the script to your screen without running it",
+    "It downloads code from the internet and runs it right away before you ever read it",
+    "`bash` cannot read from a pipe",
+    "It only works when offline",
+]
+answer = 1
+risk = "runs code from the internet"
+hint = "Follow the pipe: `curl` fetches a script from a remote server and hands it straight to `bash` to execute."
+note = "Download scripts with `curl -o script.sh <url>`, read them first, and only run them if you trust every line."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u8-l3-q2"
+prompt = "Boss round 2 of 5! Which command turns OFF certificate verification so someone on the network could tamper with your download without any warning?"
+choices = [
+    "curl https://example.com/api",
+    "curl -I https://example.com/api",
+    "curl -k https://example.com/api",
+    "ping -c 4 1.1.1.1",
+]
+answer = 2
+risk = "weakens security"
+hint = "Watch for `-k` (`--insecure`), which tells `curl` to skip checking the server's HTTPS certificate."
+note = "Never ignore HTTPS certificate errors with `curl -k` unless you know exactly why — fix the certificate instead."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u8-l3-q3"
+prompt = "Boss round 3 of 5! You run `python3 -m http.server 8000` to preview an HTML page. Why does `huh` warn you?"
+command = "python3 -m http.server 8000"
+choices = [
+    "By default it shares your folder with EVERY computer on the network, not just yours — add `--bind 127.0.0.1` to keep it local",
+    "It deletes every HTML file in the folder",
+    "Python cannot serve files on port 8000",
+    "It locks your keyboard until you reboot",
+]
+answer = 0
+risk = "exposes a service"
+hint = "Without `--bind 127.0.0.1`, `http.server` listens on `0.0.0.0` (every network interface)."
+note = "Always pass `--bind 127.0.0.1` when testing a local dev server so strangers on the same Wi-Fi cannot browse your files."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u8-l3-q4"
+prompt = "Boss round 4 of 5! You are screen-sharing with a friend. Which command is DANGEROUS because it prints your private SSH key to the terminal?"
+choices = [
+    "cat ~/.ssh/id_rsa.pub",
+    "ls -l ~/.ssh",
+    "cat ~/.ssh/id_rsa",
+    "whoami",
+]
+answer = 2
+risk = "leaks secrets"
+hint = "`.pub` is the public key meant to be shared; the file WITHOUT `.pub` is your secret private key!"
+note = "Never print or share private keys (`id_rsa`, `id_ed25519`) or `.env` files — anyone who copies them can log in as you."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u8-l3-q5"
+prompt = "Final boss round (5 of 5)! What does `history -c` do, and why does `huh` flag it?"
+command = "history -c"
+choices = [
+    "It copies your command history to a safe backup file",
+    "It counts how many commands you have ever typed",
+    "It clears your shell's command history, erasing the record of what was run in this session",
+    "It closes all open browser tabs",
+]
+answer = 2
+risk = "hides tracks"
+hint = "The `-c` flag stands for \"clear\"."
+note = "Commands that wipe logs or command history erase the trail of what happened on a machine — a big red flag when seen in untrusted instructions!"

@@ -1,0 +1,278 @@
+id = "reading-permissions"
+number = 4
+title = "Reading Permissions"
+summary = "Decode rwx permission strings, change file permissions safely with chmod, and see who you are with whoami and id."
+badge = "locksmith"
+
+[[lessons]]
+id = "u4-decoding-rwx"
+title = "Decoding rwx"
+intro = "Every file and folder carries a 10-character permission badge in ls -l. Learn how r, w, and x protect your files."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u4-l1-q1"
+command = "ls -l"
+output = """
+total 8
+-rwxr-xr-x 1 sam sam 210 Nov 19 10:10 deploy.sh
+-rw------- 1 sam sam  64 Nov 19 10:11 secret.key
+-rw-r--r-- 1 sam sam 512 Nov 19 10:12 readme.txt
+"""
+prompt = "In this `ls -l` listing, which file is marked as runnable (executable) because it has an `x` in its permissions?"
+choices = [
+    "secret.key",
+    "deploy.sh",
+    "readme.txt",
+    "None of them",
+]
+answer = 1
+hint = "Look at the permission string on the far left for the letter `x` (execute)."
+note = "`deploy.sh` has `-rwxr-xr-x`, so it can be run as a program. Neither `secret.key` nor `readme.txt` has `x`."
+expect_output_match = true
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u4-l1-q2"
+command = "ls -l secret.key"
+prompt = "A file shows permissions `-rw-------`. Who is allowed to read and write it?"
+choices = [
+    "Everyone on the computer",
+    "Only people in the file's group",
+    "Only the file's owner — group and everyone else have no access",
+    "Nobody at all, not even the owner",
+]
+answer = 2
+hint = "After the first `-` (file type), the next 3 letters are the owner (`rw-`), followed by group (`---`) and everyone else (`---`)."
+note = "`-rw-------` (mode `600`) keeps private files like keys or passwords readable and writable only by their owner."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u4-l1-q3"
+command = "ls -l"
+output = """
+total 8
+drwxr-x--- 2 sam coders 4096 Nov 19 10:15 club
+-rw-r--r-- 1 sam coders  240 Nov 19 10:16 rules.txt
+"""
+prompt = "Permissions split into three 3-letter groups after the first character: owner, group, and everyone else. For `club` (`drwxr-x---`), what can people in the `coders` group do?"
+choices = [
+    "Read, write, and enter",
+    "Read and enter, but not write (no `w`)",
+    "Nothing at all",
+]
+answer = 1
+hint = "Check characters 5, 6, and 7 of `drwxr-x---`: they are `r-x`."
+note = "For folders, `r` lets you list files, `w` lets you add or remove files inside, and `x` lets you enter (`cd` into) the folder."
+expect_output_match = true
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u4-l1-q4"
+command = "ls -l readme.txt"
+prompt = "In `-rw-r--r--`, what do the three permission letters `r`, `w`, and `x` stand for?"
+choices = [
+    "Read, Write, and Execute (run or enter)",
+    "Rename, Wipe, and Extract",
+    "Root, Window, and Exit",
+    "Repeat, Wait, and Explore",
+]
+answer = 0
+hint = "Think about the three basic things you can do with a file: look at it, change it, or run it."
+note = "`r` = read, `w` = write (edit), and `x` = execute (run a program or enter a folder). A dash `-` means that permission is off."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u4-l1-q5"
+prompt = "Type the command to show the detailed listing (including permissions) of `deploy.sh`."
+accepted = ["ls -l deploy.sh", "ls -l ./deploy.sh", "ls -la deploy.sh", "ls -al deploy.sh", "ls deploy.sh -l"]
+hints = [
+    "Use `ls` with the long-format flag `-l` followed by the filename.",
+    "Type `ls -l deploy.sh`.",
+]
+note = "Passing a single filename to `ls -l` shows just that file's permissions, owner, size, and timestamp."
+
+[[lessons]]
+id = "u4-changing-permissions"
+title = "Changing Permissions with chmod"
+intro = "Use chmod to make scripts runnable (+x), lock down private files (600), and avoid overly wide 777 permissions."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u4-l2-q1"
+command = "chmod +x deploy.sh"
+prompt = "What does `chmod +x deploy.sh` do?"
+choices = [
+    "Deletes `deploy.sh`",
+    "Adds execute permission so `deploy.sh` can be run as a program",
+    "Copies `deploy.sh` into a new file named `x`",
+    "Hides `deploy.sh` from `ls`",
+]
+answer = 1
+hint = "`chmod` stands for \"change mode\", and `+x` turns on the execute bit."
+note = "Before you can run a new shell script with `./deploy.sh`, you give it execute permission with `chmod +x deploy.sh`."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u4-l2-q2"
+prompt = "Make `start.sh` runnable by adding execute permission with `chmod`."
+accepted = [
+    "chmod +x start.sh",
+    "chmod u+x start.sh",
+    "chmod a+x start.sh",
+    "chmod +x ./start.sh",
+    "chmod u+x ./start.sh",
+    "chmod 755 start.sh",
+    "chmod 700 start.sh",
+]
+hints = [
+    "Use `chmod` with `+x` (add execute) and the script filename.",
+    "Type `chmod +x start.sh`.",
+]
+note = "Nice! `chmod +x` flips the execute switch on, and `chmod -x` flips it back off."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u4-l2-q3"
+command = "chmod 600 secret.key"
+prompt = "Numeric permissions add up: `4` = read, `2` = write, `1` = execute. What does `chmod 600 secret.key` set?"
+choices = [
+    "Everyone can read, write, and run the file",
+    "Owner can only execute the file",
+    "Owner can read and write (4+2=6); group and everyone else get nothing (0)",
+]
+answer = 2
+hint = "Break `600` into three digits: `6` for owner (`4+2`), `0` for group, and `0` for everyone else."
+note = "`600` (`-rw-------`) is the gold standard for SSH private keys and secret files — SSH even refuses to use keys that are too open!"
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u4-l2-q4"
+prompt = "Use numeric `chmod` to lock down `secret.key` so ONLY the owner can read and write it (`600`)."
+accepted = [
+    "chmod 600 secret.key",
+    "chmod 0600 secret.key",
+    "chmod 600 ./secret.key",
+    "chmod u=rw,go= secret.key",
+]
+hints = [
+    "Pass the three-digit mode `600` to `chmod`, followed by the filename.",
+    "Type `chmod 600 secret.key`.",
+]
+note = "Locked tight! With `600`, nobody else on the computer can peek at `secret.key`."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u4-l2-q5"
+prompt = "Someone suggests fixing a permission error by running `chmod 777 script.sh`. Why does `huh` warn about this?"
+command = "chmod 777 script.sh"
+choices = [
+    "`777` locks the file so even you cannot open it",
+    "`777` lets EVERY user and account on the machine edit or replace the file; `755` or `644` is much safer",
+    "`777` erases the file after 7 seconds",
+    "`chmod` does not accept numbers",
+]
+answer = 1
+risk = "gives away access"
+hint = "Each `7` means `4+2+1` (read + write + execute) — the third `7` gives write access to everyone else on the machine."
+note = "`chmod 777` makes files world-writable. Use `755` for scripts/folders and `644` for regular files (or `600` for secrets) instead."
+
+[[lessons]]
+id = "u4-users-and-groups"
+title = "Users & Groups"
+intro = "Find out which account you are logged in as with whoami, inspect your groups with id, and choose safe modes."
+
+[[lessons.questions]]
+kind = "explain_choice"
+id = "u4-l3-q1"
+command = "whoami"
+prompt = "What does `whoami` print?"
+choices = [
+    "The name of your Linux computer",
+    "Your current username",
+    "The list of every user ever created",
+    "Your home folder path",
+]
+answer = 1
+hint = "Read the command out loud: \"who am I?\""
+note = "`whoami` prints the exact username your terminal is running as — handy when switching accounts or using remote machines."
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u4-l3-q2"
+prompt = "Type the short command that shows your user ID, main group, and every group you belong to."
+accepted = ["id"]
+hints = [
+    "It is a tiny two-letter command short for \"identity\".",
+    "Just type `id`.",
+]
+note = "`id` shows your numeric `uid`, primary `gid`, and all `groups` that control what tools and admin powers your account can use."
+
+[[lessons.questions]]
+kind = "read_output"
+id = "u4-l3-q3"
+command = "id"
+output = "uid=1000(sam) gid=1000(sam) groups=1000(sam),27(sudo),998(wheel)"
+prompt = "Look at this output from `id`. Which part lists all the groups `sam` belongs to?"
+choices = [
+    "`uid=1000(sam)`",
+    "`gid=1000(sam)`",
+    "`groups=1000(sam),27(sudo),998(wheel)`",
+]
+answer = 2
+hint = "Look at the third field starting with `groups=`."
+note = "Groups like `sudo` or `wheel` allow an account to run admin commands with `sudo` when needed."
+expect_output_match = true
+
+[[lessons.questions]]
+kind = "type_command"
+id = "u4-l3-q4"
+prompt = "Give `run.sh` standard script permissions `755` (owner: rwx, group and others: r-x) using `chmod`."
+accepted = ["chmod 755 run.sh", "chmod 0755 run.sh", "chmod 755 ./run.sh"]
+hints = [
+    "Use `chmod` with `755` before the filename.",
+    "Type `chmod 755 run.sh`.",
+]
+note = "`755` (`-rwxr-xr-x`) lets you read, edit, and run `run.sh`, while others can run or read it without modifying it."
+
+[[lessons.questions]]
+kind = "spot_danger"
+id = "u4-l3-q5"
+prompt = "You want to make `tool.sh` runnable without letting every other user edit it. Which command is DANGEROUS because it makes the file world-writable?"
+choices = [
+    "chmod +x tool.sh",
+    "chmod 755 tool.sh",
+    "chmod 777 tool.sh",
+    "ls -l tool.sh",
+]
+answer = 2
+risk = "gives away access"
+hint = "Watch out for the three sevens that hand write access to everyone."
+note = "Never reach for `chmod 777` as a shortcut — `chmod +x` or `chmod 755` makes a script runnable while keeping write access safely with you."
+
+[practice]
+id = "u4-lock-and-run"
+title = "Lock It Down & Make It Runnable"
+goal = "Make `deploy.sh` executable by its owner (`chmod +x deploy.sh`) and lock `secret.key` so only the owner can read or write it (`chmod 600 secret.key`)."
+hints = [
+    "Inspect starting permissions with `ls -l`, then make the script runnable with `chmod +x deploy.sh`.",
+    "Lock down the key file with `chmod 600 secret.key`.",
+]
+
+[practice.setup]
+files = [
+    { path = "deploy.sh", content = "#!/bin/sh\necho ready\n", mode = 0o644 },
+    { path = "secret.key", content = "TOP-SECRET-PRACTICE-KEY\n", mode = 0o644 },
+]
+
+[[practice.checks]]
+kind = "file_mode_has"
+path = "deploy.sh"
+bits = 0o100
+label = "`deploy.sh` is executable by its owner (+x)"
+
+[[practice.checks]]
+kind = "file_mode_eq"
+path = "secret.key"
+mode = 0o600
+label = "`secret.key` has permissions 600 (-rw-------)"
