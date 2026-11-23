@@ -653,6 +653,24 @@ mod tests {
         }
     }
 
+    fn run_interactive_bash(script_path: &Path) -> std::process::Output {
+        let inner = format!("source {}", shell_quote(&script_path.to_string_lossy()));
+        if !matches!(crate::platform::locate("script"), crate::platform::Found::Missing) {
+            let cmd = format!("bash --norc -i -c {}", shell_quote(&inner));
+            std::process::Command::new("script")
+                .args(["-qefc", &cmd, "/dev/null"])
+                .env("TERM", "xterm-256color")
+                .output()
+                .unwrap()
+        } else {
+            std::process::Command::new("bash")
+                .args(["--norc", "-i", "-c", &inner])
+                .env("TERM", "xterm-256color")
+                .output()
+                .unwrap()
+        }
+    }
+
     #[test]
     fn hook_snippet_skips_huh_and_completes_readline() {
         let record = record_script().unwrap();
@@ -698,7 +716,7 @@ mod tests {
 
         let test_cmd = format!(
             r#"
-set -eE
+set -eEx
 trap 'printf "FAILED line %s: %s\nbindings=[%s]\nline=[%s]\nstatus=[%s]\n" "$LINENO" "$BASH_COMMAND" "${{bindings-}}" "${{READLINE_LINE-}}" "$(cat "$HUH_SESSION_STATUS" 2>/dev/null || true)" >&2' ERR
 unset HUH_KEY HISTCONTROL HISTIGNORE GHOSTTY_RESOURCES_DIR __huh_hooked __huh_key_bound
 HISTFILE=/dev/null HISTSIZE=100
@@ -746,14 +764,13 @@ grep -q "ls -la" {status}
             hooks_path = shell_quote(&script_file.to_string_lossy()),
         );
 
-        let output = std::process::Command::new("bash")
-            .args(["--norc", "-i", "-c", &test_cmd])
-            .env("TERM", "xterm-256color")
-            .output()
-            .unwrap();
+        let default_script = tmp.join("test_default.sh");
+        std::fs::write(&default_script, &test_cmd).unwrap();
+        let output = run_interactive_bash(&default_script);
         assert!(
             output.status.success(),
-            "bash hook test failed:\nstdout:\n{}\nstderr:\n{}",
+            "bash hook test failed (status={:?}):\nstdout:\n{}\nstderr:\n{}",
+            output.status,
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
@@ -761,7 +778,7 @@ grep -q "ls -la" {status}
         // Custom HUH_KEY binds only that key (not \eh or \ef).
         let custom_cmd = format!(
             r#"
-set -eE
+set -eEx
 trap 'printf "FAILED line %s: %s\nbindings=[%s]\n" "$LINENO" "$BASH_COMMAND" "${{bindings-}}" >&2' ERR
 unset HISTCONTROL HISTIGNORE GHOSTTY_RESOURCES_DIR __huh_hooked __huh_key_bound
 set -o emacs
@@ -774,15 +791,14 @@ grep -Eq '"\\eg":?[[:space:]]*"[[:space:]]*__huh_complete"' <<< "$bindings"
 "#,
             hooks_path = shell_quote(&script_file.to_string_lossy()),
         );
-        let custom_out = std::process::Command::new("bash")
-            .args(["--norc", "-i", "-c", &custom_cmd])
-            .env("TERM", "xterm-256color")
-            .output()
-            .unwrap();
+        let custom_script = tmp.join("test_custom.sh");
+        std::fs::write(&custom_script, &custom_cmd).unwrap();
+        let custom_out = run_interactive_bash(&custom_script);
         std::fs::remove_dir_all(&tmp).ok();
         assert!(
             custom_out.status.success(),
-            "bash custom HUH_KEY test failed:\nstdout:\n{}\nstderr:\n{}",
+            "bash custom HUH_KEY test failed (status={:?}):\nstdout:\n{}\nstderr:\n{}",
+            custom_out.status,
             String::from_utf8_lossy(&custom_out.stdout),
             String::from_utf8_lossy(&custom_out.stderr)
         );
