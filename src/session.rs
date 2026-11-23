@@ -698,7 +698,10 @@ mod tests {
 
         let test_cmd = format!(
             r#"
-set -e
+set -eE
+trap 'printf "FAILED line %s: %s\nbindings=[%s]\nline=[%s]\nstatus=[%s]\n" "$LINENO" "$BASH_COMMAND" "${{bindings-}}" "${{READLINE_LINE-}}" "$(cat "$HUH_SESSION_STATUS" 2>/dev/null || true)" >&2' ERR
+unset HUH_KEY HISTCONTROL HISTIGNORE GHOSTTY_RESOURCES_DIR __huh_hooked __huh_key_bound
+HISTFILE=/dev/null HISTSIZE=100
 export PATH={bin}:$PATH
 export HUH_SESSION_LOG={log}
 export HUH_SESSION_STATUS={status}
@@ -709,8 +712,8 @@ set -o history
 source {hooks_path}
 # Default bindings include both \eh and \ef
 bindings=$(bind -X)
-[[ $bindings == *'"\eh": "__huh_complete"'* || $bindings == *'"\eh" "__huh_complete"'* ]]
-[[ $bindings == *'"\ef": "__huh_complete"'* || $bindings == *'"\ef" "__huh_complete"'* ]]
+grep -Eq '"\\eh":?[[:space:]]*"[[:space:]]*__huh_complete"' <<< "$bindings"
+grep -Eq '"\\ef":?[[:space:]]*"[[:space:]]*__huh_complete"' <<< "$bindings"
 
 # Empty line stays untouched
 READLINE_LINE=""
@@ -757,11 +760,19 @@ grep -q "ls -la" {status}
 
         // Custom HUH_KEY binds only that key (not \eh or \ef).
         let custom_cmd = format!(
-            "set -e\nset -o emacs\nexport HUH_KEY='\\eg'\nsource {}\nbindings=$(bind -X)\n\
-             [[ $bindings == *'\"\\eg\": \"__huh_complete\"'* || $bindings == *'\"\\eg\" \"__huh_complete\"'* ]]\n\
-             [[ $bindings != *'\"\\eh\"'* ]]\n\
-             [[ $bindings != *'\"\\ef\"'* ]]\n",
-            shell_quote(&script_file.to_string_lossy()),
+            r#"
+set -eE
+trap 'printf "FAILED line %s: %s\nbindings=[%s]\n" "$LINENO" "$BASH_COMMAND" "${{bindings-}}" >&2' ERR
+unset HISTCONTROL HISTIGNORE GHOSTTY_RESOURCES_DIR __huh_hooked __huh_key_bound
+set -o emacs
+export HUH_KEY='\eg'
+source {hooks_path}
+bindings=$(bind -X)
+grep -Eq '"\\eg":?[[:space:]]*"[[:space:]]*__huh_complete"' <<< "$bindings"
+[[ $bindings != *'"\eh"'* ]]
+[[ $bindings != *'"\ef"'* ]]
+"#,
+            hooks_path = shell_quote(&script_file.to_string_lossy()),
         );
         let custom_out = std::process::Command::new("bash")
             .args(["--norc", "-i", "-c", &custom_cmd])
