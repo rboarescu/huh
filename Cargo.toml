@@ -3,7 +3,12 @@ name = "huh"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "Plain-language terminal assistant: deterministic local command matching, explanation, and error diagnosis"
+description = "Plain-language terminal assistant: deterministic local command matching, explanation, error diagnosis, and interactive Linux lab"
+repository = "https://github.com/rboarescu/huh"
+homepage = "https://github.com/rboarescu/huh"
+readme = "README.md"
+keywords = ["cli", "terminal", "linux", "shell", "education"]
+categories = ["command-line-utilities"]
 
 [[bin]]
 name = "huh"
@@ -15,3 +20,9 @@ clap = { version = "4", features = ["derive"] }
 flate2 = { version = "1.1.11", default-features = false, features = ["rust_backend"] }
 serde = { version = "1", features = ["derive"] }
 toml = "1"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+panic = "abort"

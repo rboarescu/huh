@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Format, Clippy, Tests & Invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Validate install.sh syntax
+        run: sh -n install.sh
+
+      - name: Run full release test suite (evals, doctor, lessons, sprites, TUI)
+        run: cargo test --release --quiet
+
+      - name: Verify safety invariants
+        run: |
+          cargo test --release --quiet -- launch::tests::only_launch_rs_starts_processes
+          cargo test --release --quiet -- risk_kinds::

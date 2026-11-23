@@ -4,6 +4,7 @@
 
 use crate::prefs::{self, Prefs};
 use crate::session::{self, ShellKind};
+use crate::style::{self, ColorChoice, Style, TermEnv, Theme};
 use crate::tui::{self, SelectItem, SelectOutcome};
 use anyhow::{Context, Result};
 use std::io::{BufRead, IsTerminal, Write};
@@ -121,8 +122,8 @@ fn write_atomic(path: &Path, body: &str) -> Result<()> {
     Ok(())
 }
 
-fn prompt_choice_tty<W: Write>(writer: &mut W, title: &str, options: &[(&str, &str)]) -> Result<Option<String>> {
-    let items: Vec<SelectItem> = options
+fn build_choice_items(options: &[(&str, &str)]) -> Vec<SelectItem> {
+    options
         .iter()
         .enumerate()
         .map(|(idx, (_val, raw_label))| {
@@ -137,7 +138,11 @@ fn prompt_choice_tty<W: Write>(writer: &mut W, title: &str, options: &[(&str, &s
             };
             SelectItem { key: (idx + 1).to_string(), label, detail, enabled: true }
         })
-        .collect();
+        .collect()
+}
+
+fn prompt_choice_tty<W: Write>(writer: &mut W, title: &str, options: &[(&str, &str)]) -> Result<Option<String>> {
+    let items = build_choice_items(options);
     match tui::select_menu(title, &items, 0, "↑/↓ move · Enter select · q/Esc cancel", &mut || None)? {
         SelectOutcome::Picked(idx) => {
             writeln!(writer, "\n{title} -> {}", options[idx].0)?;
@@ -145,6 +150,69 @@ fn prompt_choice_tty<W: Write>(writer: &mut W, title: &str, options: &[(&str, &s
         }
         SelectOutcome::Cancelled | SelectOutcome::Eof | SelectOutcome::Slash(_) => Ok(None),
     }
+}
+
+fn prompt_theme_step<R: BufRead, W: Write>(
+    cfg: &SetupConfig<'_>,
+    use_tty: bool,
+    reader: &mut R,
+    writer: &mut W,
+) -> Result<Option<String>> {
+    const TITLE: &str = "2. Colour theme:";
+    const THEME_OPTIONS: [(&str, &str); 9] = [
+        ("babyblue", "babyblue   — crisp baby-blue accent"),
+        ("auto", "auto       — Omarchy theme or terminal 16 colours"),
+        ("omarchy", "omarchy    — follow live Omarchy theme"),
+        ("nord", "nord       — cool arctic palette"),
+        ("gruvbox", "gruvbox    — warm retro contrast"),
+        ("catppuccin", "catppuccin — Catppuccin Mocha"),
+        ("dark", "dark       — One Dark"),
+        ("light", "light      — One Light"),
+        ("mono", "mono       — bold, dim, and underline only"),
+    ];
+
+    if use_tty {
+        let items = build_choice_items(&THEME_OPTIONS);
+        let term = TermEnv::detect();
+        let color_on = style::color_enabled(
+            ColorChoice::Auto,
+            true,
+            false,
+            (cfg.env)("NO_COLOR").is_some(),
+            (cfg.env)("TERM").as_deref() == Some("dumb"),
+        );
+        let mut preview = |idx: usize, _| {
+            THEME_OPTIONS
+                .get(idx)
+                .and_then(|(name, _)| Theme::parse(name).ok())
+                .map(|t| style::theme_preview_lines(t, color_on, term))
+                .unwrap_or_default()
+        };
+        return match tui::select_menu_with_preview(
+            TITLE,
+            &items,
+            0,
+            "↑/↓ move · Enter select · q/Esc cancel",
+            &mut preview,
+            &mut || None,
+        )? {
+            SelectOutcome::Picked(idx) => {
+                let value = THEME_OPTIONS[idx].0;
+                writeln!(writer, "\n{TITLE} -> {value}")?;
+                if let Ok(parsed) = Theme::parse(value) {
+                    write!(writer, "{}", Style::for_terminal(parsed, color_on, term).sample())?;
+                }
+                Ok(Some(value.to_string()))
+            }
+            SelectOutcome::Cancelled | SelectOutcome::Eof | SelectOutcome::Slash(_) => Ok(None),
+        };
+    }
+
+    let chosen = prompt_choice(reader, writer, TITLE, &THEME_OPTIONS, &[])?;
+    if let Ok(parsed) = Theme::parse(&chosen) {
+        write!(writer, "{}", Style::for_terminal(parsed, style::enabled(), TermEnv::default()).sample())?;
+    }
+    Ok(Some(chosen))
 }
 
 fn prompt_choice_step<R: BufRead, W: Write>(
@@ -515,25 +583,7 @@ fn run_with_io_mode<R: BufRead, W: Write>(
         return Ok(());
     };
 
-    let Some(theme) = prompt_choice_step(
-        use_tty,
-        reader,
-        writer,
-        "2. Colour theme:",
-        &[
-            ("babyblue", "babyblue   — crisp baby-blue accent"),
-            ("auto", "auto       — Omarchy theme or terminal 16 colours"),
-            ("omarchy", "omarchy    — follow live Omarchy theme"),
-            ("nord", "nord       — cool arctic palette"),
-            ("gruvbox", "gruvbox    — warm retro contrast"),
-            ("catppuccin", "catppuccin — Catppuccin Mocha"),
-            ("dark", "dark       — One Dark"),
-            ("light", "light      — One Light"),
-            ("mono", "mono       — bold, dim, and underline only"),
-        ],
-        &[],
-    )?
-    else {
+    let Some(theme) = prompt_theme_step(cfg, use_tty, reader, writer)? else {
         writeln!(writer, "\nSetup cancelled (no files changed).")?;
         return Ok(());
     };
@@ -767,9 +817,11 @@ mod tests {
         run_with_io(&cfg, &mut input, &mut output).unwrap();
         let text = String::from_utf8(output).unwrap();
 
-        // Existing config.toml must never be modified; prints 1-line snippet instead.
+        // Existing config.toml must never be modified; prints 1-line snippet and theme sample preview.
         assert_eq!(std::fs::read_to_string(&config_file).unwrap(), existing_config);
         assert!(text.contains("default_mode = \"lab\""), "{text}");
+        assert!(text.contains("rm -r ~/Downloads/old-isos"), "{text}");
+        assert!(text.contains("WARNING (destroys data):"), "{text}");
 
         // Existing safety/quiet preserved alongside new picks.
         let prefs: Prefs = toml::from_str(&std::fs::read_to_string(&prefs_file).unwrap()).unwrap();

@@ -334,6 +334,14 @@ pub fn omarchy_colors_path() -> Option<PathBuf> {
     Some(base.join("omarchy/current/theme/colors.toml"))
 }
 
+fn omarchy_legacy_colors_path() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+    Some(base.join("omarchy/current/theme/colors.toml"))
+}
+
 fn parse_hex(text: &str) -> Option<(u8, u8, u8)> {
     let digits = text.trim().strip_prefix('#')?;
     if digits.len() != 6 || !digits.is_ascii() {
@@ -355,19 +363,40 @@ fn greenish(c: (u8, u8, u8)) -> bool {
     c.1 as i32 > c.0 as i32 + 20 && c.1 as i32 > c.2 as i32 + 20
 }
 
-/// The palette named by the text of an omarchy `colors.toml` (accent, foreground, background and
-/// color1-color6 as `#rrggbb`). Keys that are missing fall back to the `dark` theme's colours.
-/// A theme that has red and green swapped in its slots 1 and 2 is corrected, so WARNING stays red.
-/// `None` when the text is not usable (no foreground, or not TOML).
-fn omarchy_palette(text: &str) -> Option<Palette> {
+#[derive(Clone, Copy, Debug)]
+struct OmarchyTheme {
+    palette: Palette,
+    light: bool,
+}
+
+/// Parses an Omarchy `colors.toml` theme using canonical semantic keys (`mode`, `accent`,
+/// `foreground`, `background`, `dark_foreground`/`muted`, `red`, `green`, `yellow`, `blue`,
+/// `magenta`, `cyan`) plus legacy aliases (`fg`, `bg`, `dark_fg`, `purple`, `color0`–`color8`,
+/// `theme_type`, `light.mode`). Missing keys fall back to `dark` or `light` based on mode, and
+/// swapped red/green slots are corrected so WARNING stays red.
+fn omarchy_theme(text: &str, light_mode_file: bool) -> Option<OmarchyTheme> {
     let table: toml::Table = toml::from_str(text).ok()?;
-    let get = |key: &str| table.get(key).and_then(|v| v.as_str()).and_then(parse_hex);
-    let fg = get("foreground")?;
-    let bg = get("background").unwrap_or((0, 0, 0));
-    let fallback = Palette::builtin(Theme::Dark)?;
-    let pick = |key: &str, default: Col| get(key).map(rgb).unwrap_or(default);
-    let mut red = get("color1");
-    let mut green = get("color2");
+    let get_hex = |keys: &[&str]| keys.iter().find_map(|k| table.get(*k).and_then(|v| v.as_str()).and_then(parse_hex));
+    let fg = get_hex(&["foreground", "fg", "color7"])?;
+    let bg = get_hex(&["background", "bg", "color0"]);
+
+    let light = match table
+        .get("mode")
+        .or_else(|| table.get("theme_type"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("light") => true,
+        Some("dark") => false,
+        _ if light_mode_file => true,
+        _ => bg.is_some_and(|(r, g, b)| (r as u16 + g as u16 + b as u16) > 382),
+    };
+
+    let fallback = Palette::builtin(if light { Theme::Light } else { Theme::Dark })?;
+    let pick = |keys: &[&str], default: Col| get_hex(keys).map(rgb).unwrap_or(default);
+    let mut red = get_hex(&["red", "color1"]);
+    let mut green = get_hex(&["green", "color2"]);
     if let (Some(r), Some(g)) = (red, green)
         && greenish(r)
         && reddish(g)
@@ -376,20 +405,41 @@ fn omarchy_palette(text: &str) -> Option<Palette> {
         green = Some(r);
     }
     let mix = |a: u8, b: u8| ((a as u16 * 55 + b as u16 * 45) / 100) as u8;
-    Some(Palette {
-        accent: pick("accent", fallback.accent),
-        red: red.map(rgb).unwrap_or(fallback.red),
-        yellow: pick("color3", fallback.yellow),
-        green: green.map(rgb).unwrap_or(fallback.green),
-        cyan: pick("color6", fallback.cyan),
-        blue: pick("color4", fallback.blue),
-        magenta: pick("color5", fallback.magenta),
-        gray: Col::Rgb(mix(bg.0, fg.0), mix(bg.1, fg.1), mix(bg.2, fg.2)),
+    let dim_bg = bg.unwrap_or(if light { (255, 255, 255) } else { (0, 0, 0) });
+    let gray = get_hex(&["dark_foreground", "dark_fg", "muted", "color8"])
+        .map(rgb)
+        .unwrap_or_else(|| Col::Rgb(mix(dim_bg.0, fg.0), mix(dim_bg.1, fg.1), mix(dim_bg.2, fg.2)));
+
+    Some(OmarchyTheme {
+        palette: Palette {
+            accent: pick(&["accent", "blue", "color4"], fallback.accent),
+            red: red.map(rgb).unwrap_or(fallback.red),
+            yellow: pick(&["yellow", "color3", "orange"], fallback.yellow),
+            green: green.map(rgb).unwrap_or(fallback.green),
+            cyan: pick(&["cyan", "color6"], fallback.cyan),
+            blue: pick(&["blue", "color4"], fallback.blue),
+            magenta: pick(&["magenta", "purple", "color5"], fallback.magenta),
+            gray,
+        },
+        light,
     })
 }
 
-fn load_omarchy() -> Option<Palette> {
-    omarchy_palette(&std::fs::read_to_string(omarchy_colors_path()?).ok()?)
+#[cfg(test)]
+fn omarchy_palette(text: &str) -> Option<Palette> {
+    omarchy_theme(text, false).map(|t| t.palette)
+}
+
+fn load_omarchy() -> Option<OmarchyTheme> {
+    for path in [omarchy_colors_path(), omarchy_legacy_colors_path()].into_iter().flatten() {
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            let light_mode_file = path.with_file_name("light.mode").is_file();
+            if let Some(theme) = omarchy_theme(&text, light_mode_file) {
+                return Some(theme);
+            }
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -478,15 +528,16 @@ impl Style {
     }
 
     #[cfg(test)]
-    fn with_omarchy(theme: Theme, on: bool, omarchy: Option<Palette>) -> Style {
+    fn with_omarchy(theme: Theme, on: bool, omarchy: Option<OmarchyTheme>) -> Style {
         Style::build(theme, on, omarchy, TermEnv::default())
     }
 
-    fn build(theme: Theme, on: bool, omarchy: Option<Palette>, term: TermEnv) -> Style {
+    fn build(theme: Theme, on: bool, omarchy: Option<OmarchyTheme>, term: TermEnv) -> Style {
         let light = match theme {
             Theme::Light => true,
             Theme::Dark | Theme::Nord | Theme::Gruvbox | Theme::Catppuccin => false,
-            _ => term.light,
+            Theme::Auto | Theme::Omarchy => omarchy.map_or(term.light, |o| o.light),
+            Theme::BabyBlue | Theme::Mono => term.light,
         };
         if !on {
             return Style { on: false, truecolor: term.truecolor, light, looks: [PLAIN; ROLES] };
@@ -494,7 +545,7 @@ impl Style {
         let looks = match theme {
             Theme::BabyBlue => babyblue_looks(light),
             Theme::Mono => mono_looks(),
-            Theme::Auto | Theme::Omarchy => omarchy.unwrap_or_else(Palette::auto).looks(),
+            Theme::Auto | Theme::Omarchy => omarchy.map(|o| o.palette).unwrap_or_else(Palette::auto).looks(),
             other => Palette::builtin(other).unwrap_or_else(Palette::auto).looks(),
         };
         Style { on, truecolor: term.truecolor, light, looks }
@@ -583,6 +634,14 @@ impl Style {
         let _ = writeln!(out, "   {} {}", p(Role::Try, "Try:"), p(Role::Command, "ls -la ~/Downloads/old-isos"));
         out
     }
+}
+
+/// Compact header + sample lines styled with `theme`, used for live theme picker previews.
+pub fn theme_preview_lines(theme: Theme, on: bool, term: TermEnv) -> Vec<String> {
+    let style = Style::for_terminal(theme, on, term);
+    let mut lines = vec![style.paint(Role::Header, &format!("Preview ({}):", theme.name()))];
+    lines.extend(style.sample().lines().map(str::to_string));
+    lines
 }
 
 static GLOBAL: RwLock<Option<Style>> = RwLock::new(None);
@@ -843,8 +902,97 @@ mod tests {
         // Without the file the omarchy theme looks like auto.
         let fallback = Style::with_omarchy(Theme::Omarchy, true, None);
         assert_eq!(fallback.looks, Style::with_omarchy(Theme::Auto, true, None).looks);
-        let real = Style::with_omarchy(Theme::Omarchy, true, omarchy_palette(text));
+        let real = Style::with_omarchy(Theme::Omarchy, true, omarchy_theme(text, false));
         assert!(real.paint(Role::Warning, "W").contains("38;2;210;70;70"));
+    }
+
+    #[test]
+    fn omarchy_reads_stock_semantic_dark_and_light_palettes() {
+        let tokyo_night = r##"
+mode = "dark"
+accent = "#7aa2f7"
+background = "#1a1b26"
+foreground = "#a9b1d6"
+dark_foreground = "#565f89"
+muted = "#414868"
+red = "#f7768e"
+yellow = "#e0af68"
+green = "#9ece6a"
+cyan = "#449dab"
+blue = "#7aa2f7"
+magenta = "#ad8ee6"
+"##;
+        let tn = omarchy_theme(tokyo_night, false).unwrap();
+        assert!(!tn.light);
+        assert_eq!(tn.palette.accent, Col::Rgb(0x7a, 0xa2, 0xf7));
+        assert_eq!(tn.palette.red, Col::Rgb(0xf7, 0x76, 0x8e));
+        assert_eq!(tn.palette.yellow, Col::Rgb(0xe0, 0xaf, 0x68));
+        assert_eq!(tn.palette.green, Col::Rgb(0x9e, 0xce, 0x6a));
+        assert_eq!(tn.palette.cyan, Col::Rgb(0x44, 0x9d, 0xab));
+        assert_eq!(tn.palette.blue, Col::Rgb(0x7a, 0xa2, 0xf7));
+        assert_eq!(tn.palette.magenta, Col::Rgb(0xad, 0x8e, 0xe6));
+        assert_eq!(tn.palette.gray, Col::Rgb(0x56, 0x5f, 0x89));
+
+        let tn_style = Style::with_omarchy(Theme::Omarchy, true, Some(tn));
+        assert!(tn_style.paint(Role::Warning, "W").contains("38;2;247;118;142"));
+        assert!(tn_style.paint(Role::Success, "S").contains("38;2;158;206;106"));
+        assert!(tn_style.paint(Role::Accent, "A").contains("38;2;122;162;247"));
+        assert!(tn_style.paint(Role::Dim, "D").contains("38;2;86;95;137"));
+        assert!(!tn_style.sprite_rgb().light);
+
+        let catppuccin_latte = r##"
+mode = "light"
+accent = "#1e66f5"
+background = "#eff1f5"
+foreground = "#4c4f69"
+dark_foreground = "#9ca0b0"
+red = "#d20f39"
+yellow = "#df8e1d"
+green = "#40a02b"
+cyan = "#179299"
+blue = "#1e66f5"
+magenta = "#ea76cb"
+"##;
+        let latte = omarchy_theme(catppuccin_latte, false).unwrap();
+        assert!(latte.light);
+        assert_eq!(latte.palette.accent, Col::Rgb(0x1e, 0x66, 0xf5));
+        assert_eq!(latte.palette.red, Col::Rgb(0xd2, 0x0f, 0x39));
+        assert_eq!(latte.palette.green, Col::Rgb(0x40, 0xa0, 0x2b));
+        assert_eq!(latte.palette.gray, Col::Rgb(0x9c, 0xa0, 0xb0));
+        let latte_style = Style::with_omarchy(Theme::Omarchy, true, Some(latte));
+        assert!(latte_style.sprite_rgb().light);
+
+        // Mode detection & fallback parity (theme_type, light.mode, bright background).
+        let light_fb = Palette::builtin(Theme::Light).unwrap();
+        let via_type = omarchy_theme("theme_type = \"light\"\nforeground = \"#111111\"\n", false).unwrap();
+        assert!(via_type.light);
+        assert_eq!(via_type.palette.red, light_fb.red);
+
+        let via_file = omarchy_theme("foreground = \"#111111\"\n", true).unwrap();
+        assert!(via_file.light);
+        assert_eq!(via_file.palette.blue, light_fb.blue);
+
+        let via_bg = omarchy_theme("foreground = \"#111111\"\nbackground = \"#ffffff\"\n", false).unwrap();
+        assert!(via_bg.light);
+        assert_eq!(via_bg.palette.green, light_fb.green);
+
+        // Legacy short aliases, muted/orange/purple fallbacks, and bg/fg mix fallback for gray.
+        let legacy = omarchy_theme(
+            "fg = \"#cccccc\"\nbg = \"#101010\"\ndark_fg = \"#606060\"\npurple = \"#aa55cc\"\norange = \"#dd8833\"\nblue = \"#3377cc\"\n",
+            false,
+        )
+        .unwrap();
+        assert!(!legacy.light);
+        assert_eq!(legacy.palette.accent, Col::Rgb(0x33, 0x77, 0xcc));
+        assert_eq!(legacy.palette.yellow, Col::Rgb(0xdd, 0x88, 0x33));
+        assert_eq!(legacy.palette.magenta, Col::Rgb(0xaa, 0x55, 0xcc));
+        assert_eq!(legacy.palette.gray, Col::Rgb(0x60, 0x60, 0x60));
+
+        let muted_only = omarchy_theme("foreground = \"#cccccc\"\nmuted = \"#444444\"\n", false).unwrap();
+        assert_eq!(muted_only.palette.gray, Col::Rgb(0x44, 0x44, 0x44));
+
+        let mix_only = omarchy_theme("foreground = \"#c8c8c8\"\nbackground = \"#000000\"\n", false).unwrap();
+        assert_eq!(mix_only.palette.gray, Col::Rgb(90, 90, 90));
     }
 
     #[test]
@@ -1019,5 +1167,20 @@ mod tests {
         let mono = Style::new(Theme::Mono, true).sprite_rgb();
         assert_eq!(mono.accent, dark_bb.sprite_rgb().accent);
         assert_eq!(Style::plain().sprite_rgb(), dark_bb.sprite_rgb());
+    }
+
+    #[test]
+    fn theme_preview_lines_includes_header_and_sample() {
+        let plain = theme_preview_lines(Theme::Nord, false, TermEnv::default());
+        assert_eq!(plain.len(), 7);
+        assert_eq!(plain[0], "Preview (nord):");
+        assert!(plain[1].contains("rm -r ~/Downloads/old-isos"));
+        assert!(plain.iter().any(|l| l.contains("WARNING (destroys data):")));
+        assert!(plain.iter().all(|l| !l.contains('\x1b')));
+
+        let colored = theme_preview_lines(Theme::Nord, true, TermEnv::default());
+        assert_eq!(colored.len(), 7);
+        assert!(colored[0].contains("Preview (nord):") && colored[0].contains("38;2;"));
+        assert!(colored.iter().any(|l| l.contains("rm -r ~/Downloads/old-isos") && l.contains('\x1b')));
     }
 }

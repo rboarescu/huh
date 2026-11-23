@@ -400,6 +400,74 @@ fn clip_chars(text: &str, max_cols: usize) -> String {
     text.chars().take(max_cols).collect()
 }
 
+#[cfg(any(target_os = "linux", test))]
+fn visible_ansi_len(text: &str) -> usize {
+    let mut chars = text.chars().peekable();
+    let mut len = 0usize;
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                for c in chars.by_ref() {
+                    if ('@'..='~').contains(&c) {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        len += 1;
+    }
+    len
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn clip_ansi(text: &str, max_cols: usize) -> String {
+    if max_cols == 0 {
+        return String::new();
+    }
+    let truncated = visible_ansi_len(text) > max_cols;
+    let limit = if truncated && max_cols > 1 { max_cols - 1 } else { max_cols };
+
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    let mut vis = 0usize;
+    let mut saw_esc = false;
+
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            if vis >= limit && truncated {
+                break;
+            }
+            saw_esc = true;
+            out.push(ch);
+            if chars.peek() == Some(&'[') {
+                out.push(chars.next().unwrap_or('['));
+                for c in chars.by_ref() {
+                    out.push(c);
+                    if ('@'..='~').contains(&c) {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        if vis >= limit {
+            break;
+        }
+        out.push(ch);
+        vis += 1;
+    }
+
+    if truncated && max_cols > 1 {
+        out.push('…');
+    }
+    if saw_esc && !out.ends_with("\x1b[0m") {
+        out.push_str("\x1b[0m");
+    }
+    out
+}
+
 fn push_clipped_segment(out: &mut String, remaining: &mut usize, text: &str, role: Option<Role>) {
     if *remaining == 0 || text.is_empty() {
         return;
@@ -557,6 +625,7 @@ fn render_select_lines(
     hint: &str,
     max_visible: usize,
     cols: u16,
+    preview_lines: &[String],
 ) -> Vec<String> {
     let max_cols = cols.saturating_sub(1) as usize;
     let mut lines = Vec::new();
@@ -602,6 +671,12 @@ fn render_select_lines(
     let remaining = items.len().saturating_sub(end);
     if remaining > 0 {
         lines.push(style::paint(Role::Dim, &clip_chars(&format!("  ↓ {remaining} more"), max_cols)));
+    }
+    if !preview_lines.is_empty() {
+        lines.push(String::new());
+        for line in preview_lines {
+            lines.push(clip_ansi(line, max_cols));
+        }
     }
     if !hint.is_empty() {
         lines.push(style::paint(Role::Dim, &clip_chars(hint, max_cols)));
@@ -700,6 +775,7 @@ fn select_menu_tty(
     items: &[SelectItem],
     initial: usize,
     hint: &str,
+    preview: &mut dyn FnMut(usize, u16) -> Vec<String>,
     on_tick: &mut dyn FnMut() -> Option<String>,
 ) -> std::io::Result<SelectOutcome> {
     let mut selected = initial.min(items.len() - 1);
@@ -715,9 +791,11 @@ fn select_menu_tty(
             last_size = size;
             dirty = true;
         }
-        let max_visible = (size.0 as usize).saturating_sub(10).clamp(3, 10);
         if dirty {
-            let lines = render_select_lines(title, items, selected, hint, max_visible, size.1);
+            let preview_lines = preview(selected, size.1);
+            let extra_rows = if preview_lines.is_empty() { 0 } else { preview_lines.len() + 1 };
+            let max_visible = (size.0 as usize).saturating_sub(10 + extra_rows).clamp(3, 10);
+            let lines = render_select_lines(title, items, selected, hint, max_visible, size.1, &preview_lines);
             let mut out = std::io::stdout().lock();
             draw_select_area(&mut out, &mut drawn_lines, &lines)?;
             dirty = false;
@@ -801,8 +879,10 @@ fn select_menu_tty(
                 }
                 let size = term_size().unwrap_or((24, 80));
                 last_size = size;
-                let max_visible = (size.0 as usize).saturating_sub(10).clamp(3, 10);
-                let lines = render_select_lines(title, items, selected, hint, max_visible, size.1);
+                let preview_lines = preview(selected, size.1);
+                let extra_rows = if preview_lines.is_empty() { 0 } else { preview_lines.len() + 1 };
+                let max_visible = (size.0 as usize).saturating_sub(10 + extra_rows).clamp(3, 10);
+                let lines = render_select_lines(title, items, selected, hint, max_visible, size.1, &preview_lines);
                 draw_select_area(&mut out, &mut drawn_lines, &lines)?;
                 dirty = false;
             }
@@ -819,6 +899,18 @@ pub fn select_menu(
     hint: &str,
     on_tick: &mut dyn FnMut() -> Option<String>,
 ) -> std::io::Result<SelectOutcome> {
+    select_menu_with_preview(title, items, initial, hint, &mut |_, _| Vec::new(), on_tick)
+}
+
+/// Like [`select_menu`], rendering dynamic preview lines below the item list whenever selection moves.
+pub fn select_menu_with_preview(
+    title: &str,
+    items: &[SelectItem],
+    initial: usize,
+    hint: &str,
+    preview: &mut dyn FnMut(usize, u16) -> Vec<String>,
+    on_tick: &mut dyn FnMut() -> Option<String>,
+) -> std::io::Result<SelectOutcome> {
     if items.is_empty() {
         return Ok(SelectOutcome::Cancelled);
     }
@@ -826,10 +918,12 @@ pub fn select_menu(
     if is_interactive_tty()
         && let Some(guard) = RawModeGuard::new()
     {
-        return select_menu_tty(&guard, title, items, initial, hint, on_tick);
+        return select_menu_tty(&guard, title, items, initial, hint, preview, on_tick);
     }
     #[cfg(not(target_os = "linux"))]
-    let _ = (initial, on_tick);
+    let _ = (initial, preview, on_tick);
+    #[cfg(target_os = "linux")]
+    let _ = preview;
     let mut stdin = std::io::stdin().lock();
     let mut stdout = std::io::stdout().lock();
     select_menu_plain(title, items, hint, &mut stdin, &mut stdout)
@@ -1700,7 +1794,7 @@ mod tests {
         let items: Vec<SelectItem> = (1..=8)
             .map(|i| item(&i.to_string(), &format!("item-{i}"), "very long description detail", i != 4))
             .collect();
-        let lines = render_select_lines("Pick an option with a very long title", &items, 4, "↑/↓ move", 4, 24);
+        let lines = render_select_lines("Pick an option with a very long title", &items, 4, "↑/↓ move", 4, 24, &[]);
         assert!(lines.iter().any(|l| l.contains("↑ ")));
         assert!(lines.iter().any(|l| l.contains("↓ ")));
         assert!(lines.iter().any(|l| l.starts_with("▸ [5]")));
@@ -1708,6 +1802,33 @@ mod tests {
             assert!(line.chars().count() <= 23, "line exceeded cols-1: {line:?}");
             assert!(!line.contains(concat!("\x1b", "7")) && !line.contains(concat!("\x1b", "8")));
         }
+    }
+
+    #[test]
+    fn clip_ansi_preserves_sgr_and_limits_visible_width() {
+        assert_eq!(clip_ansi("\x1b[32mhi\x1b[0m", 8), "\x1b[32mhi\x1b[0m");
+        let clipped = clip_ansi("\x1b[1;38;2;137;207;240m1. rm -r ~/Downloads/old-isos\x1b[0m", 12);
+        assert!(clipped.starts_with("\x1b[1;38;2;137;207;240m"));
+        assert_eq!(visible_ansi_len(&clipped), 12);
+        assert!(clipped.contains('…'));
+        assert!(clipped.ends_with("\x1b[0m"));
+        assert_eq!(clip_ansi("abcdef", 0), "");
+    }
+
+    #[test]
+    fn render_select_lines_appends_preview_block_above_hint() {
+        let items = vec![item("1", "babyblue", "default", true), item("2", "nord", "arctic", true)];
+        let preview = vec![
+            "\x1b[1mPreview (nord):\x1b[0m".to_string(),
+            "   \x1b[31mWARNING (destroys data): deleted files do not go to the bin\x1b[0m".to_string(),
+        ];
+        let lines = render_select_lines("Colour theme:", &items, 1, "↑/↓ move · Enter apply", 5, 32, &preview);
+        assert_eq!(lines[0], "Colour theme:");
+        assert_eq!(lines[3], "");
+        assert_eq!(visible_ansi_len(&lines[4]), 15);
+        assert!(visible_ansi_len(&lines[5]) <= 31);
+        assert!(lines[5].ends_with("\x1b[0m"));
+        assert_eq!(lines[6], "↑/↓ move · Enter apply");
     }
 
     #[test]

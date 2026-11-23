@@ -1221,6 +1221,17 @@ impl PaneState {
         initial: usize,
         hint: &str,
     ) -> std::io::Result<SelectOutcome> {
+        self.run_select_menu_with_preview(title, items, initial, hint, &mut |_, _| Vec::new())
+    }
+
+    fn run_select_menu_with_preview(
+        &mut self,
+        title: &str,
+        items: &[SelectItem],
+        initial: usize,
+        hint: &str,
+        preview: &mut dyn FnMut(usize, u16) -> Vec<String>,
+    ) -> std::io::Result<SelectOutcome> {
         if STOP.load(Ordering::Relaxed) {
             return Ok(SelectOutcome::Eof);
         }
@@ -1233,7 +1244,7 @@ impl PaneState {
             self.tick_animation();
             None
         };
-        tui::select_menu(title, items, initial, hint, &mut on_tick)
+        tui::select_menu_with_preview(title, items, initial, hint, preview, &mut on_tick)
     }
 
     fn exec_slash_from_menu(&mut self, raw: &str) -> SlashOutcome {
@@ -1498,11 +1509,19 @@ impl PaneState {
                         })
                         .collect();
                     let initial = style::ALL.iter().position(|&t| t == self.theme).unwrap_or(0);
-                    return match self.run_select_menu(
+                    let color_on = self.color_on;
+                    let term = TermEnv::detect();
+                    return match self.run_select_menu_with_preview(
                         "Colour theme:",
                         &items,
                         initial,
                         "↑/↓ move · Enter apply · 1-9 hotkey · q/Esc cancel",
+                        &mut |idx, _| {
+                            style::ALL
+                                .get(idx)
+                                .map(|&t| style::theme_preview_lines(t, color_on, term))
+                                .unwrap_or_default()
+                        },
                     ) {
                         Ok(SelectOutcome::Picked(idx)) => {
                             self.exec_slash(SlashCmd::Theme(Some(style::ALL[idx].name().to_string())))
@@ -1531,13 +1550,18 @@ impl PaneState {
                     Err(err) => return SlashOutcome::Output(note(&format!("{err}"))),
                 };
                 self.theme = next;
+                let applied = Style::for_terminal(next, self.color_on, TermEnv::detect());
                 if self.apply_global_style {
-                    style::set(Style::for_terminal(next, self.color_on, TermEnv::detect()));
+                    style::set(applied.clone());
                 }
                 self.prefs.theme = Some(next.name().to_string());
                 self.save_prefs();
                 self.emit_header_refresh();
-                SlashOutcome::Output(format!("{}\n\n", paint(Role::Success, &format!("Theme set to {}.", next.name()))))
+                SlashOutcome::Output(format!(
+                    "{}\n{}\n",
+                    applied.paint(Role::Success, &format!("Theme set to {}.", next.name())),
+                    applied.sample(),
+                ))
             }
             SlashCmd::Pet(args) => self.exec_pet_slash(&args),
             SlashCmd::Speed(None) => {
@@ -3162,8 +3186,18 @@ mod tests {
         let SlashOutcome::Output(t_list) = st.exec_slash(SlashCmd::Theme(None)) else { panic!() };
         assert!(t_list.contains("* babyblue") && t_list.contains("nord"), "{t_list}");
         let SlashOutcome::Output(t_set) = st.exec_slash(SlashCmd::Theme(Some("nord".into()))) else { panic!() };
-        assert!(t_set.contains("Theme set to nord"), "{t_set}");
+        assert!(t_set.contains("Theme set to nord."), "{t_set}");
+        assert!(t_set.contains("rm -r ~/Downloads/old-isos"), "{t_set}");
+        assert!(t_set.contains("WARNING (destroys data):"), "{t_set}");
+        assert!(t_set.contains("Try: ls -la ~/Downloads/old-isos"), "{t_set}");
+        assert!(!t_set.contains('\x1b'), "{t_set}");
         assert_eq!(st.theme, Theme::Nord);
+
+        st.color_on = true;
+        let SlashOutcome::Output(t_col) = st.exec_slash(SlashCmd::Theme(Some("nord".into()))) else { panic!() };
+        assert!(t_col.contains("Theme set to nord.") && t_col.contains("\x1b[") && t_col.contains("38;"), "{t_col:?}");
+        assert!(t_col.contains("rm -r ~/Downloads/old-isos") && t_col.contains("Try:"), "{t_col:?}");
+        st.color_on = false;
 
         // /speed updates speed and persists to prefs.
         let SlashOutcome::Output(sp_list) = st.exec_slash(SlashCmd::Speed(None)) else { panic!() };
