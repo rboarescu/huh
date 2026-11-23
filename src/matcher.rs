@@ -2518,11 +2518,7 @@ fn is_off_topic_unmodeled(_cmd: &Command, q: &QueryContext<'_>) -> bool {
         }
     }
 
-    if q.has_any(&["homebrew", "brew", "winget", "chocolatey", "powershell", "regedit"]) {
-        return true;
-    }
-
-    false
+    q.has_any(&["homebrew", "brew", "winget", "chocolatey", "powershell", "regedit"])
 }
 
 // Hand-tuned keyword tables read best one rule per line.
