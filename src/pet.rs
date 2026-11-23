@@ -14,8 +14,17 @@ pub const DEFAULT_NAME: &str = "Pebble";
 pub const MIN_FULLNESS: u8 = 10;
 pub const MIN_HAPPINESS: u8 = 20;
 pub const CAT_WATCH_UNIQUE: usize = 25;
+pub const BEAVER_WATCH_COMMANDS: u64 = 50;
 pub const TURTLE_WATCH_COMMANDS: u64 = 100;
 pub const TURTLE_WATCH_STREAK: u32 = 7;
+pub const DOLPHIN_WATCH_UNIQUE: usize = 35;
+pub const DOLPHIN_WATCH_COMMANDS: u64 = 120;
+pub const BEAR_WATCH_COMMANDS: u64 = 150;
+pub const BEAR_WATCH_STREAK: u32 = 10;
+pub const SNAKE_WATCH_UNIQUE: usize = 45;
+pub const SNAKE_WATCH_COMMANDS: u64 = 180;
+pub const BEE_WATCH_COMMANDS: u64 = 200;
+pub const BEE_WATCH_STREAK: u32 = 14;
 pub const OWL_WATCH_COMMANDS: u64 = 250;
 pub const OWL_WATCH_WARNINGS: u32 = 5;
 const MAX_UNIQUE_PROGRAMS: usize = 256;
@@ -26,19 +35,39 @@ pub enum Species {
     #[default]
     Penguin,
     Cat,
+    Beaver,
     Turtle,
+    Dolphin,
+    Bear,
+    Snake,
+    Bee,
     Owl,
 }
 
 impl Species {
-    pub const ALL: [Species; 4] = [Species::Penguin, Species::Cat, Species::Turtle, Species::Owl];
-    pub const VALID: &'static str = "penguin, cat, turtle, owl";
+    pub const ALL: [Species; 9] = [
+        Species::Penguin,
+        Species::Cat,
+        Species::Beaver,
+        Species::Turtle,
+        Species::Dolphin,
+        Species::Bear,
+        Species::Snake,
+        Species::Bee,
+        Species::Owl,
+    ];
+    pub const VALID: &'static str = "penguin, cat, beaver, turtle, dolphin, bear, snake, bee, owl";
 
     pub fn parse(value: &str) -> Result<Species> {
         match value.trim().to_ascii_lowercase().as_str() {
             "penguin" => Ok(Species::Penguin),
             "cat" => Ok(Species::Cat),
+            "beaver" | "bobr" => Ok(Species::Beaver),
             "turtle" => Ok(Species::Turtle),
+            "dolphin" => Ok(Species::Dolphin),
+            "bear" => Ok(Species::Bear),
+            "snake" => Ok(Species::Snake),
+            "bee" => Ok(Species::Bee),
             "owl" => Ok(Species::Owl),
             other => bail!("unknown pet species \"{other}\"; valid species: {}", Self::VALID),
         }
@@ -48,7 +77,12 @@ impl Species {
         match self {
             Species::Penguin => "penguin",
             Species::Cat => "cat",
+            Species::Beaver => "beaver",
             Species::Turtle => "turtle",
+            Species::Dolphin => "dolphin",
+            Species::Bear => "bear",
+            Species::Snake => "snake",
+            Species::Bee => "bee",
             Species::Owl => "owl",
         }
     }
@@ -57,8 +91,24 @@ impl Species {
         match self {
             Species::Penguin => "Penguin chick",
             Species::Cat => "Terminal Cat",
+            Species::Beaver => "Builder Beaver",
             Species::Turtle => "Shell-Turtle",
+            Species::Dolphin => "Wave Dolphin",
+            Species::Bear => "Woodland Bear",
+            Species::Snake => "Terminal Serpent",
+            Species::Bee => "Queen Bee",
             Species::Owl => "Snowy Owl",
+        }
+    }
+
+    pub fn default_name(self) -> &'static str {
+        match self {
+            Species::Penguin | Species::Cat | Species::Turtle | Species::Owl => DEFAULT_NAME,
+            Species::Beaver => "Bóbr",
+            Species::Dolphin => "Flow",
+            Species::Bear => "Vector",
+            Species::Snake => "Hiss",
+            Species::Bee => "Anabee",
         }
     }
 
@@ -66,7 +116,12 @@ impl Species {
         match self {
             Species::Penguin => None,
             Species::Cat => Some(("pathfinder", "finish Unit 1 (Finding Your Way) in /mode lab")),
+            Species::Beaver => Some(("file_keeper", "finish Unit 2 (Files & Folders) in /mode lab")),
             Species::Turtle => Some(("pipe_plumber", "finish Unit 3 (Searching & Pipes) in /mode lab")),
+            Species::Dolphin => Some(("media_wrangler", "finish Unit 10 (Media & Everyday Files) in /mode lab")),
+            Species::Bear => Some(("process_tamer", "finish Unit 5 (Processes & Disk) in /mode lab")),
+            Species::Snake => Some(("archive_ace", "finish Unit 7 (Archives & Links) in /mode lab")),
+            Species::Bee => Some(("pixel_painter", "finish Unit 11 (Paint Your Own Pet) in /mode lab")),
             Species::Owl => Some(("night_watch", "finish Unit 8 (Networking & Stay Safe) in /mode lab")),
         }
     }
@@ -78,10 +133,33 @@ impl Species {
                 "watch {}/{CAT_WATCH_UNIQUE} unique commands",
                 pet.unique_programs.len().min(CAT_WATCH_UNIQUE)
             )),
+            Species::Beaver => {
+                Some(format!("watch {}/{BEAVER_WATCH_COMMANDS} commands", pet.commands_fed.min(BEAVER_WATCH_COMMANDS)))
+            }
             Species::Turtle => Some(format!(
                 "watch {}/{TURTLE_WATCH_COMMANDS} commands / {}d/{TURTLE_WATCH_STREAK}d streak",
                 pet.commands_fed.min(TURTLE_WATCH_COMMANDS),
                 pet.day_streak.max(pet.best_day_streak).min(TURTLE_WATCH_STREAK)
+            )),
+            Species::Dolphin => Some(format!(
+                "watch {}/{DOLPHIN_WATCH_UNIQUE} unique commands or {}/{DOLPHIN_WATCH_COMMANDS} commands",
+                pet.unique_programs.len().min(DOLPHIN_WATCH_UNIQUE),
+                pet.commands_fed.min(DOLPHIN_WATCH_COMMANDS)
+            )),
+            Species::Bear => Some(format!(
+                "watch {}/{BEAR_WATCH_COMMANDS} commands / {}d/{BEAR_WATCH_STREAK}d streak",
+                pet.commands_fed.min(BEAR_WATCH_COMMANDS),
+                pet.day_streak.max(pet.best_day_streak).min(BEAR_WATCH_STREAK)
+            )),
+            Species::Snake => Some(format!(
+                "watch {}/{SNAKE_WATCH_UNIQUE} unique commands or {}/{SNAKE_WATCH_COMMANDS} commands",
+                pet.unique_programs.len().min(SNAKE_WATCH_UNIQUE),
+                pet.commands_fed.min(SNAKE_WATCH_COMMANDS)
+            )),
+            Species::Bee => Some(format!(
+                "watch {}/{BEE_WATCH_COMMANDS} commands / {}d/{BEE_WATCH_STREAK}d streak",
+                pet.commands_fed.min(BEE_WATCH_COMMANDS),
+                pet.day_streak.max(pet.best_day_streak).min(BEE_WATCH_STREAK)
             )),
             Species::Owl => Some(format!(
                 "watch {}/{OWL_WATCH_COMMANDS} commands / {}/{OWL_WATCH_WARNINGS} warnings",
@@ -93,12 +171,18 @@ impl Species {
 
     pub fn unlock_summary(self, pet: &Pet) -> Option<String> {
         let watch = self.watch_unlock_hint(pet)?;
-        match self {
-            Species::Penguin => None,
-            Species::Cat => Some(format!("badge `pathfinder` (Unit 1 in `/mode lab`) or {watch}")),
-            Species::Turtle => Some(format!("badge `pipe_plumber` (Unit 3 in `/mode lab`) or {watch}")),
-            Species::Owl => Some(format!("badge `night_watch` (Unit 8 in `/mode lab`) or {watch}")),
-        }
+        let (badge, unit) = match self {
+            Species::Penguin => return None,
+            Species::Cat => ("pathfinder", "Unit 1"),
+            Species::Beaver => ("file_keeper", "Unit 2"),
+            Species::Turtle => ("pipe_plumber", "Unit 3"),
+            Species::Dolphin => ("media_wrangler", "Unit 10"),
+            Species::Bear => ("process_tamer", "Unit 5"),
+            Species::Snake => ("archive_ace", "Unit 7"),
+            Species::Bee => ("pixel_painter", "Unit 11"),
+            Species::Owl => ("night_watch", "Unit 8"),
+        };
+        Some(format!("badge `{badge}` ({unit} in `/mode lab`) or {watch}"))
     }
 }
 
@@ -323,6 +407,221 @@ pub fn art_frame(species: Species, mood: Mood, tick: u64) -> [&'static str; ART_
                 [" ,___,  *", " (^v^)   ", "\\/#!#\\/  ", " -\"-\"-   "]
             }
         }
+
+        (Species::Beaver, Mood::Idle) => {
+            if tick % 24 == 23 {
+                ["  ()__()  ", " (=-.-=)  ", "  /#! \\###", "  `---'   "]
+            } else {
+                ["  ()__()  ", " (=o.o=)  ", "  /#! \\###", "  `---'   "]
+            }
+        }
+        (Species::Beaver, Mood::Happy) => {
+            if (tick / 4) % 2 == 1 {
+                ["  ()__() '", " (=^.^=)  ", "  /#! \\###", "  `---'   "]
+            } else {
+                ["  ()__()  ", " (=^.^=)  ", "  /#! \\###", "  `---'   "]
+            }
+        }
+        (Species::Beaver, Mood::Sleepy) => {
+            if (tick / 3) % 2 == 1 {
+                ["  ()__() Z", " (=-.-=)  ", "  /#! \\###", "  `---'   "]
+            } else {
+                ["  ()__() z", " (=-.-=)  ", "  /#! \\###", "  `---'   "]
+            }
+        }
+        (Species::Beaver, Mood::Hungry) => {
+            if (tick / 3) % 2 == 1 {
+                ["  ()__() .", " (=o_o=)  ", "  /#! \\###", "  `---'   "]
+            } else {
+                ["  ()__() ?", " (=o_o=)  ", "  /#! \\###", "  `---'   "]
+            }
+        }
+        (Species::Beaver, Mood::Alert) => {
+            if tick % 2 == 1 {
+                ["  ()__()  ", " (=O.O=)  ", "  /#! \\###", "  `---'   "]
+            } else {
+                ["  ()__() !", " (=O.O=)  ", "  /#! \\###", "  `---'   "]
+            }
+        }
+        (Species::Beaver, Mood::Celebrating) => {
+            if tick % 2 == 1 {
+                ["  ()__() +", " (=^w^=)  ", " \\/#! \\###", "  `---'   "]
+            } else {
+                ["  ()__() *", " (=^w^=)  ", " \\/#! \\###", "  `---'   "]
+            }
+        }
+
+        (Species::Dolphin, Mood::Idle) => {
+            if tick % 24 == 23 {
+                ["    __    ", " <(- \\__/\\", "  (#! _/  ", " ~~~~~~~~~"]
+            } else {
+                ["    __    ", " <(o \\__/\\", "  (#! _/  ", " ~~~~~~~~~"]
+            }
+        }
+        (Species::Dolphin, Mood::Happy) => {
+            if (tick / 4) % 2 == 1 {
+                ["    __   '", " <(^ \\__/\\", "  (#! _/  ", " ~~~~~~~~~"]
+            } else {
+                ["    __    ", " <(^ \\__/\\", "  (#! _/  ", " ~~~~~~~~~"]
+            }
+        }
+        (Species::Dolphin, Mood::Sleepy) => {
+            if (tick / 3) % 2 == 1 {
+                ["    __   Z", " <(- \\__/\\", "  (#! _/  ", " ~~~~~~~~~"]
+            } else {
+                ["    __   z", " <(- \\__/\\", "  (#! _/  ", " ~~~~~~~~~"]
+            }
+        }
+        (Species::Dolphin, Mood::Hungry) => {
+            if (tick / 3) % 2 == 1 {
+                ["    __   .", " <(o \\__/\\", "  (#! _/  ", " ~~~~~~~~~"]
+            } else {
+                ["    __   ?", " <(o \\__/\\", "  (#! _/  ", " ~~~~~~~~~"]
+            }
+        }
+        (Species::Dolphin, Mood::Alert) => {
+            if tick % 2 == 1 {
+                ["    __    ", " <(O \\__/\\", "  (#! _/  ", " ~~~~~~~~~"]
+            } else {
+                ["    __   !", " <(O \\__/\\", "  (#! _/  ", " ~~~~~~~~~"]
+            }
+        }
+        (Species::Dolphin, Mood::Celebrating) => {
+            if tick % 2 == 1 {
+                ["    __   +", " <(^ \\__/\\", " \\(#! _/  ", " ~~~~~~~~~"]
+            } else {
+                ["    __   *", " <(^ \\__/\\", " \\(#! _/  ", " ~~~~~~~~~"]
+            }
+        }
+
+        (Species::Bear, Mood::Idle) => {
+            if tick % 24 == 23 {
+                ["  ()__()  ", " ( -^- )  ", "  / #! \\  ", "  c(__)c  "]
+            } else {
+                ["  ()__()  ", " ( o^o )  ", "  / #! \\  ", "  c(__)c  "]
+            }
+        }
+        (Species::Bear, Mood::Happy) => {
+            if (tick / 4) % 2 == 1 {
+                ["  ()__() '", " ( ^o^ )  ", "  / #! \\  ", "  c(__)c  "]
+            } else {
+                ["  ()__()  ", " ( ^o^ )  ", "  / #! \\  ", "  c(__)c  "]
+            }
+        }
+        (Species::Bear, Mood::Sleepy) => {
+            if (tick / 3) % 2 == 1 {
+                ["  ()__() Z", " ( -v- )  ", "  / #! \\  ", "  c(__)c  "]
+            } else {
+                ["  ()__() z", " ( -v- )  ", "  / #! \\  ", "  c(__)c  "]
+            }
+        }
+        (Species::Bear, Mood::Hungry) => {
+            if (tick / 3) % 2 == 1 {
+                ["  ()__() .", " ( o_o )  ", "  / #! \\  ", "  c(__)c  "]
+            } else {
+                ["  ()__() ?", " ( o_o )  ", "  / #! \\  ", "  c(__)c  "]
+            }
+        }
+        (Species::Bear, Mood::Alert) => {
+            if tick % 2 == 1 {
+                ["  ()__()  ", " ( O^O )  ", "  / #! \\  ", "  c(__)c  "]
+            } else {
+                ["  ()__() !", " ( O^O )  ", "  / #! \\  ", "  c(__)c  "]
+            }
+        }
+        (Species::Bear, Mood::Celebrating) => {
+            if tick % 2 == 1 {
+                ["  ()__() +", " ( ^o^ )  ", "\\( #! )/  ", "  c(__)c  "]
+            } else {
+                ["  ()__() *", " ( ^o^ )  ", "\\( #! )/  ", "  c(__)c  "]
+            }
+        }
+
+        (Species::Snake, Mood::Idle) => {
+            if tick % 24 == 23 {
+                ["   .--.   ", "  /|--|\\  ", "  \\|#!|/  ", " ~(___)~  "]
+            } else {
+                ["   .--.   ", "  /|oo|\\  ", "  \\|#!|/  ", " ~(___)~  "]
+            }
+        }
+        (Species::Snake, Mood::Happy) => {
+            if (tick / 4) % 2 == 1 {
+                ["   .--.  '", "  /|^^|\\  ", "  \\|#!|/  ", " ~(___)~  "]
+            } else {
+                ["   .--.   ", "  /|^^|\\  ", "  \\|#!|/  ", " ~(___)~  "]
+            }
+        }
+        (Species::Snake, Mood::Sleepy) => {
+            if (tick / 3) % 2 == 1 {
+                ["   .--.  Z", "  /|--|\\  ", "  \\|#!|/  ", " ~(___)~  "]
+            } else {
+                ["   .--.  z", "  /|--|\\  ", "  \\|#!|/  ", " ~(___)~  "]
+            }
+        }
+        (Species::Snake, Mood::Hungry) => {
+            if (tick / 3) % 2 == 1 {
+                ["   .--.  .", "  /|o_|\\  ", "  \\|#!|/  ", " ~(___)~  "]
+            } else {
+                ["   .--.  ?", "  /|o_|\\  ", "  \\|#!|/  ", " ~(___)~  "]
+            }
+        }
+        (Species::Snake, Mood::Alert) => {
+            if tick % 2 == 1 {
+                ["   .--.   ", "  /|OO|\\  ", "  \\|#!|/  ", " ~(___)~  "]
+            } else {
+                ["   .--.  !", "  /|OO|\\  ", "  \\|#!|/  ", " ~(___)~  "]
+            }
+        }
+        (Species::Snake, Mood::Celebrating) => {
+            if tick % 2 == 1 {
+                ["   .--.  +", "  /|^^|\\~ ", "  \\|#!|/  ", " ~(___)~  "]
+            } else {
+                ["   .--.  *", "  /|^^|\\~ ", "  \\|#!|/  ", " ~(___)~  "]
+            }
+        }
+
+        (Species::Bee, Mood::Idle) => {
+            if tick % 24 == 23 {
+                ["   .w.    ", " =( -.- )=", "   (#!#)  ", "    `v'   "]
+            } else {
+                ["   .w.    ", " =( o.o )=", "   (#!#)  ", "    `v'   "]
+            }
+        }
+        (Species::Bee, Mood::Happy) => {
+            if (tick / 4) % 2 == 1 {
+                ["   .w.   '", " =( ^.^ )=", "   (#!#)  ", "    `v'   "]
+            } else {
+                ["   .w.    ", " =( ^.^ )=", "   (#!#)  ", "    `v'   "]
+            }
+        }
+        (Species::Bee, Mood::Sleepy) => {
+            if (tick / 3) % 2 == 1 {
+                ["   .w.   Z", " =( -.- )=", "   (#!#)  ", "    `v'   "]
+            } else {
+                ["   .w.   z", " =( -.- )=", "   (#!#)  ", "    `v'   "]
+            }
+        }
+        (Species::Bee, Mood::Hungry) => {
+            if (tick / 3) % 2 == 1 {
+                ["   .w.   .", " =( o_o )=", "   (#!#)  ", "    `v'   "]
+            } else {
+                ["   .w.   ?", " =( o_o )=", "   (#!#)  ", "    `v'   "]
+            }
+        }
+        (Species::Bee, Mood::Alert) => {
+            if tick % 2 == 1 {
+                ["   .w.    ", " =( O_O )=", "   (#!#)  ", "    `v'   "]
+            } else {
+                ["   .w.   !", " =( O_O )=", "   (#!#)  ", "    `v'   "]
+            }
+        }
+        (Species::Bee, Mood::Celebrating) => {
+            if tick % 2 == 1 {
+                ["   .w.   +", " =\\ ^.^ /=", "   (#!#)  ", "    `v'   "]
+            } else {
+                ["   .w.   *", " =\\ ^.^ /=", "   (#!#)  ", "    `v'   "]
+            }
+        }
     }
 }
 
@@ -416,6 +715,11 @@ fn is_single_width(c: char) -> bool {
             | 0x1E00..=0x1EFF
             | 0x1F00..=0x1FFF
     )
+}
+
+fn is_default_mascot_name(name: &str) -> bool {
+    let lower = name.trim().to_lowercase();
+    Species::ALL.iter().any(|sp| sp.default_name().to_lowercase() == lower)
 }
 
 fn is_valid_name(trimmed: &str) -> bool {
@@ -554,14 +858,37 @@ impl Pet {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn check_watch_unlocks(&mut self) -> Vec<Species> {
         let mut newly_unlocked = Vec::new();
+        let best_streak = self.day_streak.max(self.best_day_streak);
         if self.unique_programs.len() >= CAT_WATCH_UNIQUE && self.unlock_species(Species::Cat) {
             newly_unlocked.push(Species::Cat);
         }
-        if (self.commands_fed >= TURTLE_WATCH_COMMANDS
-            || self.day_streak.max(self.best_day_streak) >= TURTLE_WATCH_STREAK)
+        if self.commands_fed >= BEAVER_WATCH_COMMANDS && self.unlock_species(Species::Beaver) {
+            newly_unlocked.push(Species::Beaver);
+        }
+        if (self.commands_fed >= TURTLE_WATCH_COMMANDS || best_streak >= TURTLE_WATCH_STREAK)
             && self.unlock_species(Species::Turtle)
         {
             newly_unlocked.push(Species::Turtle);
+        }
+        if (self.unique_programs.len() >= DOLPHIN_WATCH_UNIQUE || self.commands_fed >= DOLPHIN_WATCH_COMMANDS)
+            && self.unlock_species(Species::Dolphin)
+        {
+            newly_unlocked.push(Species::Dolphin);
+        }
+        if (self.commands_fed >= BEAR_WATCH_COMMANDS || best_streak >= BEAR_WATCH_STREAK)
+            && self.unlock_species(Species::Bear)
+        {
+            newly_unlocked.push(Species::Bear);
+        }
+        if (self.unique_programs.len() >= SNAKE_WATCH_UNIQUE || self.commands_fed >= SNAKE_WATCH_COMMANDS)
+            && self.unlock_species(Species::Snake)
+        {
+            newly_unlocked.push(Species::Snake);
+        }
+        if (self.commands_fed >= BEE_WATCH_COMMANDS || best_streak >= BEE_WATCH_STREAK)
+            && self.unlock_species(Species::Bee)
+        {
+            newly_unlocked.push(Species::Bee);
         }
         if (self.commands_fed >= OWL_WATCH_COMMANDS || self.warnings_heeded >= OWL_WATCH_WARNINGS)
             && self.unlock_species(Species::Owl)
@@ -597,6 +924,9 @@ impl Pet {
     pub fn set_species(&mut self, species: Species) -> Result<()> {
         if self.is_unlocked(species) {
             self.species = species;
+            if is_default_mascot_name(&self.name) {
+                self.name = species.default_name().to_string();
+            }
             Ok(())
         } else if let Some((badge, reason)) = species.unlock_badge() {
             let watch = species.watch_unlock_hint(self).unwrap_or_default();
@@ -850,9 +1180,18 @@ mod tests {
         assert_eq!(pet.happiness, 70);
         assert_eq!(pet.mood_at(BASE_EPOCH, None), Mood::Idle);
         assert!(pet.is_unlocked(Species::Penguin));
-        assert!(!pet.is_unlocked(Species::Cat));
-        assert!(!pet.is_unlocked(Species::Turtle));
-        assert!(!pet.is_unlocked(Species::Owl));
+        for locked in [
+            Species::Cat,
+            Species::Beaver,
+            Species::Turtle,
+            Species::Dolphin,
+            Species::Bear,
+            Species::Snake,
+            Species::Bee,
+            Species::Owl,
+        ] {
+            assert!(!pet.is_unlocked(locked), "{locked:?} should start locked");
+        }
     }
 
     #[test]
@@ -955,7 +1294,12 @@ mod tests {
         let mut pet = Pet::default();
         for (sp, badge, watch_hint) in [
             (Species::Cat, "pathfinder", "watch 0/25 unique commands"),
+            (Species::Beaver, "file_keeper", "watch 0/50 commands"),
             (Species::Turtle, "pipe_plumber", "watch 0/100 commands / 0d/7d streak"),
+            (Species::Dolphin, "media_wrangler", "watch 0/35 unique commands or 0/120 commands"),
+            (Species::Bear, "process_tamer", "watch 0/150 commands / 0d/10d streak"),
+            (Species::Snake, "archive_ace", "watch 0/45 unique commands or 0/180 commands"),
+            (Species::Bee, "pixel_painter", "watch 0/200 commands / 0d/14d streak"),
             (Species::Owl, "night_watch", "watch 0/250 commands / 0/5 warnings"),
         ] {
             let err = pet.set_species(sp).unwrap_err().to_string();
@@ -969,6 +1313,8 @@ mod tests {
         pet.set_species(Species::Cat).unwrap();
         assert_eq!(pet.species, Species::Cat);
 
+        pet.rename("Bóbr").unwrap();
+        assert_eq!(pet.name, "Bóbr");
         pet.rename("  Tuxi  ").unwrap();
         assert_eq!(pet.name, "Tuxi");
         pet.rename("Éclair").unwrap();
@@ -1092,16 +1438,28 @@ mod tests {
         assert!(pet.is_unlocked(Species::Cat));
         assert!(pet.check_watch_unlocks().is_empty());
 
-        // Unique program tracking is capped at 256 entries, while commands_fed unlocks Turtle and Owl.
+        // Unique program tracking is capped at 256 entries, while higher counts unlock the remaining species.
         for i in 0..300 {
             pet.feed(Some(&format!("extra{i}")), BASE_EPOCH + 1000 + i as u64);
         }
         assert_eq!(pet.unique_programs.len(), 256);
-        assert_eq!(pet.check_watch_unlocks(), vec![Species::Turtle, Species::Owl]);
-        assert!(pet.is_unlocked(Species::Turtle));
-        assert!(pet.is_unlocked(Species::Owl));
+        assert_eq!(
+            pet.check_watch_unlocks(),
+            vec![
+                Species::Beaver,
+                Species::Turtle,
+                Species::Dolphin,
+                Species::Bear,
+                Species::Snake,
+                Species::Bee,
+                Species::Owl,
+            ]
+        );
+        for sp in Species::ALL {
+            assert!(pet.is_unlocked(sp), "{sp:?} should be unlocked");
+        }
 
-        // Turtle also unlocks via 7-day streak alone.
+        // Turtle unlocks at 7d streak; Bear at 10d streak; Bee at 14d streak.
         let mut streaker = Pet::default();
         for day in 0..u64::from(TURTLE_WATCH_STREAK) {
             streaker.feed(Some("ls"), BASE_EPOCH + day * 86_400);
@@ -1109,6 +1467,23 @@ mod tests {
         assert_eq!(streaker.day_streak, TURTLE_WATCH_STREAK);
         assert_eq!(streaker.check_watch_unlocks(), vec![Species::Turtle]);
         assert!(!streaker.is_unlocked(Species::Cat));
+        assert!(!streaker.is_unlocked(Species::Bear));
+
+        for day in u64::from(TURTLE_WATCH_STREAK)..u64::from(BEAR_WATCH_STREAK) {
+            streaker.feed(Some("ls"), BASE_EPOCH + day * 86_400);
+        }
+        assert_eq!(streaker.check_watch_unlocks(), vec![Species::Bear]);
+        for day in u64::from(BEAR_WATCH_STREAK)..u64::from(BEE_WATCH_STREAK) {
+            streaker.feed(Some("ls"), BASE_EPOCH + day * 86_400);
+        }
+        assert_eq!(streaker.check_watch_unlocks(), vec![Species::Bee]);
+
+        // Beaver unlocks cleanly at 50 repeated commands.
+        let mut builder = Pet::default();
+        for i in 0..BEAVER_WATCH_COMMANDS {
+            builder.feed(Some("mkdir"), BASE_EPOCH + i * 10);
+        }
+        assert_eq!(builder.check_watch_unlocks(), vec![Species::Beaver]);
 
         // record_warning unlocks Owl at 5 warnings without touching lazy decay or stats.
         let mut watcher = Pet { fullness: 80, happiness: 80, last_fed_epoch: BASE_EPOCH, ..Pet::default() };
@@ -1134,5 +1509,32 @@ mod tests {
         assert!(
             cat_summary.contains("pathfinder") && cat_summary.contains("/mode lab") && cat_summary.contains("0/25")
         );
+    }
+
+    #[test]
+    fn default_name_auto_switches_and_preserves_custom_names() {
+        let mut pet = Pet::default();
+        for sp in Species::ALL {
+            pet.unlock_species(sp);
+        }
+        assert_eq!(pet.name, "Pebble");
+        for (sp, expected) in [
+            (Species::Bee, "Anabee"),
+            (Species::Bear, "Vector"),
+            (Species::Snake, "Hiss"),
+            (Species::Beaver, "Bóbr"),
+            (Species::Dolphin, "Flow"),
+            (Species::Penguin, "Pebble"),
+        ] {
+            pet.set_species(sp).unwrap();
+            assert_eq!(pet.name, expected, "expected canonical default name for {sp:?}");
+        }
+
+        // Custom nicknames stay intact across species switches.
+        pet.rename("Whiskers").unwrap();
+        for sp in [Species::Bee, Species::Beaver, Species::Snake, Species::Dolphin, Species::Bear] {
+            pet.set_species(sp).unwrap();
+            assert_eq!(pet.name, "Whiskers");
+        }
     }
 }

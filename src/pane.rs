@@ -1,7 +1,7 @@
 //! Unified `huh` companion pane (`watch` + `lab`):
 //! - In `watch` mode, follows the recorded terminal next to it (see `session.rs`) and streams
 //!   command explanations, `huh explain`, `huh "..."`, and `why` with a bounded typewriter.
-//! - In `lab` mode, drives the interactive 8-unit Linux course, live auto-checked sandbox labs,
+//! - In `lab` mode, drives the interactive 11-unit Linux course, live auto-checked sandbox labs,
 //!   and spaced review inside the same pane.
 //! - Runs on a ~220ms `poll(fd=0)` event loop driving live Pebble 32x32/ASCII animation, rotating
 //!   header tooltips, live `/` fuzzy command dropdowns, arrow-key selectors, and instant slash
@@ -1721,7 +1721,7 @@ impl PaneState {
                 } else {
                     paint(Role::Description, "unlocked")
                 };
-                let _ = writeln!(out, "  {marker} {:<8} {:<14} {status}", sp.name(), sp.label());
+                let _ = writeln!(out, "  {marker} {:<8} {:<16} {status}", sp.name(), sp.label());
             }
             let eff = match self.effective_pet_mode() {
                 EffectiveMode::Pixel => "pixel (32x32)",
@@ -1828,7 +1828,15 @@ impl PaneState {
                 self.emit_header_refresh();
                 SlashOutcome::Output(format!(
                     "{}\n\n",
-                    paint(Role::Success, &format!("Switched companion to {} ({}).", sp.name(), sp.label()))
+                    paint(
+                        Role::Success,
+                        &format!(
+                            "Switched companion to {} ({}, {}).",
+                            sp.name(),
+                            sp.label(),
+                            self.pet_session.pet.name
+                        )
+                    )
                 ))
             }
             "style" => {

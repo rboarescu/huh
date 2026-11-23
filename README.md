@@ -325,15 +325,26 @@ It is not used when output is not a terminal, in a terminal shorter than 15 rows
 
 A `#!` companion named **Pebble** lives beside the logo in the pinned header (at least 38 columns wide; auto-hides on narrower panes). Clean commands (`exit 0`) in the followed terminal and right answers or practice clears in `lab` mode feed Pebble and build streaks (`happy` / `celebrating`), idle hours make it `sleepy` or `hungry` (floored at 10 fullness / 20 happiness so it never dies), and failed or warned commands briefly show `alert` without punishing its stats. Header updates redraw in place without disturbing scroll state.
 
-- **Species roster (4 species × 6 moods)**:
-  - **Penguin chick** (`penguin`, default): `P1` Modern Indie Chibi 32×32 pixel sprite / `A1` rounded ASCII
-  - **Terminal Cat** (`cat`): `P4` 16-Bit RPG pixel sprite / `A4` UNIX BBS ASCII
-  - **Shell-Turtle** (`turtle`): `P1` pixel sprite / `A1` rounded ASCII
-  - **Snowy Owl** (`owl`): `P4` 16-Bit RPG wizard pixel sprite / `A1` rounded ASCII
-- **32×32 Kitty Graphics + animated ASCII fallback**: In Ghostty, Kitty, and WezTerm — including inside `huh`'s own private `tmux -L huh` session (`allow-passthrough on`) or outer tmux with `HUH_KITTY_GRAPHICS=1` — Pebble renders as 32×32 pixel art tinted to the active theme (`accent`, `warning`, `success`, `note`, `dim`, `shadow`) with a `#!` belly badge. Everywhere else (or with `style = "ascii"`), Pebble renders as animated 4×10 pure printable ASCII art carrying `#!`.
+- **Species roster (9 species × 6 moods)**:
+  - **Penguin chick** (`penguin`, default, named **Pebble**): `P1` Modern Indie Chibi 32×32 pixel sprite / `A1` rounded ASCII
+  - **Terminal Cat** (`cat`, default name **Pebble**): `P4` 16-Bit RPG pixel sprite / `A4` UNIX BBS ASCII
+  - **Builder Beaver** (`beaver`, default name **Bóbr**): `P3` Plush River Bóbr 32×32 pixel sprite / `A2` ASCII
+  - **Shell-Turtle** (`turtle`, default name **Pebble**): `P1` pixel sprite / `A1` rounded ASCII
+  - **Wave Dolphin** (`dolphin`, default name **Flow**): `P2` 16-Bit Ocean Rider 32×32 pixel sprite / `A2` ASCII
+  - **Woodland Bear** (`bear`, default name **Vector**): `P1` Cozy Scarf Cub 32×32 pixel sprite / `A1` ASCII
+  - **Terminal Serpent** (`snake`, default name **Hiss**): `P1` Coiled Chibi Python 32×32 pixel sprite / `A2` ASCII
+  - **Queen Bee** (`bee`, default name **Anabee**): `P3` Honeycomb Fairy Queen 32×32 pixel sprite / `A3` ASCII
+  - **Snowy Owl** (`owl`, default name **Pebble**): `P4` 16-Bit RPG wizard pixel sprite / `A1` rounded ASCII
+  - Switching species updates the pet's canonical default name automatically when still on a default mascot name, while preserving any custom nickname set with `/pet name` or `huh pet --name`.
+- **32×32 Kitty Graphics + animated ASCII fallback**: In Ghostty, Kitty, and WezTerm — including inside `huh`'s own private `tmux -L huh` session (`allow-passthrough on`) or outer tmux with `HUH_KITTY_GRAPHICS=1` — your companion renders as 32×32 pixel art tinted to the active theme (`accent`, `warning`, `success`, `note`, `dim`, `shadow`) with a `#!` belly badge. Everywhere else (or with `style = "ascii"`), it renders as animated 4×10 pure printable ASCII art carrying `#!`.
 - **Dual-track unlocks**: Every extra species unlocks via **either** its `lab` unit badge **or** a `watch` milestone:
   - **Cat** (`cat`): `pathfinder` badge (Unit 1 in `lab`) **or** 25 unique commands in `watch`
+  - **Beaver** (`beaver`, **Bóbr**): `file_keeper` badge (Unit 2 in `lab`) **or** 50 commands fed in `watch`
   - **Turtle** (`turtle`): `pipe_plumber` badge (Unit 3 in `lab`) **or** 100 commands fed or a 7-day streak in `watch`
+  - **Dolphin** (`dolphin`, **Flow**): `media_wrangler` badge (Unit 10 in `lab`) **or** 35 unique commands or 120 commands fed in `watch`
+  - **Bear** (`bear`, **Vector**): `process_tamer` badge (Unit 5 in `lab`) **or** 150 commands fed or a 10-day streak in `watch`
+  - **Snake** (`snake`, **Hiss**): `archive_ace` badge (Unit 7 in `lab`) **or** 45 unique commands or 180 commands fed in `watch`
+  - **Bee** (`bee`, **Anabee**): `pixel_painter` badge (Unit 11 in `lab`) **or** 200 commands fed or a 14-day streak in `watch`
   - **Owl** (`owl`): `night_watch` badge (Unit 8 in `lab`) **or** 250 commands fed or 5 warnings heeded in `watch`
 - **Custom sprite sheets**: Export the built-in 32×32 TOML sheet to `$XDG_CONFIG_HOME/huh/sprites/<species>.toml` (default `~/.config/huh/sprites/<species>.toml`) with `huh pet --customize` or `/pet customize` (existing files are never overwritten; invalid overrides fall back cleanly to the built-in sheet).
 
@@ -386,17 +397,17 @@ Switch into `lab` mode at launch (`huh --mode lab`) or live from any prompt (`/m
 - **Full 11-unit curriculum (33 lessons, 165 questions, 9 hands-on labs, 19 badges)** embedded at build time from `lessons/01..11-*.toml` (core Units 1–8 plus 3 real-world tracks unlocked immediately after Unit 1 via `unlock_after`, while *Continue next lesson* stays on the core path until Unit 8 finishes):
   - **Core track** (completing all 8 core units earns `shell_grad`):
     1. *Finding Your Way* (`pwd`, `ls`, `cd`) — badge `pathfinder` (also unlocks **Terminal Cat**), plus practice lab
-    2. *Files & Folders* (`mkdir`, `touch`, `cp`, `mv`, `rm`, `cat`, `head`, `tail`) — badge `file_keeper`, plus practice lab
+    2. *Files & Folders* (`mkdir`, `touch`, `cp`, `mv`, `rm`, `cat`, `head`, `tail`) — badge `file_keeper` (also unlocks **Builder Beaver** / Bóbr), plus practice lab
     3. *Searching & Pipes* (`grep`, `find`, `wc`, `sort`, `uniq`, `|`, `>`, `>>`) — badge `pipe_plumber` (also unlocks **Shell-Turtle**), plus practice lab
     4. *Reading Permissions* (`ls -l` rwx bits, `chmod`, `whoami`, `id`) — badge `locksmith`, plus practice lab
-    5. *Processes & Disk* (`ps aux`, `pgrep`, `kill`, `uptime`, `df -h`, `du -sh`, `free -h`) — badge `process_tamer`, plus practice lab
+    5. *Processes & Disk* (`ps aux`, `pgrep`, `kill`, `uptime`, `df -h`, `du -sh`, `free -h`) — badge `process_tamer` (also unlocks **Woodland Bear** / Vector), plus practice lab
     6. *Packages & Manuals* (`which`, `man`, `--help`, and **distro-aware** package commands resolved via `src/platform.rs` for Arch, Omarchy, Debian/Ubuntu, Fedora, SUSE, Alpine, Void, Gentoo, or Nix) — badge `package_pro`
-    7. *Archives & Links* (`tar`, `gzip`, `unzip`, `diff`, `sha256sum`, `ln -s`) — badge `archive_ace`, plus practice lab
+    7. *Archives & Links* (`tar`, `gzip`, `unzip`, `diff`, `sha256sum`, `ln -s`) — badge `archive_ace` (also unlocks **Terminal Serpent** / Hiss), plus practice lab
     8. *Networking & Stay Safe* (`ping`, `ip -br addr`, `ss`, `curl`, `ssh`, plus the 5-risk *Spot the Danger* boss lesson) — badge `night_watch` (also unlocks **Snowy Owl**), plus `shell_grad` upon finishing all 8 core units
   - **3 Real-World Tracks** (tagged `real-world`; unlocked right after Unit 1 *Finding Your Way*):
     9. *Apps & Games on Linux* (AppImages & FUSE 2, Flatpak & Flathub, DOSBox & `.exe` checks) — badge `game_runner`, plus practice lab (*Game Night Setup*)
-    10. *Media & Everyday Files* (`xdg-open`, `file`, `gio trash`, `mpv`, `vlc`, `ffmpeg` basics) — badge `media_wrangler`, plus practice lab (*Downloads Cleanup*)
-    11. *Paint Your Own Pet* (`huh pet --customize`, `~/.config/huh/sprites/`, pixel/palette TOML editing, backups & safe fallback) — badge `pixel_painter`, plus practice lab (*Sprite Studio*)
+    10. *Media & Everyday Files* (`xdg-open`, `file`, `gio trash`, `mpv`, `vlc`, `ffmpeg` basics) — badge `media_wrangler` (also unlocks **Wave Dolphin** / Flow), plus practice lab (*Downloads Cleanup*)
+    11. *Paint Your Own Pet* (`huh pet --customize`, `~/.config/huh/sprites/`, pixel/palette TOML editing, backups & safe fallback) — badge `pixel_painter` (also unlocks **Queen Bee** / Anabee), plus practice lab (*Sprite Studio*)
 - **4 question types**: *What does it do?* (condensed `huh explain`), *Type the command* (graded structurally via `shell::parse` so equivalent flags, quotes, and safe redirects match), *Read the output* (`outputs::describe`), and *Spot the danger* (`huh`'s 14 risk categories).
 - **Live auto-checking hands-on practice labs**: Prepares a safe throwaway folder under `$XDG_DATA_HOME/huh/practice` (default `~/.local/share/huh/practice`) using pure `std::fs` with canonicalized symlink-escape guards (zero command execution). As you run real Linux commands in your shell beside the pane, `lab` mode monitors the sandbox and recorded output live, nudges gently with `huh why` on non-zero exits, ticks off checklist items automatically, awards 30 XP and the `hands_on` badge, celebrates with Pebble, and cleans up the folder when done (with manual `Enter`/`check`/`hint`/`reset` and check-question fallback if recording is off).
 - **Kid-friendly 5-heart loop & spaced review**: Right answers earn XP and feed Pebble; misses re-queue once at the end of the lesson. Reaching 0 hearts never locks you out (`[r]` heart-free review, `[t]` fresh retry, `[q]` menu). Missed questions enter a 6-box Leitner deck (intervals `0, 1, 3, 7, 14, 30` days), paired with UTC daily streaks, streak freezes (start with 1, +1 per 7-day milestone, cap 3), `daily_goal = 50` in `config.toml`, and local progress in `$XDG_STATE_HOME/huh/progress.toml`.
@@ -604,8 +615,8 @@ nmcli = { mylinux = "nm-cli" }         # package name where it differs (omit a f
 | `src/prefs.rs` | Atomic state preferences (`~/.local/state/huh/prefs.toml`, including `tips`) and initial pane mode precedence (`--mode` > `config.toml` > `prefs.toml`) |
 | `src/typewriter.rs` | ANSI-safe variable-rate typewriter streaming (~2s starter budget, 60fps chunking, instant flush on Enter) |
 | `src/pin.rs` | Pinned DECSTBM companion header (`L2b` logo + `[WATCH]`/`[LAB]` status bar + Row-7 rotating tips), Kitty Graphics lifecycle, and flicker-free in-place refresh |
-| `src/pet.rs`, `src/date.rs` | `#!` terminal pet state machine (**Pebble**), animated 4×10 ASCII fallback, watch/lab dual-track unlocks, lazy decay, atomic persistence, UTC civil dates |
-| `src/sprite.rs`, `sprites/*.toml` | Embedded 32×32 pixel sprite sheets (`penguin`, `cat`, `turtle`, `owl`), theme tinting, Kitty Graphics APC encoding (with tmux DCS wrapping), and `~/.config/huh/sprites/*.toml` overrides |
+| `src/pet.rs`, `src/date.rs` | `#!` terminal pet state machine (**Pebble**, **Anabee**, **Vector**, **Hiss**, **Bóbr**, **Flow**), animated 4×10 ASCII fallback, watch/lab dual-track unlocks across 9 species, lazy decay, atomic persistence, UTC civil dates |
+| `src/sprite.rs`, `sprites/*.toml` | Embedded 32×32 pixel sprite sheets (`penguin`, `cat`, `beaver`, `turtle`, `dolphin`, `bear`, `snake`, `bee`, `owl`), theme tinting, Kitty Graphics APC encoding (with tmux DCS wrapping), and `~/.config/huh/sprites/*.toml` overrides |
 | `src/learn.rs` | `/mode lab` interactive course runner (`LabHost` with `select_menu` arrow navigation), non-linear `unlock_after` prerequisite tracks (`real-world` side quests), structural command grader, 4 question types, 5-heart loop, live auto-checking practice runner, spaced review |
 | `src/practice.rs` | Safe throwaway practice sandbox (`$XDG_DATA_HOME/huh/practice`), symlink-guarded filesystem checks, recorded output + fallback evaluator |
 | `src/lessons.rs`, `lessons/*.toml` | Embedded 11-unit curriculum (8 core + 3 real-world tracks unlocking after Unit 1; 33 lessons, 165 questions, 9 practice labs), `unlock_after` dependency/cycle validation, distro-aware `{pkg_*}` resolution |

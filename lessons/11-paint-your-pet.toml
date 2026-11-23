@@ -3,6 +3,7 @@ number = 11
 title = "Paint Your Own Pet"
 summary = "Export your #! pet's 32x32 sprite sheet, read and edit TOML palettes and pixel grids safely, keep backups, and preview changes with diff."
 badge = "pixel_painter"
+unlocks_species = "bee"
 unlock_after = "finding-your-way"
 
 [[lessons]]

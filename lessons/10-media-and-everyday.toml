@@ -3,6 +3,7 @@ number = 10
 title = "Media & Everyday Files"
 summary = "Open files in desktop apps, send clutter to the Trash safely, play music and video with mpv and vlc, and trim or convert clips with ffmpeg."
 badge = "media_wrangler"
+unlocks_species = "dolphin"
 unlock_after = "finding-your-way"
 
 [[lessons]]

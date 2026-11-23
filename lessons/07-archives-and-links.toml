@@ -3,6 +3,7 @@ number = 7
 title = "Archives & Links"
 summary = "Bundle and unpack folders with tar, gzip, and unzip, compare files with diff and sha256sum, and make shortcuts with ln -s."
 badge = "archive_ace"
+unlocks_species = "snake"
 
 [[lessons]]
 id = "u7-tar-bundles"

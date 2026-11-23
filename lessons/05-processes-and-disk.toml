@@ -3,6 +3,7 @@ number = 5
 title = "Processes & Disk"
 summary = "See running programs with ps and pgrep, stop runaway tasks carefully with kill, and check disk and memory with df, du, free, and uptime."
 badge = "process_tamer"
+unlocks_species = "bear"
 
 [[lessons]]
 id = "u5-seeing-processes"

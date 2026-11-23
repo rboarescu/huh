@@ -1,0 +1,61 @@
+# 32x32 pixel sprite sheet for Bee (P3 — Honeycomb Fairy Queen).
+# Copy to ~/.config/huh/sprites/bee.toml (or $XDG_CONFIG_HOME/huh/sprites/bee.toml) to customize.
+# Grid tokens: '.' is transparent; other ASCII characters look up [palette].
+# Semantic palette tokens supported: "accent", "warning", "success", "note", "dim", "shadow".
+
+species = "bee"
+style = "P3"
+eye_style = "chibi" # "chibi" | "chibi_single" | "rpg"
+eye_left = [10, 10]
+eye_right = [19, 10]
+shebang = [12, 19]
+
+grid = [
+  ".............K.K.K..............",
+  "............K66666K.............",
+  "............K67676K.............",
+  ".....KKK.....KKKKK.....KKK......",
+  "...KK553KK...........KK355KK....",
+  "..K5555533K..KKKKK..K3355555K...",
+  ".K55555333KKK11111KKK33355555K..",
+  ".K5553333KK114444411KK3333555K..",
+  ".K333333K1144444444411K333333K..",
+  "..KK333KK14444444444441KK333KK..",
+  "...KKKK.K14444444444441K.KKKK...",
+  "...KK53KK14444444444441KK35KK...",
+  "..K3553KK14484444448441KK3553K..",
+  "..K333KK.K144442244441K.KK333K..",
+  "...KKK...K214444444412K...KKK...",
+  "..........K2114444112K..........",
+  ".........KK1111111111KK.........",
+  "........K21144444444112K........",
+  "........K11444444444411K........",
+  ".......KK14444444444441KK.......",
+  ".......K2244444444444422K.......",
+  ".......K1144444444444411K.......",
+  ".......KKK444444444444KKK.......",
+  "........K24444444444442K........",
+  "........K21111111111112K........",
+  ".........KKKKKKKKKKKKKK.........",
+  ".........K211111111112K.........",
+  "..........KKKKKKKKKKKK..........",
+  "...........KK221122KK...........",
+  ".............KK22KK.............",
+  ".........SSSSSSSSSSSSSS.........",
+  "................................",
+]
+
+[palette]
+K = "#221a14"
+1 = "#f5b82e"
+2 = "#c47110"
+3 = "accent"
+4 = "#fff5d1"
+5 = "#e6f7ff"
+6 = "#ffe46b"
+7 = "#e5484d"
+8 = "#f48ea6"
+S = "shadow"
+eye_ink = "#221a14"
+eye_glint = "#ffffff"
+shebang_fg = "#1f1812"

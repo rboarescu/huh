@@ -1,0 +1,58 @@
+# 32x32 pixel sprite sheet for Dolphin (P2 — 16-Bit Ocean Rider).
+# Copy to ~/.config/huh/sprites/dolphin.toml (or $XDG_CONFIG_HOME/huh/sprites/dolphin.toml) to customize.
+# Grid tokens: '.' is transparent; other ASCII characters look up [palette].
+# Semantic palette tokens supported: "accent", "warning", "success", "note", "dim", "shadow".
+
+species = "dolphin"
+style = "P2"
+eye_style = "chibi_single" # "chibi" | "chibi_single" | "rpg"
+eye_left = [8, 12]
+shebang = [14, 13]
+
+grid = [
+  "................................",
+  "................................",
+  "................................",
+  "..............KKKK..............",
+  ".............K1312K.............",
+  "............K13111K.............",
+  "............K11111K.............",
+  "..........KK1111111KK...........",
+  "........KK13311111111KK.........",
+  ".......K133111111111111KK.......",
+  "......K131114441111111111K......",
+  ".....K11114444444111111111K.....",
+  "....K1114444444444411111111K....",
+  "..KKK14444444444444411111111K...",
+  ".K131444444444444444411111111K..",
+  ".K211444444444444444441111112K..",
+  "..KKKK44444444444444441111112K..",
+  ".....K4444444444444444411122K...",
+  "......KKKK444444444444KK112KK...",
+  "..........KKKK444444KK..K1122K..",
+  ".....5........KKKKKK....K2K11K..",
+  "....W5W...........W5....KK.KK...",
+  "..................5W............",
+  "...W55W...WW5W....W55W...W55W...",
+  "..K5335KKK5335KKKK5335KKK5335K..",
+  "..KKKKKKKKKKKKKKKKKKKKKKKKKKKK..",
+  ".....SSSSSSSSSSSSSSSSSSSSSS.....",
+  "................................",
+  "................................",
+  "................................",
+  "................................",
+  "................................",
+]
+
+[palette]
+K = "#102338"
+1 = "#2a7ec4"
+2 = "#184f85"
+3 = "accent"
+4 = "#f2faff"
+5 = "#bfe8ff"
+W = "#ffffff"
+S = "shadow"
+eye_ink = "#102338"
+eye_glint = "#ffffff"
+shebang_fg = "#184f85"

@@ -48,16 +48,28 @@ pub const BADGES: &[BadgeDef] = &[
         title: "Pathfinder",
         description: "Finish Unit 1 (Finding Your Way) — unlocks Terminal Cat.",
     },
-    BadgeDef { id: "file_keeper", title: "File Keeper", description: "Finish Unit 2 (Files & Folders)." },
+    BadgeDef {
+        id: "file_keeper",
+        title: "File Keeper",
+        description: "Finish Unit 2 (Files & Folders) — unlocks Builder Beaver.",
+    },
     BadgeDef {
         id: "pipe_plumber",
         title: "Pipe Plumber",
         description: "Finish Unit 3 (Searching & Pipes) — unlocks Shell-Turtle.",
     },
     BadgeDef { id: "locksmith", title: "Locksmith", description: "Finish Unit 4 (Reading Permissions)." },
-    BadgeDef { id: "process_tamer", title: "Process Tamer", description: "Finish Unit 5 (Processes & Disk)." },
+    BadgeDef {
+        id: "process_tamer",
+        title: "Process Tamer",
+        description: "Finish Unit 5 (Processes & Disk) — unlocks Woodland Bear.",
+    },
     BadgeDef { id: "package_pro", title: "Package Pro", description: "Finish Unit 6 (Packages & Manuals)." },
-    BadgeDef { id: "archive_ace", title: "Archive Ace", description: "Finish Unit 7 (Archives & Links)." },
+    BadgeDef {
+        id: "archive_ace",
+        title: "Archive Ace",
+        description: "Finish Unit 7 (Archives & Links) — unlocks Terminal Serpent.",
+    },
     BadgeDef {
         id: "night_watch",
         title: "Night Watch",
@@ -65,8 +77,16 @@ pub const BADGES: &[BadgeDef] = &[
     },
     BadgeDef { id: "shell_grad", title: "Shell Graduate", description: "Complete all 8 core units in /mode lab." },
     BadgeDef { id: "game_runner", title: "Game Runner", description: "Finish Unit 9 (Apps & Games on Linux)." },
-    BadgeDef { id: "media_wrangler", title: "Media Wrangler", description: "Finish Unit 10 (Media & Everyday Files)." },
-    BadgeDef { id: "pixel_painter", title: "Pixel Painter", description: "Finish Unit 11 (Paint Your Own Pet)." },
+    BadgeDef {
+        id: "media_wrangler",
+        title: "Media Wrangler",
+        description: "Finish Unit 10 (Media & Everyday Files) — unlocks Wave Dolphin.",
+    },
+    BadgeDef {
+        id: "pixel_painter",
+        title: "Pixel Painter",
+        description: "Finish Unit 11 (Paint Your Own Pet) — unlocks Queen Bee.",
+    },
 ];
 
 /// Looks up a badge definition by its stable ID.

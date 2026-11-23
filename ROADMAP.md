@@ -1,5 +1,16 @@
 # huh: roadmap and status
 
+## Completed: pet roster expansion — Bee, Bear, Snake, Beaver & Dolphin (2026-11-23)
+
+1. **Five new 32×32 & ASCII companion species with canonical default names. Done 2026-11-23.**
+   - Done (`sprites/{bee,bear,snake,beaver,dolphin}.toml`, `src/pet.rs`, `src/sprite.rs`, `src/pane.rs`, `src/slash.rs`): expanded the companion roster from 4 to **9 species × 6 moods**:
+     - **Builder Beaver** (`beaver`, default name **Bóbr**): `P3` Plush River Bóbr 32×32 / `A2` ASCII — unlocks via Unit 2 (`file_keeper`) or `50` watch commands.
+     - **Wave Dolphin** (`dolphin`, default name **Flow**): `P2` 16-Bit Ocean Rider 32×32 / `A2` ASCII (`chibi_single` profile eye) — unlocks via Unit 10 (`media_wrangler`) or `35` unique / `120` watch commands.
+     - **Woodland Bear** (`bear`, default name **Vector**): `P1` Cozy Scarf Cub 32×32 / `A1` ASCII — unlocks via Unit 5 (`process_tamer`) or `150` watch commands / `10`-day streak.
+     - **Terminal Serpent** (`snake`, default name **Hiss**): `P1` Coiled Chibi Python 32×32 / `A2` ASCII — unlocks via Unit 7 (`archive_ace`) or `45` unique / `180` watch commands.
+     - **Queen Bee** (`bee`, default name **Anabee**): `P3` Honeycomb Fairy Queen 32×32 / `A3` ASCII — unlocks via Unit 11 (`pixel_painter`) or `200` watch commands / `14`-day streak.
+   - Done (`src/pet.rs`, `src/progress.rs`, `lessons/{02,05,07,10,11}-*.toml`): switching species via `/pet species` or `huh pet --species` updates the companion's canonical default name automatically when on any default mascot name while keeping custom user nicknames untouched; wired `unlocks_species` and updated badge descriptions across Units 2, 5, 7, 10, and 11.
+
 ## Completed: real-world applications — apps, games, media & custom pet sprites (Phase 6, 2026-11-21)
 
 1. **Live assistant & `huh why` upgrades for everyday desktop, gaming & media workflows. Done 2026-11-21.**

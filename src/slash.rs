@@ -726,16 +726,24 @@ mod tests {
 
         // /pet species stage 3 shows unlocked vs (locked).
         let sp = completions("/pet species ", &[Species::Penguin, Species::Cat]);
-        assert_eq!(sp.iter().map(|c| c.display.as_str()).collect::<Vec<_>>(), ["penguin", "cat", "turtle", "owl"]);
+        assert_eq!(
+            sp.iter().map(|c| c.display.as_str()).collect::<Vec<_>>(),
+            ["penguin", "cat", "beaver", "turtle", "dolphin", "bear", "snake", "bee", "owl"]
+        );
         assert!(!sp[0].summary.contains("locked"));
         assert!(!sp[1].summary.contains("locked"));
-        assert!(sp[2].summary.contains("(locked)"));
-        assert!(sp[3].summary.contains("(locked)"));
+        for locked in &sp[2..] {
+            assert!(locked.summary.contains("(locked)"), "{:?}", locked);
+        }
 
         let sp_fuzzy = completions("/pet sp tur", &[Species::Turtle]);
         assert_eq!(sp_fuzzy.len(), 1);
         assert_eq!(sp_fuzzy[0].insert, "/pet species turtle");
         assert!(!sp_fuzzy[0].summary.contains("locked"));
+
+        let sp_bee = completions("/pet sp bee", &[Species::Bee]);
+        assert_eq!(sp_bee[0].insert, "/pet species bee");
+        assert!(!sp_bee[0].summary.contains("locked"));
 
         let st = completions("/pet style ", &[]);
         assert_eq!(st.iter().map(|c| c.display.as_str()).collect::<Vec<_>>(), ["auto", "pixel", "ascii", "off"]);

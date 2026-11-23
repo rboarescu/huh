@@ -3,6 +3,7 @@ number = 2
 title = "Files & Folders"
 summary = "Create folders and files, copy and move them neatly, peek inside text files, and stay safe around rm."
 badge = "file_keeper"
+unlocks_species = "beaver"
 
 [[lessons]]
 id = "u2-making-things"

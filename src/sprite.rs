@@ -785,9 +785,22 @@ mod tests {
 
     #[test]
     fn embedded_sprites_all_parse_and_match_spec() {
-        assert_eq!(EMBEDDED_SPRITES.len(), 4);
+        assert_eq!(EMBEDDED_SPRITES.len(), 9);
         let names: Vec<&str> = EMBEDDED_SPRITES.iter().map(|(n, _)| *n).collect();
-        assert_eq!(names, vec!["cat.toml", "owl.toml", "penguin.toml", "turtle.toml"]);
+        assert_eq!(
+            names,
+            vec![
+                "bear.toml",
+                "beaver.toml",
+                "bee.toml",
+                "cat.toml",
+                "dolphin.toml",
+                "owl.toml",
+                "penguin.toml",
+                "snake.toml",
+                "turtle.toml",
+            ]
+        );
 
         let penguin = load_sheet(Species::Penguin, None);
         assert_eq!(penguin.species, Species::Penguin);
@@ -805,6 +818,14 @@ mod tests {
         assert_eq!(cat.eye_right, Some((17, 10)));
         assert_eq!(cat.shebang, (10, 20));
 
+        let beaver = load_sheet(Species::Beaver, None);
+        assert_eq!(beaver.species, Species::Beaver);
+        assert_eq!(beaver.style, "P3");
+        assert_eq!(beaver.eye_style, EyeStyle::Chibi);
+        assert_eq!(beaver.eye_left, (7, 8));
+        assert_eq!(beaver.eye_right, Some((14, 8)));
+        assert_eq!(beaver.shebang, (8, 19));
+
         let turtle = load_sheet(Species::Turtle, None);
         assert_eq!(turtle.species, Species::Turtle);
         assert_eq!(turtle.style, "P1");
@@ -812,6 +833,38 @@ mod tests {
         assert_eq!(turtle.eye_left, (24, 13));
         assert_eq!(turtle.eye_right, None);
         assert_eq!(turtle.shebang, (8, 15));
+
+        let dolphin = load_sheet(Species::Dolphin, None);
+        assert_eq!(dolphin.species, Species::Dolphin);
+        assert_eq!(dolphin.style, "P2");
+        assert_eq!(dolphin.eye_style, EyeStyle::ChibiSingle);
+        assert_eq!(dolphin.eye_left, (8, 12));
+        assert_eq!(dolphin.eye_right, None);
+        assert_eq!(dolphin.shebang, (14, 13));
+
+        let bear = load_sheet(Species::Bear, None);
+        assert_eq!(bear.species, Species::Bear);
+        assert_eq!(bear.style, "P1");
+        assert_eq!(bear.eye_style, EyeStyle::Chibi);
+        assert_eq!(bear.eye_left, (10, 9));
+        assert_eq!(bear.eye_right, Some((19, 9)));
+        assert_eq!(bear.shebang, (12, 20));
+
+        let snake = load_sheet(Species::Snake, None);
+        assert_eq!(snake.species, Species::Snake);
+        assert_eq!(snake.style, "P1");
+        assert_eq!(snake.eye_style, EyeStyle::Chibi);
+        assert_eq!(snake.eye_left, (10, 6));
+        assert_eq!(snake.eye_right, Some((18, 6)));
+        assert_eq!(snake.shebang, (12, 20));
+
+        let bee = load_sheet(Species::Bee, None);
+        assert_eq!(bee.species, Species::Bee);
+        assert_eq!(bee.style, "P3");
+        assert_eq!(bee.eye_style, EyeStyle::Chibi);
+        assert_eq!(bee.eye_left, (10, 10));
+        assert_eq!(bee.eye_right, Some((19, 10)));
+        assert_eq!(bee.shebang, (12, 19));
 
         let owl = load_sheet(Species::Owl, None);
         assert_eq!(owl.species, Species::Owl);
