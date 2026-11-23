@@ -5,7 +5,6 @@ edition = "2024"
 license = "MIT"
 description = "Plain-language terminal assistant: deterministic local command matching, explanation, error diagnosis, and interactive Linux lab"
 repository = "https://github.com/rboarescu/huh"
-homepage = "https://github.com/rboarescu/huh"
 readme = "README.md"
 keywords = ["cli", "terminal", "linux", "shell", "education"]
 categories = ["command-line-utilities"]

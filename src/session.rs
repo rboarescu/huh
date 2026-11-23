@@ -709,8 +709,8 @@ set -o history
 source {hooks_path}
 # Default bindings include both \eh and \ef
 bindings=$(bind -X)
-[[ $bindings == *'"\eh" "__huh_complete"'* ]]
-[[ $bindings == *'"\ef" "__huh_complete"'* ]]
+[[ $bindings == *'"\eh": "__huh_complete"'* || $bindings == *'"\eh" "__huh_complete"'* ]]
+[[ $bindings == *'"\ef": "__huh_complete"'* || $bindings == *'"\ef" "__huh_complete"'* ]]
 
 # Empty line stays untouched
 READLINE_LINE=""
@@ -758,7 +758,7 @@ grep -q "ls -la" {status}
         // Custom HUH_KEY binds only that key (not \eh or \ef).
         let custom_cmd = format!(
             "set -e\nset -o emacs\nexport HUH_KEY='\\eg'\nsource {}\nbindings=$(bind -X)\n\
-             [[ $bindings == *'\"\\eg\" \"__huh_complete\"'* ]]\n\
+             [[ $bindings == *'\"\\eg\": \"__huh_complete\"'* || $bindings == *'\"\\eg\" \"__huh_complete\"'* ]]\n\
              [[ $bindings != *'\"\\eh\"'* ]]\n\
              [[ $bindings != *'\"\\ef\"'* ]]\n",
             shell_quote(&script_file.to_string_lossy()),
