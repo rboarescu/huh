@@ -53,10 +53,11 @@ git clone https://github.com/rboarescu/huh.git
 cd huh/pkgbuild && makepkg -si
 ```
 
-Once published to the AUR as `huh-bin`, Omarchy and Arch users can install directly with:
+Once published to the **Omarchy Package Repository (OPR, `pkgs.omarchy.org`)** or the **AUR** as `huh-bin`, Omarchy and Arch users can install directly with:
 
 ```bash
-omarchy pkg aur add huh-bin     # or: yay -S huh-bin
+omarchy pkg add huh-bin         # via OPR (pkgs.omarchy.org), once submitted to omarchy-pkgs
+omarchy pkg aur add huh-bin     # or via AUR (yay -S huh-bin)
 ```
 
 > **First-class on Omarchy:** `huh` natively reads your live desktop palette from `~/.local/state/omarchy/current/theme/colors.toml` (`theme = "omarchy"`), resolves Arch/Omarchy commands (`omarchy pkg add`, `omarchy update`), and launches side-by-side via `xdg-terminal-exec` (`--app-id=huh`) or Ghostty (`--class=huh.pane`) for crisp Hyprland window rules.

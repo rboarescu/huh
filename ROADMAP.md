@@ -1,5 +1,13 @@
 # huh: roadmap and status
 
+## Completed: open-source launch polish, Omarchy stock themes & live theme previews (2026-11-23)
+
+1. **Open-source landing page, animated SVGs & multi-channel packaging (`v0.1.0`). Done 2026-11-23.**
+   - Done (`README.md`, `docs/ARCHITECTURE.md`, `assets/hero.svg`, `assets/companions.svg`, `install.sh`, `pkgbuild/PKGBUILD`, `Cargo.toml`, `.github/workflows/{ci,release}.yml`): added pure-CSS animated hero (`huh? -> huh!` + 32×32 Pebble + 3 cycling workflows) and 9-pet pixel gallery SVGs (zero scripts), separated developer architecture reference into `docs/ARCHITECTURE.md`, added auditable POSIX `install.sh` (`x86_64`/`aarch64` musl + `SHA256SUMS.txt` verification), added Arch/AUR/Omarchy `pkgbuild/PKGBUILD` (`huh-bin`), enabled release `strip`/`lto = "thin"` (`4.9 MB` binary), and configured GitHub Actions CI + release tarball publishing on `v*` tags.
+2. **Stock Omarchy `colors.toml` palette alignment & live sample previews. Done 2026-11-23.**
+   - Done (`src/style.rs`): updated `omarchy_theme()` / `load_omarchy()` to parse canonical stock Omarchy semantic keys (`mode`, `accent`, `foreground`, `background`, `dark_foreground`/`muted`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`) plus legacy aliases (`fg`, `bg`, `dark_fg`, `purple`, `color0`–`color8`, `theme_type`, `light.mode`), supporting both dark (`tokyo-night`, etc.) and light (`catppuccin-latte`, etc.) palettes across `~/.local/state/omarchy/current/theme/colors.toml` and legacy `~/.config/omarchy/current/theme/colors.toml`.
+   - Done (`src/style.rs`, `src/tui.rs`, `src/pane.rs`, `src/setup.rs`): added `theme_preview_lines` and `select_menu_with_preview` (with ANSI-safe `clip_ansi` wrapping guards) so both `/theme` and `huh setup` step 2 render live sample previews while navigating options and print a full sample-text preview when a theme is applied.
+
 ## Completed: pet roster expansion — Bee, Bear, Snake, Beaver & Dolphin (2026-11-23)
 
 1. **Five new 32×32 & ASCII companion species with canonical default names. Done 2026-11-23.**
