@@ -2,7 +2,7 @@
 # Run 'updpkgsums' after publishing a GitHub release to pin SHA-256 checksums before pushing to AUR.
 
 pkgname=huh-bin
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="Go from huh? to aha! in your own shell — deterministic offline terminal companion, explainer, error doctor & Linux lab"
 arch=('x86_64' 'aarch64')
