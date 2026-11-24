@@ -3,12 +3,13 @@
 pkgname=huh-bin
 pkgver=0.1.1
 pkgrel=1
-pkgdesc="Go from huh? to aha! in your own shell — deterministic offline terminal companion, explainer, error doctor & Linux lab"
+pkgdesc="Offline deterministic terminal companion, command explainer, error doctor & lab"
 arch=('x86_64' 'aarch64')
 url="https://github.com/rboarescu/huh"
 license=('MIT')
 provides=('huh')
 conflicts=('huh')
+options=('!debug')
 optdepends=(
   'tmux: side-by-side companion pane outside tiling desktops'
   'fzf: interactive huh find catalog and command browser'
