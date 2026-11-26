@@ -229,7 +229,7 @@ hints = [
     "Pass the folder `games/doom` straight to `dosbox`.",
     "Type `dosbox games/doom`.",
 ]
-note = "Opening `dosbox` on a folder is great when a game has a `SETUP.EXE` or `INSTALL.BAT` you want to pick at the `C:\\>` prompt."
+note = "Opening `dosbox` on a folder is great when a game has a `SETUP.EXE` or `INSTALL.BAT` you want to pick at the `C:\\>` prompt. (Classic cave wisdom: \"It's dangerous to go alone\" — try telling huh that.)"
 
 [[lessons.questions]]
 kind = "spot_danger"
@@ -260,7 +260,7 @@ dirs = ["downloads"]
 files = [
     { path = "downloads/SpaceQuest.AppImage", content = "#!/bin/sh\necho SpaceQuest ready!\n", mode = 0o644 },
     { path = "downloads/README.txt", content = "Move SpaceQuest.AppImage and saves.txt into games/, then run chmod +x games/SpaceQuest.AppImage.\n" },
-    { path = "downloads/saves.txt", content = "slot1: asteroid-belt-stage-3\n" },
+    { path = "downloads/saves.txt", content = "slot1: asteroid-belt-stage-3\n# classic arcade code: up up down down left right left right b a\n" },
 ]
 
 [[practice.checks]]

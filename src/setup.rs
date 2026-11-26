@@ -509,6 +509,38 @@ fn has_rc_init(rc_path: Option<&Path>, shell: ShellKind) -> bool {
     text.contains(record_line) && text.contains(hooks_line)
 }
 
+fn has_omarchy_markers(cfg: &SetupConfig<'_>) -> bool {
+    if (cfg.env)("OMARCHY_PATH").is_some_and(|v| !v.trim().is_empty()) {
+        return true;
+    }
+    if let Some(xdg) = clean_path(cfg.xdg_config)
+        && (xdg.join("omarchy").is_dir() || xdg.join("hypr/bindings.lua").is_file())
+    {
+        return true;
+    }
+    if let Some(home) = clean_path(cfg.home) {
+        let cfg_base = home.join(".config");
+        if cfg_base.join("omarchy").is_dir()
+            || cfg_base.join("hypr/bindings.lua").is_file()
+            || home.join(".local/share/omarchy").is_dir()
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn write_omarchy_binding_tip<W: Write>(writer: &mut W) -> Result<()> {
+    writeln!(writer, "\nOmarchy Hyprland keybinding (optional):")?;
+    writeln!(writer, "  Add to ~/.config/hypr/bindings.lua (then run `hyprctl reload`):")?;
+    writeln!(
+        writer,
+        r#"    o.bind("SUPER + ALT + H", "huh companion", "xdg-terminal-exec --app-id=huh --title=huh -- huh --here")"#
+    )?;
+    writeln!(writer, "  (Check free chords with SUPER + K; opens `huh` beside the focused terminal.)")?;
+    Ok(())
+}
+
 /// Runs `huh setup` using injectable environment, paths, and I/O streams.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn run_with_io<R: BufRead, W: Write>(cfg: &SetupConfig<'_>, reader: &mut R, writer: &mut W) -> Result<()> {
@@ -520,6 +552,17 @@ fn run_with_io_mode<R: BufRead, W: Write>(
     reader: &mut R,
     writer: &mut W,
     use_tty: bool,
+) -> Result<()> {
+    let on_omarchy = has_omarchy_markers(cfg) || crate::platform::detect().iter().any(|p| p == "omarchy");
+    run_with_io_mode_inner(cfg, reader, writer, use_tty, on_omarchy)
+}
+
+fn run_with_io_mode_inner<R: BufRead, W: Write>(
+    cfg: &SetupConfig<'_>,
+    reader: &mut R,
+    writer: &mut W,
+    use_tty: bool,
+    on_omarchy: bool,
 ) -> Result<()> {
     let shell = session::detect_shell(cfg.shell_env);
     let rc_path = resolve_rc_path(cfg, shell);
@@ -545,9 +588,10 @@ fn run_with_io_mode<R: BufRead, W: Write>(
             if let Some(prefs) = existing_prefs.filter(|p| *p != Prefs::default()) {
                 writeln!(
                     writer,
-                    "  Preferences:    {} (theme={}, pet_style={}, speed={}, tips={})",
+                    "  Preferences:    {} (theme={}, noise={}, pet_style={}, speed={}, tips={})",
                     p.display(),
                     prefs.theme.as_deref().unwrap_or("babyblue"),
+                    prefs.effective_noise().name(),
                     prefs.pet_style.as_deref().unwrap_or("auto"),
                     prefs.speed.as_deref().unwrap_or("normal"),
                     if prefs.tips.unwrap_or(true) { "on" } else { "off" }
@@ -563,6 +607,9 @@ fn run_with_io_mode<R: BufRead, W: Write>(
         writeln!(writer, "or add these lines to your {}:", shell.name())?;
         writeln!(writer, "  {record_line}")?;
         writeln!(writer, "  {hooks_line}")?;
+        if on_omarchy {
+            write_omarchy_binding_tip(writer)?;
+        }
         return Ok(());
     }
 
@@ -639,12 +686,35 @@ fn run_with_io_mode<R: BufRead, W: Write>(
         return Ok(());
     };
 
+    let Some(noise) = prompt_choice_step(
+        use_tty,
+        reader,
+        writer,
+        "6. Watch pane noise level:",
+        &[
+            ("all", "all    — explain every finished command"),
+            ("new", "new    — explain each program once (remembers seen programs)"),
+            ("errors", "errors — stay quiet on clean exit 0; speak up on errors & warnings"),
+        ],
+        &[("quiet", "new")],
+    )?
+    else {
+        writeln!(writer, "\nSetup cancelled (no files changed).")?;
+        return Ok(());
+    };
+
     let prefs_file = prefs_path.context("cannot determine state directory (set HOME or XDG_STATE_HOME)")?;
     let mut prefs = prefs::load_from(&prefs_file);
     prefs.theme = Some(theme.clone());
     prefs.pet_style = Some(pet_style.clone());
     prefs.speed = Some(speed.clone());
     prefs.tips = Some(tips_choice == "on");
+    prefs.noise = Some(noise.clone());
+    prefs.quiet = match noise.as_str() {
+        "new" => Some(true),
+        "all" => Some(false),
+        _ => None,
+    };
     if default_mode != "last" {
         prefs.last_mode = Some(default_mode.clone());
     } else if prefs.last_mode.is_none() {
@@ -691,6 +761,10 @@ fn run_with_io_mode<R: BufRead, W: Write>(
         }
     } else {
         writeln!(writer, "Skipped shell rc update because HOME is not set.")?;
+    }
+
+    if on_omarchy {
+        write_omarchy_binding_tip(writer)?;
     }
 
     writeln!(writer, "\nSetup complete. Restart your shell, then run `huh`.")?;
@@ -758,7 +832,7 @@ mod tests {
             interactive: true,
         };
 
-        let mut input = Cursor::new(b"\n\n\n\n\nn\n".to_vec());
+        let mut input = Cursor::new(b"\n\n\n\n\n\nn\n".to_vec());
         let mut output = Vec::new();
         run_with_io(&cfg, &mut input, &mut output).unwrap();
         let text = String::from_utf8(output).unwrap();
@@ -775,6 +849,8 @@ mod tests {
         assert_eq!(prefs.pet_style.as_deref(), Some("auto"));
         assert_eq!(prefs.speed.as_deref(), Some("normal"));
         assert_eq!(prefs.tips, Some(true));
+        assert_eq!(prefs.noise.as_deref(), Some("all"));
+        assert_eq!(prefs.quiet, Some(false));
         assert_eq!(prefs.last_mode.as_deref(), Some("watch"));
 
         std::fs::remove_dir_all(&root).ok();
@@ -811,8 +887,8 @@ mod tests {
             interactive: true,
         };
 
-        // mode=2 (lab), theme=4 (nord), pet_style=2 (ascii), speed=2 (fast), tips=2 (off), hooks=y
-        let mut input = Cursor::new(b"2\n4\n2\n2\n2\ny\n".to_vec());
+        // mode=2 (lab), theme=4 (nord), pet_style=2 (ascii), speed=2 (fast), tips=2 (off), noise=2 (new), hooks=y
+        let mut input = Cursor::new(b"2\n4\n2\n2\n2\n2\ny\n".to_vec());
         let mut output = Vec::new();
         run_with_io(&cfg, &mut input, &mut output).unwrap();
         let text = String::from_utf8(output).unwrap();
@@ -829,6 +905,7 @@ mod tests {
         assert_eq!(prefs.pet_style.as_deref(), Some("ascii"));
         assert_eq!(prefs.speed.as_deref(), Some("fast"));
         assert_eq!(prefs.tips, Some(false));
+        assert_eq!(prefs.noise.as_deref(), Some("new"));
         assert_eq!(prefs.last_mode.as_deref(), Some("lab"));
         assert_eq!(prefs.safety.as_deref(), Some("expert"));
         assert_eq!(prefs.quiet, Some(true));
@@ -839,7 +916,7 @@ mod tests {
         assert!(rc_after_first.ends_with("# >>> huh shell-init (hooks) >>>\neval \"$(huh shell-init --shell zsh --hooks)\"\n# <<< huh shell-init (hooks) <<<\n"));
 
         // Re-running setup with hook approval is completely idempotent (zero duplicates).
-        let mut input2 = Cursor::new(b"2\n4\n2\n2\n2\ny\n".to_vec());
+        let mut input2 = Cursor::new(b"2\n4\n2\n2\n2\n2\ny\n".to_vec());
         let mut output2 = Vec::new();
         run_with_io(&cfg, &mut input2, &mut output2).unwrap();
         let rc_after_second = std::fs::read_to_string(&rc).unwrap();
@@ -869,7 +946,7 @@ mod tests {
         };
 
         // mode=2 (lab), rest defaults, hooks=y (creates config.fish too)
-        let mut input = Cursor::new(b"2\n\n\n\n\ny\n".to_vec());
+        let mut input = Cursor::new(b"2\n\n\n\n\n\ny\n".to_vec());
         let mut output = Vec::new();
         run_with_io(&cfg, &mut input, &mut output).unwrap();
 
@@ -959,7 +1036,7 @@ mod tests {
             interactive: true,
         };
 
-        let mut input = Cursor::new(b"\n\n\n\n\ny\n".to_vec());
+        let mut input = Cursor::new(b"\n\n\n\n\n\ny\n".to_vec());
         let mut output = Vec::new();
         run_with_io(&cfg, &mut input, &mut output).unwrap();
 
@@ -1012,8 +1089,8 @@ mod tests {
             interactive: true,
         };
 
-        // Invalid choice "99", then "last", "gruvbox", "off", "slow", "off", invalid "maybe", then "n"
-        let mut input = Cursor::new(b"99\nlast\ngruvbox\noff\nslow\noff\nmaybe\nn\n".to_vec());
+        // Invalid choice "99", then "last", "gruvbox", "off", "slow", "off", "errors", invalid "maybe", then "n"
+        let mut input = Cursor::new(b"99\nlast\ngruvbox\noff\nslow\noff\nerrors\nmaybe\nn\n".to_vec());
         let mut output = Vec::new();
         run_with_io(&cfg, &mut input, &mut output).unwrap();
         let text = String::from_utf8(output).unwrap();
@@ -1025,9 +1102,57 @@ mod tests {
         assert_eq!(prefs.pet_style.as_deref(), Some("off"));
         assert_eq!(prefs.speed.as_deref(), Some("slow"));
         assert_eq!(prefs.tips, Some(false));
+        assert_eq!(prefs.noise.as_deref(), Some("errors"));
+        assert_eq!(prefs.quiet, None);
         // Choosing `last` preserves existing last_mode.
         assert_eq!(prefs.last_mode.as_deref(), Some("lab"));
         assert!(xdg_cfg.join("huh/config.toml").exists());
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn omarchy_detection_prints_hyprland_o_bind_tip() {
+        let root = temp_dir("omarchy");
+        let home = root.join("home");
+        let xdg_cfg = root.join("cfg");
+        let xdg_state = root.join("state");
+        std::fs::create_dir_all(xdg_cfg.join("hypr")).unwrap();
+        std::fs::write(xdg_cfg.join("hypr/bindings.lua"), "-- bindings\n").unwrap();
+
+        let env_fn = |_: &str| None;
+        let cfg = SetupConfig {
+            home: Some(&home),
+            xdg_config: Some(&xdg_cfg),
+            xdg_state: Some(&xdg_state),
+            shell_env: Some("/bin/bash"),
+            env: &env_fn,
+            interactive: false,
+        };
+        assert!(has_omarchy_markers(&cfg));
+
+        let mut empty_reader = Cursor::new(Vec::<u8>::new());
+        let mut output = Vec::new();
+        run_with_io_mode_inner(&cfg, &mut empty_reader, &mut output, false, true).unwrap();
+        let text = String::from_utf8(output).unwrap();
+        assert!(text.contains("~/.config/hypr/bindings.lua"), "{text}");
+        assert!(text.contains("o.bind("), "{text}");
+        assert!(text.contains("huh --here"), "{text}");
+
+        // Non-Omarchy systems omit the Hyprland tip.
+        let plain_cfg = SetupConfig {
+            home: Some(&home),
+            xdg_config: Some(&root.join("plain-cfg")),
+            xdg_state: Some(&xdg_state),
+            shell_env: Some("/bin/bash"),
+            env: &env_fn,
+            interactive: false,
+        };
+        assert!(!has_omarchy_markers(&plain_cfg));
+        let mut output_plain = Vec::new();
+        run_with_io_mode_inner(&plain_cfg, &mut empty_reader, &mut output_plain, false, false).unwrap();
+        let plain_text = String::from_utf8(output_plain).unwrap();
+        assert!(!plain_text.contains("bindings.lua"), "{plain_text}");
 
         std::fs::remove_dir_all(&root).ok();
     }

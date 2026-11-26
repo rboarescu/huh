@@ -1,0 +1,12 @@
+name = "bluetoothctl pair"
+description = "Pair a new Bluetooth device by its MAC address (after scanning in bluetoothctl)"
+template = "bluetoothctl pair {device}"
+kind = "action"
+keywords = ["pair bluetooth device", "pair bluetooth", "pair new bluetooth device", "pair bluetooth headphones", "pair bluetooth speaker", "pair earbuds", "pair airpods", "bluetooth pairing"]
+opposites = ["disconnect", "unpair", "remove", "off"]
+
+[[slots]]
+id = "device"
+kind = "text"
+what = "the Bluetooth device's address (see bluetoothctl devices)"
+extract = "mac"

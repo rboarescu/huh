@@ -1,5 +1,20 @@
 # huh: roadmap and status
 
+## Completed: pebble gifting, watch noise levels, miss log, platform & promo (2026-11-26)
+
+1. **Pebble-gifting affection milestones. Done 2026-11-26.**
+   - Done (`src/pet.rs`, `src/pane.rs`, `src/slash.rs`, `src/main.rs`): added **14 curated shiny pebbles** (`PEBBLE_CATALOG`) unlocked across Watch milestones (clean commands fed, day streaks, unique programs, safety warnings heeded) and Lab milestones (`lab_milestones`, `sync_lab_milestones`) with `Mood::Celebrating` watch/lab toast banners, `huh pet --pebbles`, `/pet pebbles`, and `Pebbles: X/14` in status output.
+2. **Watch noise levels, Omarchy Hyprland keybinding & `--species` docs. Done 2026-11-26.**
+   - Done (`src/prefs.rs`, `src/slash.rs`, `src/pane.rs`, `src/setup.rs`, `src/launch.rs`, `src/main.rs`, `README.md`): added `NoiseLevel` (`all` default, `new` persisting seen program names atomically to `~/.local/state/huh/seen.txt` across restarts while keeping safety warnings visible, and `errors` staying quiet on clean `exit 0` commands without safety warnings while reporting failures and safety warnings), `--noise <all|new|errors>`, `/noise [all|new|errors]` with live dropdown/picker, and 100% backward-compatible `--quiet` / `/quiet [on|off]`. Updated `huh setup` step 6 to configure watch noise level, added an Omarchy `~/.config/hypr/bindings.lua` (`o.bind`) side-pane keybinding tip in `huh setup` and `README.md`, and updated `huh pet --species` help text to list all 9 species.
+3. **Opt-in local miss log (`huh misses`). Done 2026-11-26.**
+   - Done (`src/misses.rs`, `src/prefs.rs`, `src/pane.rs`, `src/main.rs`): added pure-std atomic JSONL miss logging (`~/.local/state/huh/misses.jsonl`, `0600` perms, capped at 1,000 entries, strictly opt-in via `huh misses --enable`, `miss_log = true` in config/prefs, or `HUH_MISS_LOG=1`), recording unmatched interactive `huh "..."` requests (excluding `eval` and `--first-line-only`) and Watch plain-language queries, plus `huh misses [--limit N|--raw|--clear|--enable|--disable]`.
+4. **Zelda-style 16-bit Pebble promo video. Done 2026-11-26.**
+   - Done (generated locally under `assets/promo/`, gitignored via `.gitignore`): generated a 12-second 1080p H.264+AAC pixel promo (`huh-zelda-promo.mp4`, `pebble-ref.png`, `prompt.txt`, `generate-promo.sh`, `README.md`) with `gemini-omni-1.2-flash` featuring Pebble and the `? -> !` cave-scroll story.
+5. **Tumbleweed `zypper dup`, root-without-sudo & catalog additions. Done 2026-11-26.**
+   - Done (`data/platforms.toml`, `src/platform.rs`, `src/assemble.rs`, `src/doctor.rs`, `catalog/*.toml`, `evals/*.toml`): split `[families.tumbleweed]` (`extends = "suse"`, `update = "sudo zypper dup"`) from Leap/SLES (and updated `doctor.rs` SUSE/Tumbleweed matching); added `strip_sudo_if_root_without_sudo` / `strip_sudo_runtime` for root containers without `sudo` (no-op during evals); and grew the embedded catalog from 310 to **316 valid entries** (`bluetoothctl-pair`, `omarchy-theme-current`, `hyprctl-monitors`, `screen-resolution`, `jq-pretty`, `jq-extract`).
+6. **Hidden lesson easter-egg cheat codes. Done 2026-11-26.**
+   - Done (`src/cheats.rs`, `src/pet.rs`, `src/pane.rs`, `src/main.rs`, `lessons/*.toml`): hid 12 discoverable easter-egg codes across Units 1–11 (lesson footnotes and practice sandbox files) to unlock pets, discover 4 secret pebbles, pamper companions, or top up streak freezes locally via `huh "<code...>"`, Watch prompts, or `/pet <code...>` without appearing in help/docs/completions or miss logs.
+
 ## Completed: open-source launch polish, Omarchy stock themes & live theme previews (2026-11-23)
 
 1. **Open-source landing page, animated SVGs & multi-channel packaging (`v0.1.0`). Done 2026-11-23.**
@@ -63,8 +78,8 @@
 
 ## Planned: next ideas
 
-1. **Pebble-gifting affection milestones:** Pebble gifts the user shiny pebbles as a sign of affection (like real Gentoo/Adélie penguins), tracked locally.
-2. **Zelda-style intro animation/promo:** *"It's dangerous to go alone. Here, take this."* handing over a funny old-wisdom/meme terminal relic → user says *"huh?"* → `?` flips to `!` and prints *"huh! installed, now you're ready."*
+1. ~~**Pebble-gifting affection milestones:**~~ **Done 2026-11-26** — 14 shiny pebbles tracked locally in `pet.toml` (`huh pet --pebbles` / `/pet pebbles`).
+2. ~~**Zelda-style intro animation/promo:**~~ **Done 2026-11-26** — generated 12s 1080p promo video via `gemini-omni-1.2-flash` (`assets/promo/`, gitignored locally).
 
 *(Completed in Phase 6 above: Bonus Chapter "Paint Your Own Pet" shipped as Unit 11 `lessons/11-paint-your-pet.toml`.)*
 
@@ -103,8 +118,8 @@ Conclusion: fresh-wording accuracy is flat. Each round fixes what it measured: t
 
 Safety:
 - Request-side safety held, apart from these new findings:
-  - Requests that only ask to look got a command that changes something: "show permissions of /etc/shadow" → `chmod 600 /etc/shadow`; "how big is / verify the archive …" → `tar -xzf`. "show", "verify" and "how big" count as instructions, so the question rule never applies.
-  - `huh why` suggests `sudo usermod -aG docker $USER` without saying that the docker group is root-equivalent.
+  - ~~Requests that only ask to look got a command that changes something: "show permissions of /etc/shadow" → `chmod 600 /etc/shadow`; "how big is / verify the archive …" → `tar -xzf`. "show", "verify" and "how big" count as instructions, so the question rule never applies.~~ *(Done: `LOOK_OPENERS` in `src/matcher.rs` ranks read-only look verbs without change verbs as `Mood::Question`.)*
+  - ~~`huh why` suggests `sudo usermod -aG docker $USER` without saying that the docker group is root-equivalent.~~ *(Done: `diagnose_docker` in `src/doctor.rs` and `src/risk_extra.rs` warn that the `docker` group is root-equivalent.)*
 - Typed values: 27 of 40 losses are now flagged with a "not included" note. Bare names (`sshd`, `bob`, `eth0`, `v1.4.2`, `/`) are still lost silently.
 
 Transcripts are in `~/.local/share/huh-dev/measure-2026-11-18-round5/`.
@@ -249,7 +264,7 @@ New personas wrote their own requests (they could not read the evals), against t
 
 Fixed right after the measurement: destructive lines on targets the user never named (`rm -r ~` for "delete user bob and home directory", `find . -type f -delete` for "clean up old packages"), and "explain X" / "what is X" now point to `huh explain`. npm global-install EACCES no longer leads to `sudo npm`.
 
-## Tutor mode (`huh tutor`): steps 1-3 done 2026-11-18, noise levels and the Omarchy keybinding next
+## Tutor mode (`huh tutor`): all done (steps 1-3 on 2026-11-18, step 4 on 2026-11-26)
 
 Keep it simple (Radu, 2026-11-18): the point is to explain output fields and flags to people who rarely use the terminal, rustlings-style hints, not a full tutorial system. huh's goal overall is to point the user the right way and let them decide and read the manual.
 
@@ -265,9 +280,9 @@ Keep it simple (Radu, 2026-11-18): the point is to explain output fields and fla
 1. ~~**MVP**~~ done 2026-11-18: `huh tutor` (`src/tutor.rs`) polls the newest recording (not its own pane's) or `--tty`, prints header, condensed explanation, diagnosis or output fields; `--quiet`; full-screen programs are named only; says how to enable recording when there is none.
 2. ~~**Explain before Enter**~~ done 2026-11-18: `Alt+e` in `shell-init --hooks` prints `huh explain` for the prompt line below it, without running it. (It prints in the terminal itself; sending it to the tutor pane is not done.)
 3. ~~**Output explanations**~~ done 2026-11-18: `src/outputs.txt` holds 28 commands (header or shape detection, one sentence per field, at most two notes); `cmd | huh` and `cmd | huh explain` use it before error detection, only when no line looks like an error. `evals/outputs.toml`: 29 outputs (one or more per command) and 20 that must not be recognised.
-4. **Noise levels** (everything / only new commands, with an opt-in local history / only failures and warnings), then an Omarchy keybinding that opens the tutor as a side window attached to the focused terminal. **Next.**
+4. ~~**Noise levels** (everything / only new commands, with an opt-in local history / only failures and warnings), then an Omarchy keybinding that opens the tutor as a side window attached to the focused terminal.~~ **Done 2026-11-26:** `--noise` / `/noise [all|new|errors]`, persistent `seen.txt`, backward-compatible `--quiet` / `/quiet`, plus Omarchy `~/.config/hypr/bindings.lua` (`o.bind`) side-pane shortcut in `huh setup` and `README.md`.
 
-Known limits: stdout and stderr arrive mixed in the terminal, so the tutor goes by exit code and error-looking lines; full-screen programs (vim, htop, less) are only named, not explained; when several commands finish within 300 ms only the last is shown; bash only until the zsh/fish hooks exist; ping and one `git status` sample in the evals are typed from the standard format, not captured.
+Known limits: stdout and stderr arrive mixed in the terminal, so the tutor goes by exit code and error-looking lines; full-screen programs (vim, htop, less) are only named, not explained; when several commands finish within 300 ms only the last is shown; ~~bash only until the zsh/fish hooks exist~~ (bash, zsh, and fish hooks done in `src/session.rs`); ping and one `git status` sample in the evals are typed from the standard format, not captured.
 
 ### Next (from that measurement): all done 2026-11-18
 
@@ -475,7 +490,7 @@ Fixes "Next" item 4 (other distros) and the install/not-found parts of item 3.
 - **Portability**: `cargo build --release --target x86_64-unknown-linux-musl` gives a static binary that runs on Debian 11, Ubuntu 20.04 and Alpine (documented in README).
 - Verified in Docker (debian 11/12, ubuntu 20.04/24.04, fedora, arch, opensuse tumbleweed, alpine, void, gentoo, nixos/nix with no os-release).
 
-Not done: `huh` panics on a closed pipe (`huh ... | head`); NixOS has no "which package owns this file" command; Tumbleweed uses `zypper update` rather than `dup`; `sudo` is suggested even in containers where the user is root and sudo is absent.
+Remaining limits: NixOS has no "which package owns this file" command. *(Fixed: closed-pipe SIGPIPE handling via `exit_quietly_on_closed_pipe` in `src/main.rs`; `[families.tumbleweed]` `sudo zypper dup` in `data/platforms.toml`; and runtime `strip_sudo_if_root_without_sudo` in `src/platform.rs`/`src/assemble.rs` when root without `sudo`.)*
 
 ## Next: findings from real-world simulation (2026-11-17)
 
@@ -516,8 +531,8 @@ The evals score 100%, but four simulated users (beginner on Omarchy, sysadmin, f
 
 ## Future ideas (lower priority)
 
-- **zsh and fish hooks**: native ZLE / fish keybindings and preexec/postexec recording hooks alongside bash.
-- **Local miss log (`huh misses`)**: optional local JSONL log when no catalog entry fits, to guide future catalog additions.
+- ~~**zsh and fish hooks**~~ *(Done in `src/session.rs` & `huh setup`)*: native ZLE / fish keybindings and preexec/postexec recording hooks alongside bash.
+- ~~**Local miss log (`huh misses`)**~~ *(Done in `src/misses.rs`, `src/main.rs`, `src/pane.rs`, `src/prefs.rs`)*: opt-in local JSONL log when no catalog entry fits, to guide future catalog additions.
 - **Personal cheat sheet (`huh recent`)**: optional local history of accepted prompt completions for instant repeat recall.
 - **Optional `tldr` reference fallback**: show `tldr` examples when an installed command has no catalog entry.
-- **Additional catalog entries**: `sed` / `awk` / `jq` recipes and user-requested tools.
+- **Additional catalog entries**: `sed` / `awk` / `jq` recipes *(added `sed-replace`, `awk-column`, `jq-pretty`, `jq-extract`)* and additional user-requested tools.

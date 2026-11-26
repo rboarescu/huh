@@ -141,6 +141,16 @@ request = "turn bluetooth on"
 command = "omarchy bluetooth power"
 expect = "omarchy bluetooth power on"
 
+[[case]]
+request = "pair bluetooth device"
+command = "bluetoothctl pair"
+expect = "bluetoothctl pair <device>"
+
+[[case]]
+request = "pair bluetooth headphones AA:BB:CC:DD:EE:FF"
+command = "bluetoothctl pair"
+expect = "bluetoothctl pair AA:BB:CC:DD:EE:FF"
+
 # ---- state questions answered by queries ----
 [[case]]
 request = "what folder am i in"
@@ -489,6 +499,61 @@ expect = "omarchy brightness display 70%"
 request = "make the screen brighter"
 command = "omarchy brightness display"
 expect = "omarchy brightness display +10%"
+
+[[case]]
+request = "what is my current theme"
+command = "omarchy theme current"
+expect = "omarchy theme current"
+
+[[case]]
+request = "which theme am i using"
+command = "omarchy theme current"
+expect = "omarchy theme current"
+
+[[case]]
+request = "what is my screen resolution"
+command = "hyprctl monitors"
+expect = "hyprctl monitors"
+
+[[case]]
+request = "show connected monitors"
+command = "hyprctl monitors"
+expect = "hyprctl monitors"
+
+[[case]]
+request = "pretty print json"
+command = "jq pretty"
+expect = "jq . <file>"
+
+[[case]]
+request = "pretty print data.json"
+command = "jq pretty"
+expect = "jq . data.json"
+
+[[case]]
+request = "extract field from json"
+command = "jq extract"
+expect = "jq <filter> <file>"
+
+[[case]]
+request = "extract .name from data.json"
+command = "jq extract"
+expect = "jq .name data.json"
+
+[[case]]
+request = "extract raw string .token from auth.json"
+command = "jq extract"
+expect = "jq -r .token auth.json"
+
+[[case]]
+request = "show usb drives"
+command = "lsblk"
+expect = "lsblk"
+
+[[case]]
+request = "list usb drives"
+command = "lsblk"
+expect = "lsblk"
 
 # ---- nothing fits ----
 [[case]]

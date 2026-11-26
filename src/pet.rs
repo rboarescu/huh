@@ -1,7 +1,7 @@
 //! The `#!` terminal pet: pure ASCII mascot, local-only state machine, lazy time decay (never
 //! dies), atomic TOML persistence under `~/.local/state/huh/pet.toml`, and status rendering.
 
-use crate::date;
+use crate::date::{self, Date};
 use crate::style::{Role, paint};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -630,6 +630,197 @@ pub fn art(species: Species, mood: Mood) -> [&'static str; ART_HEIGHT] {
     art_frame(species, mood, 0)
 }
 
+/// Static metadata describing a collectible shiny pebble gifted by the `#!` companion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PebbleDef {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub flavor: &'static str,
+    pub milestone_hint: &'static str,
+}
+
+/// A shiny pebble gifted by the companion, stored in `~/.local/state/huh/pet.toml`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GiftedPebble {
+    pub id: String,
+    #[serde(default)]
+    pub gifted_day: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PebbleTrigger {
+    CommandsFed(u64),
+    DayStreak(u32),
+    UniquePrograms(usize),
+    WarningsHeeded(u32),
+    LabMilestones(u32),
+}
+
+impl PebbleTrigger {
+    fn progress(self, pet: &Pet) -> (u64, u64) {
+        match self {
+            PebbleTrigger::CommandsFed(target) => (pet.commands_fed.min(target), target),
+            PebbleTrigger::DayStreak(target) => {
+                (u64::from(pet.day_streak.max(pet.best_day_streak).min(target)), u64::from(target))
+            }
+            PebbleTrigger::UniquePrograms(target) => (pet.unique_programs.len().min(target) as u64, target as u64),
+            PebbleTrigger::WarningsHeeded(target) => (u64::from(pet.warnings_heeded.min(target)), u64::from(target)),
+            PebbleTrigger::LabMilestones(target) => (u64::from(pet.lab_milestones.min(target)), u64::from(target)),
+        }
+    }
+
+    fn is_met(self, pet: &Pet) -> bool {
+        let (cur, target) = self.progress(pet);
+        cur >= target
+    }
+}
+
+macro_rules! define_pebbles {
+    ($(($id:expr, $name:expr, $flavor:expr, $hint:expr, $trigger:expr)),* $(,)?) => {
+        /// Curated catalog of shiny pebbles gifted as affection milestones are reached.
+        pub const PEBBLE_CATALOG: &[PebbleDef] = &[
+            $(PebbleDef { id: $id, name: $name, flavor: $flavor, milestone_hint: $hint }),*
+        ];
+        const PEBBLE_TRIGGERS: &[(&str, PebbleTrigger)] = &[
+            $(($id, $trigger)),*
+        ];
+    };
+}
+
+define_pebbles!(
+    (
+        "beach_quartz",
+        "Smooth Beach Quartz",
+        "A milky quartz pebble nudged to your feet, the classic penguin hello.",
+        "run 5 clean commands",
+        PebbleTrigger::CommandsFed(5)
+    ),
+    (
+        "river_agate",
+        "Banded River Agate",
+        "Warm striped stone polished by steady command streams.",
+        "run 25 clean commands",
+        PebbleTrigger::CommandsFed(25)
+    ),
+    (
+        "tidal_basalt",
+        "Tidal Basalt",
+        "Smooth dark shore stone, heavy with growing muscle memory.",
+        "run 75 clean commands",
+        PebbleTrigger::CommandsFed(75)
+    ),
+    (
+        "sunlit_amber",
+        "Sunlit Amber",
+        "Glowing golden resin saved for a trusted shell companion.",
+        "run 150 clean commands",
+        PebbleTrigger::CommandsFed(150)
+    ),
+    (
+        "starlight_obsidian",
+        "Starlight Obsidian",
+        "Volcanic mirror stone gleaming after three hundred clean exits.",
+        "run 300 clean commands",
+        PebbleTrigger::CommandsFed(300)
+    ),
+    (
+        "three_tide_jasper",
+        "Three-Tide Jasper",
+        "Brick-red pebble gathered across three consecutive mornings.",
+        "reach a 3-day streak",
+        PebbleTrigger::DayStreak(3)
+    ),
+    (
+        "frost_moonstone",
+        "Frost Moonstone",
+        "Cool blue-sheen stone from a full week side by side.",
+        "reach a 7-day streak",
+        PebbleTrigger::DayStreak(7)
+    ),
+    (
+        "aurora_opal",
+        "Aurora Opal",
+        "Iridescent opal catching every colour of a two-week streak.",
+        "reach a 14-day streak",
+        PebbleTrigger::DayStreak(14)
+    ),
+    (
+        "glacier_diamond",
+        "Glacier Diamond",
+        "A rare, clear ice-prism pebble for thirty days of shared craft.",
+        "reach a 30-day streak",
+        PebbleTrigger::DayStreak(30)
+    ),
+    (
+        "curious_seaglass",
+        "Curious Sea-Glass",
+        "Frosted sea-green glass from exploring fifteen distinct tools.",
+        "try 15 unique programs",
+        PebbleTrigger::UniquePrograms(15)
+    ),
+    (
+        "explorer_jade",
+        "Explorer Jade",
+        "Deep-green jade kept by seasoned Gentoo explorers.",
+        "try 40 unique programs",
+        PebbleTrigger::UniquePrograms(40)
+    ),
+    (
+        "guardian_slate",
+        "Guardian Slate",
+        "Crisp etched slate, a nod for heeding three safety warnings.",
+        "heed 3 safety warnings",
+        PebbleTrigger::WarningsHeeded(3)
+    ),
+    (
+        "scholars_pearl",
+        "Scholar's Pearl",
+        "A bright tidepool pearl brought back from your first Lab milestone.",
+        "reach 1 Lab milestone",
+        PebbleTrigger::LabMilestones(1)
+    ),
+    (
+        "crystal_geode",
+        "Crystal Geode",
+        "Split-open violet quartz sparkling after five Lab milestones.",
+        "reach 5 Lab milestones",
+        PebbleTrigger::LabMilestones(5)
+    ),
+);
+
+/// Hidden easter-egg pebbles granted only by discovering secret lesson codes.
+pub const SECRET_PEBBLES: &[PebbleDef] = &[
+    PebbleDef {
+        id: "secret_vault",
+        name: "Vault Moonstone",
+        flavor: "Unlocked by explorers who read the fine print inside secret.key.",
+        milestone_hint: "Hidden in Unit 4",
+    },
+    PebbleDef {
+        id: "secret_manual",
+        name: "Manual Bookmark",
+        flavor: "Real wizards always read to the bottom of the manual.",
+        milestone_hint: "Hidden in Unit 6",
+    },
+    PebbleDef {
+        id: "secret_konami",
+        name: "8-Bit Star",
+        flavor: "30 lives, 9 companions, 0 bugs.",
+        milestone_hint: "Hidden in Unit 9",
+    },
+    PebbleDef {
+        id: "secret_relic",
+        name: "Ancient Cave Pebble",
+        flavor: "Handed over by a bearded terminal hermit beside green phosphor embers.",
+        milestone_hint: "Hidden in Unit 9",
+    },
+];
+
+/// Looks up a pebble definition by its stable ID (including hidden easter-egg pebbles).
+pub fn pebble_def(id: &str) -> Option<&'static PebbleDef> {
+    PEBBLE_CATALOG.iter().chain(SECRET_PEBBLES.iter()).find(|p| p.id == id)
+}
+
 fn default_name() -> String {
     DEFAULT_NAME.to_string()
 }
@@ -666,6 +857,10 @@ pub struct Pet {
     pub unique_programs: Vec<String>,
     #[serde(default)]
     pub warnings_heeded: u32,
+    #[serde(default)]
+    pub lab_milestones: u32,
+    #[serde(default)]
+    pub pebbles: Vec<GiftedPebble>,
 }
 
 impl Default for Pet {
@@ -686,6 +881,8 @@ impl Default for Pet {
             last_program: None,
             unique_programs: Vec::new(),
             warnings_heeded: 0,
+            lab_milestones: 0,
+            pebbles: Vec::new(),
         }
     }
 }
@@ -761,6 +958,17 @@ impl Pet {
             }
         }
         self.unique_programs = seen_progs;
+        let mut seen_pebbles = Vec::with_capacity(self.pebbles.len());
+        let mut clean_pebbles = Vec::with_capacity(self.pebbles.len());
+        for pebble in &self.pebbles {
+            let id = pebble.id.trim();
+            if !id.is_empty() && !seen_pebbles.iter().any(|s: &String| s == id) {
+                seen_pebbles.push(id.to_string());
+                clean_pebbles
+                    .push(GiftedPebble { id: id.to_string(), gifted_day: pebble.gifted_day.trim().to_string() });
+            }
+        }
+        self.pebbles = clean_pebbles;
     }
 
     /// Fullness and happiness after lazy idle decay at `now_epoch`. Floors ensure the pet never dies.
@@ -794,8 +1002,50 @@ impl Pet {
         }
     }
 
-    /// Feeds the pet after a clean `exit 0` command and returns its resulting mood.
-    pub fn feed(&mut self, program: Option<&str>, now_epoch: u64) -> Mood {
+    /// Returns `true` if the pebble with `id` has already been gifted.
+    pub fn has_pebble(&self, id: &str) -> bool {
+        self.pebbles.iter().any(|p| p.id == id)
+    }
+
+    /// Number of catalog pebbles collected so far.
+    pub fn pebbles_collected(&self) -> usize {
+        PEBBLE_CATALOG.iter().filter(|def| self.has_pebble(def.id)).count()
+    }
+
+    /// Number of hidden easter-egg pebbles discovered so far.
+    pub fn secret_pebbles_collected(&self) -> usize {
+        SECRET_PEBBLES.iter().filter(|def| self.has_pebble(def.id)).count()
+    }
+
+    /// Grants a hidden easter-egg pebble by ID once, returning its definition if newly added.
+    pub fn grant_secret_pebble(&mut self, id: &str, today: Date) -> Option<&'static PebbleDef> {
+        let def = SECRET_PEBBLES.iter().find(|p| p.id == id)?;
+        if self.has_pebble(def.id) {
+            return None;
+        }
+        self.pebbles.push(GiftedPebble { id: def.id.to_string(), gifted_day: date::format(today) });
+        Some(def)
+    }
+
+    /// Evaluates all pebble milestone conditions on `today`, appending any newly earned pebbles
+    /// (idempotently — no duplicates) and returning their definitions in catalog order.
+    pub fn check_pebble_gifts(&mut self, today: Date) -> Vec<&'static PebbleDef> {
+        let day_str = date::format(today);
+        let mut gifted = Vec::new();
+        for (def, (trigger_id, trigger)) in PEBBLE_CATALOG.iter().zip(PEBBLE_TRIGGERS.iter()) {
+            debug_assert_eq!(def.id, *trigger_id);
+            if !self.has_pebble(def.id) && trigger.is_met(self) {
+                self.pebbles.push(GiftedPebble { id: def.id.to_string(), gifted_day: day_str.clone() });
+                gifted.push(def);
+            }
+        }
+        gifted
+    }
+
+    /// Feeds the pet after a clean `exit 0` command, evaluates pebble milestones, and returns
+    /// `(resulting_mood, newly_gifted_pebbles)`. Sets `Mood::Celebrating` when a pebble is gifted.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn feed_clean(&mut self, program: Option<&str>, now_epoch: u64) -> (Mood, Vec<&'static PebbleDef>) {
         let (fullness, happiness) = self.effective_stats(now_epoch);
         let clean_prog = program.map(str::trim).filter(|p| !p.is_empty());
         let repeated = clean_prog.is_some() && self.last_program.as_deref() == clean_prog;
@@ -841,11 +1091,21 @@ impl Pet {
         };
         self.best_day_streak = self.best_day_streak.max(self.day_streak);
 
-        if (self.cmd_streak > 0 && self.cmd_streak.is_multiple_of(10)) || (day_advanced && self.day_streak >= 3) {
+        let gifted = self.check_pebble_gifts(today);
+        let mood = if !gifted.is_empty()
+            || (self.cmd_streak > 0 && self.cmd_streak.is_multiple_of(10))
+            || (day_advanced && self.day_streak >= 3)
+        {
             Mood::Celebrating
         } else {
             self.mood_at(now_epoch, None)
-        }
+        };
+        (mood, gifted)
+    }
+
+    /// Feeds the pet after a clean `exit 0` command and returns its resulting mood.
+    pub fn feed(&mut self, program: Option<&str>, now_epoch: u64) -> Mood {
+        self.feed_clean(program, now_epoch).0
     }
 
     /// Reacts to a failed or warned command: resets the command streak without lowering stats.
@@ -905,6 +1165,47 @@ impl Pet {
         self.check_watch_unlocks()
     }
 
+    /// Records a heeded safety warning on `today`, resets the command streak, and evaluates both
+    /// watch species unlocks and pebble milestones. Sets `Mood::Celebrating` on unlocks or gifts.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn note_warning(&mut self, today: Date) -> (Mood, Vec<Species>, Vec<&'static PebbleDef>) {
+        let mood = self.react_alert();
+        let unlocked = self.record_warning();
+        let gifted = self.check_pebble_gifts(today);
+        let resulting_mood = if !unlocked.is_empty() || !gifted.is_empty() { Mood::Celebrating } else { mood };
+        (resulting_mood, unlocked, gifted)
+    }
+
+    /// Increments `lab_milestones` and checks for newly unlocked pebbles on `today`.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn record_lab_milestone(&mut self, today: Date) -> Vec<&'static PebbleDef> {
+        self.lab_milestones = self.lab_milestones.saturating_add(1);
+        self.check_pebble_gifts(today)
+    }
+
+    /// Monotonically updates `lab_milestones` to at least `count` and checks for newly unlocked pebbles.
+    /// Useful when syncing from `Progress` counts in Pane/Lab hooks without double-counting.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn sync_lab_milestones(&mut self, count: u32, today: Date) -> Vec<&'static PebbleDef> {
+        if count > self.lab_milestones {
+            self.lab_milestones = count;
+        }
+        self.check_pebble_gifts(today)
+    }
+
+    /// Merges `lab_milestones` and any missing `pebbles` from another `Pet` snapshot (e.g. disk).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn merge_pebbles_from(&mut self, other: &Pet) {
+        self.lab_milestones = self.lab_milestones.max(other.lab_milestones);
+        for pebble in &other.pebbles {
+            let id = pebble.id.trim();
+            if !id.is_empty() && !self.has_pebble(id) {
+                self.pebbles
+                    .push(GiftedPebble { id: id.to_string(), gifted_day: pebble.gifted_day.trim().to_string() });
+            }
+        }
+    }
+
     pub fn is_unlocked(&self, species: Species) -> bool {
         species == Species::Penguin || self.unlocked_species.contains(&species)
     }
@@ -919,6 +1220,18 @@ impl Pet {
             self.unlocked_species.push(species);
             true
         }
+    }
+
+    /// Unlocks all companion species, returning only the ones newly unlocked.
+    pub fn unlock_all_species(&mut self) -> Vec<Species> {
+        Species::ALL.into_iter().filter(|&sp| self.unlock_species(sp)).collect()
+    }
+
+    /// Tops up fullness and happiness to 100% and refreshes the fed timestamp.
+    pub fn pamper(&mut self, now_epoch: u64) {
+        self.fullness = 100;
+        self.happiness = 100;
+        self.last_fed_epoch = now_epoch;
     }
 
     pub fn set_species(&mut self, species: Species) -> Result<()> {
@@ -1074,41 +1387,161 @@ fn card_lines(pet: &Pet, now_epoch: u64, transient: Option<Mood>) -> Vec<String>
     lines
 }
 
+impl Pet {
+    /// Returns the next un-gifted pebble closest to completion `(def, current, target)`.
+    pub fn next_pebble(&self) -> Option<(&'static PebbleDef, u64, u64)> {
+        PEBBLE_CATALOG
+            .iter()
+            .zip(PEBBLE_TRIGGERS.iter())
+            .enumerate()
+            .filter(|(_, (def, _))| !self.has_pebble(def.id))
+            .map(|(idx, (def, (_, trigger)))| {
+                let (cur, target) = trigger.progress(self);
+                let ratio =
+                    if target == 0 { 0 } else { (u128::from(cur.min(target)) * 1_000_000) / u128::from(target) };
+                ((ratio, std::cmp::Reverse(idx)), (def, cur, target))
+            })
+            .max_by_key(|(key, _)| *key)
+            .map(|(_, info)| info)
+    }
+
+    /// Renders the companion's pebble collection card (gifted pebbles with dates + next milestone hint).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn render_pebbles(&self) -> String {
+        let mut out = String::new();
+        let collected = self.pebbles_collected();
+        let total = PEBBLE_CATALOG.len();
+        let secret_collected = self.secret_pebbles_collected();
+        let is_secret = |id: &str| SECRET_PEBBLES.iter().any(|p| p.id == id);
+        let normal_pebbles: Vec<&GiftedPebble> = self.pebbles.iter().filter(|g| !is_secret(&g.id)).collect();
+        let _ = writeln!(
+            out,
+            "{} {}/{} collected",
+            paint(Role::Header, &format!("Pebble Collection — {}:", self.name)),
+            paint(Role::Value, &collected.to_string()),
+            total
+        );
+        if normal_pebbles.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {}",
+                paint(Role::Dim, "No shiny pebbles gifted yet — keep running clean commands or /mode lab lessons.")
+            );
+        } else {
+            for gifted in normal_pebbles {
+                let date_badge = if gifted.gifted_day.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", paint(Role::Dim, &format!("[{}]", gifted.gifted_day)))
+                };
+                if let Some(def) = pebble_def(&gifted.id) {
+                    let _ = writeln!(out, "  * {}{date_badge}", paint(Role::Success, def.name));
+                    let _ = writeln!(out, "    {}", paint(Role::Description, def.flavor));
+                } else {
+                    let _ = writeln!(out, "  * {}{date_badge}", gifted.id);
+                }
+            }
+        }
+        if secret_collected > 0 {
+            let _ = writeln!(out);
+            let _ = writeln!(out, "{}", paint(Role::Header, "Secret pebbles discovered:"));
+            for gifted in self.pebbles.iter().filter(|g| is_secret(&g.id)) {
+                let date_badge = if gifted.gifted_day.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", paint(Role::Dim, &format!("[{}]", gifted.gifted_day)))
+                };
+                if let Some(def) = pebble_def(&gifted.id) {
+                    let _ = writeln!(out, "  * {}{date_badge}", paint(Role::Accent, def.name));
+                    let _ = writeln!(out, "    {}", paint(Role::Description, def.flavor));
+                }
+            }
+        }
+        let _ = writeln!(out);
+        if let Some((next_def, cur, target)) = self.next_pebble() {
+            let _ = writeln!(
+                out,
+                "{} {} — {} ({}/{})",
+                paint(Role::Header, "Next pebble:"),
+                paint(Role::Accent, next_def.name),
+                next_def.milestone_hint,
+                paint(Role::Value, &cur.to_string()),
+                target
+            );
+        } else {
+            let _ = writeln!(out, "{}", paint(Role::Success, "All shiny pebbles in the collection have been gifted!"));
+        }
+        out
+    }
+
+    /// Full status card printed by `huh pet`.
+    pub fn render_status(&self, now_epoch: u64, transient: Option<Mood>, hidden_in_tutor: bool) -> String {
+        let mut out = String::new();
+        for line in card_lines(self, now_epoch, transient) {
+            let _ = writeln!(out, "{line}");
+        }
+        let _ = writeln!(out);
+        let _ = writeln!(out, "{}", paint(Role::Header, "Species:"));
+        for species in Species::ALL {
+            let marker = if species == self.species { "*" } else { " " };
+            let status = if species == self.species {
+                paint(Role::Success, "active")
+            } else if self.is_unlocked(species) {
+                paint(Role::Description, "unlocked")
+            } else if let Some(summary) = species.unlock_summary(self) {
+                paint(Role::Dim, &format!("locked — {summary}"))
+            } else {
+                paint(Role::Description, "unlocked")
+            };
+            let _ = writeln!(out, "  {marker} {:<8} {:<14} {status}", species.name(), species.label());
+        }
+        let collected = self.pebbles_collected();
+        let total = PEBBLE_CATALOG.len();
+        let secret = self.secret_pebbles_collected();
+        let secret_note = if secret > 0 { format!(" (+{secret} secret)") } else { String::new() };
+        let pebble_tail = if let Some((next_def, cur, target)) = self.next_pebble() {
+            paint(Role::Dim, &format!(" · next: {} ({cur}/{target}) · huh pet --pebbles", next_def.name))
+        } else {
+            paint(Role::Success, " · collection complete! (huh pet --pebbles)")
+        };
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "{} {}/{total} collected{secret_note}{pebble_tail}",
+            paint(Role::Header, "Pebbles:"),
+            paint(Role::Value, &collected.to_string())
+        );
+        if hidden_in_tutor {
+            let _ = writeln!(out);
+            let _ = writeln!(out, "{}", paint(Role::Note, "(hidden in the pane via HUH_NO_PET or config.toml)"));
+        }
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "{}",
+            paint(
+                Role::Dim,
+                "Rename: huh pet --name <name> · Switch: huh pet --species <species> · Hide: HUH_NO_PET=1 or pet = false"
+            )
+        );
+        out
+    }
+}
+
 /// Full status card printed by `huh pet`.
 pub fn render_status(pet: &Pet, now_epoch: u64, transient: Option<Mood>, hidden_in_tutor: bool) -> String {
-    let mut out = String::new();
-    for line in card_lines(pet, now_epoch, transient) {
-        let _ = writeln!(out, "{line}");
-    }
-    let _ = writeln!(out);
-    let _ = writeln!(out, "{}", paint(Role::Header, "Species:"));
-    for species in Species::ALL {
-        let marker = if species == pet.species { "*" } else { " " };
-        let status = if species == pet.species {
-            paint(Role::Success, "active")
-        } else if pet.is_unlocked(species) {
-            paint(Role::Description, "unlocked")
-        } else if let Some(summary) = species.unlock_summary(pet) {
-            paint(Role::Dim, &format!("locked — {summary}"))
-        } else {
-            paint(Role::Description, "unlocked")
-        };
-        let _ = writeln!(out, "  {marker} {:<8} {:<14} {status}", species.name(), species.label());
-    }
-    if hidden_in_tutor {
-        let _ = writeln!(out);
-        let _ = writeln!(out, "{}", paint(Role::Note, "(hidden in the pane via HUH_NO_PET or config.toml)"));
-    }
-    let _ = writeln!(out);
-    let _ = writeln!(
-        out,
-        "{}",
-        paint(
-            Role::Dim,
-            "Rename: huh pet --name <name> · Switch: huh pet --species <species> · Hide: HUH_NO_PET=1 or pet = false"
-        )
-    );
-    out
+    pet.render_status(now_epoch, transient, hidden_in_tutor)
+}
+
+/// Warm one-line Watch/Lab toast when the companion gifts a newly unlocked shiny pebble.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn format_pebble_gift(pet_name: &str, def: &PebbleDef) -> String {
+    format!(
+        "{} {} — {}",
+        paint(Role::Success, &format!("{pet_name} gifted a shiny pebble:")),
+        paint(Role::Header, def.name),
+        def.flavor
+    )
 }
 
 /// Compact card printed when typing `pet` inside the unified `huh` pane.
@@ -1407,6 +1840,8 @@ mod tests {
         assert!(status.contains("pathfinder"), "{status}");
         assert!(status.contains("/mode lab"), "{status}");
         assert!(status.contains("HUH_NO_PET"), "{status}");
+        assert!(status.contains("Pebbles: 0/"), "{status}");
+        assert_eq!(status, pet.render_status(BASE_EPOCH, None, true));
 
         let card = render_tutor_card(&pet, BASE_EPOCH, Some(Mood::Celebrating));
         assert_eq!(card, render_pane_card(&pet, BASE_EPOCH, Some(Mood::Celebrating)));
@@ -1536,5 +1971,244 @@ mod tests {
             pet.set_species(sp).unwrap();
             assert_eq!(pet.name, "Whiskers");
         }
+    }
+
+    #[test]
+    fn pebble_catalog_and_serde_backward_compatibility() {
+        assert!(PEBBLE_CATALOG.len() >= 10);
+        assert_eq!(PEBBLE_CATALOG.len(), PEBBLE_TRIGGERS.len());
+        let mut ids = std::collections::HashSet::new();
+        for (def, (tid, _)) in PEBBLE_CATALOG.iter().zip(PEBBLE_TRIGGERS.iter()) {
+            assert_eq!(def.id, *tid);
+            assert!(!def.id.is_empty() && !def.name.is_empty() && !def.flavor.is_empty());
+            assert!(!def.milestone_hint.is_empty());
+            assert!(ids.insert(def.id), "duplicate catalog id {}", def.id);
+            assert_eq!(pebble_def(def.id), Some(def));
+        }
+        assert_eq!(pebble_def("missing"), None);
+
+        // Legacy pet.toml without pebbles or lab_milestones loads cleanly.
+        let legacy_toml = r#"
+name = "Tuxi"
+species = "penguin"
+unlocked_species = ["penguin", "cat"]
+fullness = 85
+happiness = 90
+commands_fed = 12
+cmd_streak = 2
+best_cmd_streak = 6
+day_streak = 2
+best_day_streak = 4
+last_active_day = "2026-11-18"
+last_fed_epoch = 1795046400
+last_program = "ls"
+unique_programs = ["ls", "git"]
+warnings_heeded = 1
+"#;
+        let mut legacy: Pet = toml::from_str(legacy_toml).unwrap();
+        legacy.normalize();
+        assert_eq!(legacy.name, "Tuxi");
+        assert_eq!(legacy.commands_fed, 12);
+        assert_eq!(legacy.lab_milestones, 0);
+        assert!(legacy.pebbles.is_empty());
+
+        // Partial [[pebbles]] without gifted_day + duplicates normalize cleanly.
+        let dup_toml = r#"
+name = "Pebble"
+[[pebbles]]
+id = "beach_quartz"
+[[pebbles]]
+id = "  beach_quartz  "
+gifted_day = "2026-11-19"
+[[pebbles]]
+id = "   "
+"#;
+        let mut duped: Pet = toml::from_str(dup_toml).unwrap();
+        duped.normalize();
+        assert_eq!(duped.pebbles, vec![GiftedPebble { id: "beach_quartz".into(), gifted_day: String::new() }]);
+
+        // Round-trip save_to / load_from with pebbles and lab_milestones.
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target/pet-tests")
+            .join(format!("pebble-rt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("pet.toml");
+        let mut pet = Pet::default();
+        let today = date::from_epoch(BASE_EPOCH);
+        assert_eq!(pet.record_lab_milestone(today).len(), 1);
+        save_to(&path, &pet).unwrap();
+        assert_eq!(load_from(&path), pet);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pebble_milestones_trigger_idempotently_and_celebrate() {
+        let mut pet = Pet::default();
+        let today = date::from_epoch(BASE_EPOCH);
+
+        // Clean commands 1..4 do not trigger pebbles; command 5 gifts Smooth Beach Quartz and celebrates.
+        for i in 1..5 {
+            let (mood, gifted) = pet.feed_clean(Some("ls"), BASE_EPOCH + i * 10);
+            assert!(gifted.is_empty(), "unexpected gift at cmd {i}");
+            assert_ne!(mood, Mood::Celebrating);
+        }
+        let (mood5, gifted5) = pet.feed_clean(Some("ls"), BASE_EPOCH + 50);
+        assert_eq!(mood5, Mood::Celebrating);
+        assert_eq!(gifted5.iter().map(|p| p.id).collect::<Vec<_>>(), vec!["beach_quartz"]);
+        assert_eq!(pet.pebbles[0].gifted_day, "2026-11-19");
+
+        // Re-running check_pebble_gifts is strictly idempotent.
+        assert!(pet.check_pebble_gifts(today).is_empty());
+        assert_eq!(pet.pebbles.len(), 1);
+
+        // Consecutive days trigger 3-day streak pebble.
+        pet.feed_clean(Some("pwd"), BASE_EPOCH + 86_400);
+        assert_eq!(pet.day_streak, 2);
+        let (mood_d3, gifted_d3) = pet.feed_clean(Some("id"), BASE_EPOCH + 2 * 86_400);
+        assert_eq!(mood_d3, Mood::Celebrating);
+        assert!(gifted_d3.iter().any(|p| p.id == "three_tide_jasper"));
+
+        // Unique programs trigger Curious Sea-Glass at 15 unique programs.
+        for i in 0..12 {
+            let _ = pet.feed_clean(Some(&format!("tool{i}")), BASE_EPOCH + 2 * 86_400 + (i + 1) * 10);
+        }
+        assert!(pet.has_pebble("curious_seaglass"));
+
+        // Warnings heeded trigger Guardian Slate at 3 with Mood::Celebrating, then Alert on 4th.
+        let mut warner = Pet::default();
+        let (m1, u1, g1) = warner.note_warning(today);
+        assert_eq!((m1, u1.is_empty(), g1.is_empty()), (Mood::Alert, true, true));
+        let (m2, _, g2) = warner.note_warning(today);
+        assert_eq!((m2, g2.is_empty()), (Mood::Alert, true));
+        let (m3, u3, g3) = warner.note_warning(today);
+        assert_eq!(m3, Mood::Celebrating);
+        assert!(u3.is_empty());
+        assert_eq!(g3.iter().map(|p| p.id).collect::<Vec<_>>(), vec!["guardian_slate"]);
+        let (m4, u4, g4) = warner.note_warning(today);
+        assert_eq!((m4, u4.is_empty(), g4.is_empty()), (Mood::Alert, true, true));
+        let (m5, u5, g5) = warner.note_warning(today);
+        assert_eq!(m5, Mood::Celebrating);
+        assert_eq!(u5, vec![Species::Owl]);
+        assert!(g5.is_empty());
+
+        // Lab milestones: 1 -> scholars_pearl, 5 -> crystal_geode; sync_lab_milestones is monotonic.
+        let mut learner = Pet::default();
+        assert_eq!(
+            learner.record_lab_milestone(today).iter().map(|p| p.id).collect::<Vec<_>>(),
+            vec!["scholars_pearl"]
+        );
+        assert!(learner.sync_lab_milestones(1, today).is_empty());
+        assert!(learner.sync_lab_milestones(0, today).is_empty());
+        assert_eq!(learner.lab_milestones, 1);
+        for _ in 0..3 {
+            assert!(learner.record_lab_milestone(today).is_empty());
+        }
+        assert_eq!(learner.record_lab_milestone(today).iter().map(|p| p.id).collect::<Vec<_>>(), vec!["crystal_geode"]);
+
+        // Merging pebbles from another snapshot preserves existing and adds missing without duplicates.
+        let mut base = Pet::default();
+        base.record_lab_milestone(today);
+        base.merge_pebbles_from(&warner);
+        assert!(base.has_pebble("scholars_pearl"));
+        assert!(base.has_pebble("guardian_slate"));
+        base.merge_pebbles_from(&warner);
+        assert_eq!(base.pebbles.len(), 2);
+    }
+
+    #[test]
+    fn pebble_rendering_and_toast_formatting() {
+        let mut pet = Pet::default();
+        let empty = pet.render_pebbles();
+        assert!(!empty.contains('\x1b'));
+        assert!(empty.contains("0/"), "{empty}");
+        assert!(empty.contains("No shiny pebbles gifted yet"), "{empty}");
+        assert!(empty.contains("Next pebble: Smooth Beach Quartz"), "{empty}");
+        assert!(empty.contains("(0/5)"), "{empty}");
+
+        let today = date::from_epoch(BASE_EPOCH);
+        for i in 0..5 {
+            pet.feed_clean(Some(&format!("cmd{i}")), BASE_EPOCH + i * 10);
+        }
+        let partial = pet.render_pebbles();
+        assert!(!partial.contains('\x1b'));
+        assert!(partial.contains("1/"), "{partial}");
+        assert!(partial.contains("Smooth Beach Quartz [2026-11-19]"), "{partial}");
+        assert!(partial.contains("classic penguin hello"), "{partial}");
+        assert!(partial.contains("Next pebble:"), "{partial}");
+
+        let status = render_status(&pet, BASE_EPOCH + 50, None, false);
+        assert!(!status.contains('\x1b'));
+        assert!(status.contains("Pebbles: 1/"), "{status}");
+        assert!(status.contains("huh pet --pebbles"), "{status}");
+
+        let toast = format_pebble_gift(&pet.name, pebble_def("beach_quartz").unwrap());
+        assert!(!toast.contains('\x1b'));
+        assert!(!toast.contains('\n'));
+        assert!(toast.contains("Pebble gifted a shiny pebble: Smooth Beach Quartz"), "{toast}");
+        assert!(toast.contains("classic penguin hello"), "{toast}");
+
+        // Unlock all pebbles -> collection complete card.
+        let mut full = Pet {
+            commands_fed: 300,
+            day_streak: 30,
+            best_day_streak: 30,
+            warnings_heeded: 3,
+            lab_milestones: 5,
+            unique_programs: (0..40).map(|i| format!("p{i}")).collect(),
+            ..Pet::default()
+        };
+        let gifted_all = full.check_pebble_gifts(today);
+        assert_eq!(gifted_all.len(), PEBBLE_CATALOG.len());
+        assert_eq!(full.pebbles_collected(), PEBBLE_CATALOG.len());
+        let complete = full.render_pebbles();
+        assert!(complete.contains("All shiny pebbles in the collection have been gifted!"), "{complete}");
+        let complete_status = full.render_status(BASE_EPOCH, None, false);
+        assert!(complete_status.contains("collection complete!"), "{complete_status}");
+    }
+
+    #[test]
+    fn secret_pebbles_unlock_helpers_and_rendering() {
+        let today = date::from_epoch(BASE_EPOCH);
+        let mut pet = Pet::default();
+
+        // Uncollected secret pebbles never leak in normal pebble card or status.
+        let initial_card = pet.render_pebbles();
+        assert!(!initial_card.contains("Secret pebbles discovered"), "{initial_card}");
+        assert!(!initial_card.contains("8-Bit Star"), "{initial_card}");
+        assert!(!pet.render_status(BASE_EPOCH, None, false).contains("secret"), "unexpected secret note");
+
+        // Unknown ID or normal ID is rejected by grant_secret_pebble.
+        assert!(pet.grant_secret_pebble("does_not_exist", today).is_none());
+        assert!(pet.grant_secret_pebble("beach_quartz", today).is_none());
+
+        // Granting a valid secret pebble is idempotent and preserves X/14 normal count.
+        let granted = pet.grant_secret_pebble("secret_konami", today).unwrap();
+        assert_eq!(granted.name, "8-Bit Star");
+        assert!(pet.grant_secret_pebble("secret_konami", today).is_none());
+        assert_eq!(pet.pebbles_collected(), 0);
+        assert_eq!(pet.secret_pebbles_collected(), 1);
+
+        let card = pet.render_pebbles();
+        assert!(card.contains("0/14 collected"), "{card}");
+        assert!(card.contains("Secret pebbles discovered:"), "{card}");
+        assert!(card.contains("8-Bit Star [2026-11-19]"), "{card}");
+        assert!(!card.contains("Vault Moonstone"), "{card}");
+
+        let status = pet.render_status(BASE_EPOCH, None, false);
+        assert!(status.contains("Pebbles: 0/14 collected (+1 secret)"), "{status}");
+
+        // unlock_species, unlock_all_species, and pamper work cleanly.
+        assert!(pet.unlock_species(Species::Cat));
+        assert!(!pet.unlock_species(Species::Cat));
+        let newly_unlocked = pet.unlock_all_species();
+        assert_eq!(newly_unlocked.len(), Species::ALL.len() - 2);
+        assert!(pet.unlock_all_species().is_empty());
+
+        pet.fullness = 20;
+        pet.happiness = 30;
+        pet.pamper(BASE_EPOCH + 100);
+        assert_eq!(pet.fullness, 100);
+        assert_eq!(pet.happiness, 100);
+        assert_eq!(pet.last_fed_epoch, BASE_EPOCH + 100);
     }
 }

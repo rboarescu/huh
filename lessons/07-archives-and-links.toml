@@ -261,7 +261,7 @@ hints = [
 
 [practice.setup]
 files = [
-    { path = "notes_v2.txt", content = "Version 2 notes\n" },
+    { path = "notes_v2.txt", content = "Version 2 notes\n# follow the coil: symlink-hiss\n" },
     { path = "old.tmp", content = "temporary scratch\n" },
 ]
 

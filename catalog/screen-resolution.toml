@@ -1,0 +1,5 @@
+name = "screen resolution"
+description = "Show connected screens and their resolutions with xrandr"
+template = "xrandr"
+kind = "query"
+keywords = ["screen resolution", "monitor resolution", "display resolution", "monitors", "refresh rate", "what is my screen resolution", "show displays", "connected monitors", "xrandr"]

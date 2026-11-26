@@ -2105,9 +2105,9 @@ fn nearby_python_modules() -> Vec<String> {
 
 fn externally_managed() -> bool {
     let platforms = crate::platform::detect();
-    if crate::platform::manager(&platforms)
-        .is_some_and(|family| matches!(family.as_str(), "arch" | "omarchy" | "debian" | "fedora" | "suse"))
-    {
+    if crate::platform::manager(&platforms).is_some_and(|family| {
+        matches!(family.as_str(), "arch" | "omarchy" | "debian" | "fedora" | "suse" | "tumbleweed")
+    }) {
         return true;
     }
     let Ok(entries) = std::fs::read_dir("/usr/lib") else { return false };
@@ -3174,7 +3174,7 @@ fn measured_libraries(last: &Last, lower: &str) -> Option<String> {
         Some("arch" | "omarchy") => Some(0),
         Some("debian") => Some(1),
         Some("fedora") => Some(2),
-        Some("suse") => Some(3),
+        Some("suse" | "tumbleweed") => Some(3),
         Some("alpine") => Some(4),
         _ => None,
     };
@@ -5519,5 +5519,16 @@ mod tests {
         for tool in ["dosbox", "flatpak", "mpv", "vlc", "ffmpeg", "xdg-open", "wine", "gio"] {
             assert!(COMMON_COMMANDS.contains(&tool), "missing {tool} from COMMON_COMMANDS");
         }
+    }
+
+    #[test]
+    fn tumbleweed_uses_suse_dev_packages_and_externally_managed() {
+        crate::platform::pin_for_eval(&["tumbleweed"]);
+        assert!(externally_managed());
+        let missing_ssl =
+            Last { command: "cc main.c -lssl".into(), exit: Some(1), output: "/usr/bin/ld: cannot find -lssl".into() };
+        let ans = diagnose(&missing_ssl);
+        assert!(ans.contains("libopenssl-devel"), "got: {ans}");
+        assert_eq!(suggested(&ans), Some("sudo zypper install libopenssl-devel"), "got: {ans}");
     }
 }

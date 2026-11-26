@@ -247,6 +247,7 @@ hints = [
 [practice.setup]
 files = [
     { path = ".secret_clue", content = "penguin-tracks\n" },
+    { path = ".cat_tracks", content = "# paw prints in the dark — whisper `pspsps-dotfile` to huh\n" },
     { path = "readme.txt", content = "Nothing secret in here — look for a hidden dotfile!\n" },
 ]
 

@@ -1,0 +1,6 @@
+name = "omarchy theme current"
+description = "Show the currently active Omarchy desktop theme"
+template = "omarchy theme current"
+kind = "query"
+platform = "omarchy"
+keywords = ["current theme", "what theme am i using", "which theme is active", "active theme", "show current theme", "current omarchy theme"]

@@ -262,7 +262,7 @@ hints = [
 
 [practice.setup]
 files = [
-    { path = "small.txt", content = "tiny\n" },
+    { path = "small.txt", content = "tiny\n# sleepy bear sig: vector-hibernates\n" },
     { path = "notes.txt", content = "disk-detective\n" },
 ]
 

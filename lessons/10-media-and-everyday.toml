@@ -256,7 +256,7 @@ hints = [
 dirs = ["inbox"]
 files = [
     { path = "inbox/trailer.mp4", content = "sample-video-bytes\n" },
-    { path = "inbox/song.mp3", content = "sample-audio-bytes\n" },
+    { path = "inbox/song.mp3", content = "sample-audio-bytes\n# hidden liner note: catch-the-wave-mpv\n" },
     { path = "inbox/poster.png", content = "sample-image-bytes\n" },
     { path = "inbox/broken.tmp", content = "incomplete download\n" },
 ]

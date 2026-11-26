@@ -12,10 +12,10 @@ use crate::catalog::Command;
 use crate::learn::{self, ChoiceOption, ChoiceResult, LabHost, PaneExit, PracticePoll, SlashEffect};
 use crate::matcher::LocalMatcher;
 use crate::mode::Mode;
-use crate::pet::{Mood, Pet, Species};
+use crate::pet::{Mood, PebbleDef, Pet, Species};
 use crate::pin::{self, HeaderInfo};
 use crate::practice::{self, Practice, RecordedCommand, Report};
-use crate::prefs::{self, PaneMode, Prefs};
+use crate::prefs::{self, NoiseLevel, PaneMode, Prefs};
 use crate::progress;
 use crate::session;
 use crate::slash::{self, FuzzyResolution, SlashDef};
@@ -62,7 +62,7 @@ pub fn set_recording_dir(dir: PathBuf) {
 /// Startup options for the unified `huh` companion pane.
 pub struct RunOpts {
     pub initial_mode: PaneMode,
-    pub quiet: bool,
+    pub noise: NoiseLevel,
     pub tty: Option<String>,
     pub safety: Mode,
     pub theme: Theme,
@@ -267,6 +267,12 @@ fn render_block(catalog: &[Command], done: &Finished, explained: Option<&mut Has
     }
     if explain_command && let Some(e) = &explanation {
         out.push_str(&condensed(e));
+    } else if has_warning
+        && let Some(e) = &explanation
+        && let Some(w) = e.warnings.first()
+    {
+        let tag = format!("[{}]", w.risk.name());
+        crate::render::hanging_tagged(&mut out, 2, ("! ", Role::Warning), &tag, &format!("{tag} {}", w.text));
     }
     if ALT_SCREEN.iter().any(|s| done.raw.contains(s)) {
         out.push_str(&paint(Role::Dim, "  full-screen program, nothing to explain"));
@@ -284,6 +290,22 @@ fn render_block(catalog: &[Command], done: &Finished, explained: Option<&mut Has
     }
     out.push('\n');
     (out, has_warning)
+}
+
+fn watch_block(
+    catalog: &[Command],
+    done: &Finished,
+    noise: NoiseLevel,
+    explained: Option<&mut HashSet<String>>,
+) -> (Option<String>, bool) {
+    let (text, has_warning) = match noise {
+        NoiseLevel::All | NoiseLevel::Errors => render_block(catalog, done, None),
+        NoiseLevel::New => render_block(catalog, done, explained),
+    };
+    if noise == NoiseLevel::Errors && !done.exit.is_some_and(|c| c != 0) && !has_warning {
+        return (None, false);
+    }
+    (Some(text), has_warning)
 }
 
 fn brief_why_nudge(done: &Finished) -> Option<String> {
@@ -331,11 +353,12 @@ impl PetSession {
         let Some(path) = &self.path else { return };
         let Ok(text) = std::fs::read_to_string(path) else { return };
         let Ok(disk) = toml::from_str::<Pet>(&text) else { return };
-        self.pet.name = disk.name;
+        self.pet.name = disk.name.clone();
         self.pet.species = disk.species;
-        for sp in disk.unlocked_species {
-            self.pet.unlock_species(sp);
+        for sp in &disk.unlocked_species {
+            self.pet.unlock_species(*sp);
         }
+        self.pet.merge_pebbles_from(&disk);
         self.pet.normalize();
     }
 
@@ -348,33 +371,52 @@ impl PetSession {
         crate::pet::render_pane_card(&self.pet, now_epoch, self.transient)
     }
 
+    fn observe_with_rewards(
+        &mut self,
+        done: &Finished,
+        has_warning: bool,
+        now_epoch: u64,
+    ) -> (Option<crate::pet::Banner>, Vec<Species>, Vec<&'static PebbleDef>) {
+        if !self.enabled || done.command.trim().is_empty() {
+            return (None, Vec::new(), Vec::new());
+        }
+        let mut unlocked = Vec::new();
+        let mut pebbles = Vec::new();
+        if done.exit == Some(0) && !has_warning {
+            let prog = programs(&done.command).into_iter().next();
+            let (mood, gifted) = self.pet.feed_clean(prog.as_deref(), now_epoch);
+            pebbles = gifted;
+            unlocked = self.pet.check_watch_unlocks();
+            self.transient = if !unlocked.is_empty() || !pebbles.is_empty() || mood == Mood::Celebrating {
+                Some(Mood::Celebrating)
+            } else {
+                None
+            };
+        } else if has_warning {
+            let today = crate::date::from_epoch(now_epoch);
+            let (mood, sp_unlocks, gifted) = self.pet.note_warning(today);
+            unlocked = sp_unlocks;
+            pebbles = gifted;
+            self.transient = Some(mood);
+        } else if done.exit.is_some_and(|c| c != 0) {
+            let mood = self.pet.react_alert();
+            self.transient = Some(mood);
+        } else {
+            return (None, Vec::new(), Vec::new());
+        }
+        self.merge_disk_metadata();
+        (Some(self.pet.banner(now_epoch, self.transient)), unlocked, pebbles)
+    }
+
+    #[cfg(test)]
     fn observe_with_unlocks(
         &mut self,
         done: &Finished,
         has_warning: bool,
         now_epoch: u64,
     ) -> (Option<crate::pet::Banner>, Vec<Species>) {
-        if !self.enabled || done.command.trim().is_empty() {
-            return (None, Vec::new());
-        }
-        let mut unlocked = Vec::new();
-        if done.exit == Some(0) && !has_warning {
-            let prog = programs(&done.command).into_iter().next();
-            let mood = self.pet.feed(prog.as_deref(), now_epoch);
-            unlocked = self.pet.check_watch_unlocks();
-            self.transient =
-                if !unlocked.is_empty() || mood == Mood::Celebrating { Some(Mood::Celebrating) } else { None };
-        } else if done.exit.is_some_and(|c| c != 0) || has_warning {
-            let mood = self.pet.react_alert();
-            if has_warning {
-                unlocked = self.pet.record_warning();
-            }
-            self.transient = Some(if !unlocked.is_empty() { Mood::Celebrating } else { mood });
-        } else {
-            return (None, Vec::new());
-        }
-        self.merge_disk_metadata();
-        (Some(self.pet.banner(now_epoch, self.transient)), unlocked)
+        let (banner, unlocked, _) = self.observe_with_rewards(done, has_warning, now_epoch);
+        (banner, unlocked)
     }
 
     #[cfg(test)]
@@ -398,11 +440,16 @@ impl PetSession {
             && path.is_file()
         {
             let disk = crate::pet::load_from(path);
-            let prev_unlocks = self.pet.unlocked_species.clone();
+            let prev = self.pet.clone();
             self.pet = disk;
-            for sp in prev_unlocks {
+            for sp in prev.unlocked_species {
                 self.pet.unlock_species(sp);
             }
+            self.pet.merge_pebbles_from(&Pet {
+                pebbles: prev.pebbles,
+                lab_milestones: prev.lab_milestones,
+                ..Pet::default()
+            });
             self.pet.normalize();
         }
         if celebrate {
@@ -420,6 +467,17 @@ fn format_watch_unlocks(unlocked: &[Species]) -> String {
             paint(Role::Success, &format!("NEW PET UNLOCKED ({})!", sp.label())),
             sp.name()
         );
+    }
+    out
+}
+
+fn format_pebble_gifts(pet_name: &str, pebbles: &[&'static PebbleDef]) -> String {
+    let mut out = String::new();
+    for def in pebbles {
+        let _ = writeln!(out, "  {}", crate::pet::format_pebble_gift(pet_name, def));
+    }
+    if !out.is_empty() {
+        out.push('\n');
     }
     out
 }
@@ -673,8 +731,10 @@ pub enum SlashCmd {
     Theme(Option<String>),
     Pet(Vec<String>),
     Speed(Option<String>),
+    Noise(Option<String>),
     Quiet(Option<String>),
     Tips(Option<String>),
+    Cheat(crate::cheats::Cheat),
 }
 
 /// What answering a typed line needs. Nothing in it runs anything.
@@ -684,6 +744,7 @@ pub struct Input<'a> {
     mode: Mode,
     files: Vec<String>,
     tools: std::cell::OnceCell<Vec<Tool>>,
+    miss_log: Option<PathBuf>,
 }
 
 impl<'a> Input<'a> {
@@ -698,7 +759,12 @@ impl<'a> Input<'a> {
         if let Some(tools) = tools {
             let _ = cell.set(tools);
         }
-        Input { everything, matcher: LocalMatcher::new(usable), mode, files, tools: cell }
+        Input { everything, matcher: LocalMatcher::new(usable), mode, files, tools: cell, miss_log: None }
+    }
+
+    pub fn with_miss_log(mut self, miss_log: Option<PathBuf>) -> Self {
+        self.miss_log = miss_log;
+        self
     }
 
     fn tools(&self) -> &[Tool] {
@@ -714,9 +780,10 @@ fn help_text() -> String {
      \x20 why / Enter         explain last failure / replay last command in full\n\
      \x20 /mode [watch|lab]   switch Watch / Lab mode (shortcuts: /watch, /lab)\n\
      \x20 /safety [norm|exp]  toggle safety guardrails;  /theme [name]: live theme\n\
-     \x20 /pet [status|name|species|style|customize]     manage Pebble & sprites\n\
-     \x20 /speed [off|fast|normal|slow|ms]  typewriter;  /quiet [on|off]\n\
-     \x20 /tips [on|off|next] toggle or cycle header tips;  /find [words]\n\n"
+     \x20 /pet [status|pebbles|name|species|style|customize]  manage Pebble & sprites\n\
+     \x20 /speed [off|fast|normal|slow|ms]  typewriter;  /noise [all|new|errors]\n\
+     \x20 /quiet [on|off]     alias for /noise new|all;  /tips [on|off|next]\n\
+     \x20 /find [words]       fuzzy search catalog & tools\n\n"
         .to_string()
 }
 
@@ -832,6 +899,13 @@ pub fn parse_slash(line: &str) -> Option<Reply> {
             Reply::Instant(note(&format!("usage: /speed [{}]", Speed::VALID)))
         });
     }
+    if let Some(args) = split_slash(line, "/noise") {
+        return Some(if args.len() <= 1 {
+            Reply::Slash(SlashCmd::Noise(args.into_iter().next()))
+        } else {
+            Reply::Instant(note("usage: /noise [all|new|errors]"))
+        });
+    }
     if let Some(args) = split_slash(line, "/quiet") {
         return Some(if args.len() <= 1 {
             Reply::Slash(SlashCmd::Quiet(args.into_iter().next()))
@@ -884,6 +958,9 @@ pub fn answer_line(line: &str, ctx: &Input, last: Option<&Finished>) -> Reply {
     if let Some(slash) = answer_slash(line) {
         return slash;
     }
+    if let Some(cheat) = crate::cheats::lookup(line) {
+        return Reply::Slash(SlashCmd::Cheat(cheat));
+    }
     if let Some(words) = line.strip_prefix('?') {
         let words: Vec<String> = words.split_whitespace().map(str::to_string).collect();
         if words.is_empty() {
@@ -906,7 +983,12 @@ pub fn answer_line(line: &str, ctx: &Input, last: Option<&Finished>) -> Reply {
     }
     let outcome = crate::suggest_in(ctx.mode, &ctx.matcher, line, ctx.files.clone(), &mut |_| None);
     match outcome {
-        Ok(outcome) => Reply::Text(format!("{}\n", crate::render_outcome(&outcome, ctx.everything, false))),
+        Ok(outcome) => {
+            if let Some(path) = &ctx.miss_log {
+                crate::record_outcome_miss(path, line, &outcome);
+            }
+            Reply::Text(format!("{}\n", crate::render_outcome(&outcome, ctx.everything, false)))
+        }
         Err(error) => Reply::Instant(note(&format!("huh: {error:#}"))),
     }
 }
@@ -955,12 +1037,14 @@ struct PaneState {
     pet_style: RenderStyle,
     pet_enabled: bool,
     stdout_tty: bool,
-    quiet: bool,
+    noise: NoiseLevel,
     tips_enabled: bool,
     tip_index: usize,
     tip_ticks: u64,
     last_tip: Option<String>,
     explained: Option<HashSet<String>>,
+    seen_path: Option<PathBuf>,
+    miss_log_path: Option<PathBuf>,
     tty_arg: Option<String>,
     tty_label: String,
     tick: u64,
@@ -985,6 +1069,25 @@ impl PaneState {
         if let Some(path) = &self.prefs_path {
             let _ = prefs::save_to(path, &self.prefs);
         }
+    }
+
+    fn set_noise(&mut self, next: NoiseLevel) {
+        self.noise = next;
+        if next == NoiseLevel::New {
+            if self.explained.is_none() {
+                self.explained = Some(self.seen_path.as_deref().map(prefs::load_seen).unwrap_or_default());
+            }
+        } else {
+            self.explained = None;
+        }
+        self.prefs.noise = Some(next.name().to_string());
+        self.prefs.quiet = match next {
+            NoiseLevel::All => Some(false),
+            NoiseLevel::New => Some(true),
+            NoiseLevel::Errors => None,
+        };
+        self.save_prefs();
+        self.emit_header_refresh();
     }
 
     fn use_tui(&self) -> bool {
@@ -1092,6 +1195,33 @@ impl PaneState {
         Some(format!("  {}\n\n", paint(Role::Dim, &format!("Attached to recorded terminal {tty_name}."))))
     }
 
+    fn handle_watched_finished(&mut self, done: Finished) -> (Option<String>, String) {
+        let prev_seen_len = self.explained.as_ref().map_or(0, HashSet::len);
+        let (text, has_warning) = watch_block(&self.everything, &done, self.noise, self.explained.as_mut());
+        if self.noise == NoiseLevel::New
+            && let Some(seen) = &self.explained
+            && seen.len() != prev_seen_len
+            && let Some(path) = &self.seen_path
+        {
+            let _ = prefs::save_seen(path, seen);
+        }
+        let now = crate::date::now_epoch();
+        let (banner, unlocked, pebbles) = self.pet_session.observe_with_rewards(&done, has_warning, now);
+        if banner.is_some() {
+            self.pet_session.save();
+            self.emit_header_refresh();
+        }
+        self.last_finished = Some(done);
+        let mut rewards = String::new();
+        if !unlocked.is_empty() {
+            rewards.push_str(&format_watch_unlocks(&unlocked));
+        }
+        if !pebbles.is_empty() {
+            rewards.push_str(&format_pebble_gifts(&self.pet_session.pet.name, &pebbles));
+        }
+        (text, rewards)
+    }
+
     fn poll_watch_activity(&mut self, relocate_ticks: &mut u64) -> Option<String> {
         let mut out = String::new();
         if self.follower.is_none() {
@@ -1103,18 +1233,11 @@ impl PaneState {
             }
         }
         if let Some(done) = self.follower.as_mut().and_then(Follower::poll) {
-            let (text, has_warning) = render_block(&self.everything, &done, self.explained.as_mut());
-            let now = crate::date::now_epoch();
-            let (banner, unlocked) = self.pet_session.observe_with_unlocks(&done, has_warning, now);
-            if banner.is_some() {
-                self.pet_session.save();
-                self.emit_header_refresh();
+            let (text, rewards) = self.handle_watched_finished(done);
+            if let Some(t) = text {
+                out.push_str(&t);
             }
-            self.last_finished = Some(done);
-            out.push_str(&text);
-            if !unlocked.is_empty() {
-                out.push_str(&format_watch_unlocks(&unlocked));
-            }
+            out.push_str(&rewards);
         }
         (!out.is_empty()).then_some(out)
     }
@@ -1632,9 +1755,69 @@ impl PaneState {
                 };
                 SlashOutcome::Output(format!("{}\n\n", paint(Role::Success, &msg)))
             }
+            SlashCmd::Noise(None) => {
+                if self.use_tui() {
+                    let levels = [
+                        ("all", "explain every finished command"),
+                        ("new", "explain each program once (remembers seen programs)"),
+                        ("errors", "stay quiet on clean exit 0; speak up on errors & warnings"),
+                    ];
+                    let items: Vec<SelectItem> = levels
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (name, desc))| SelectItem {
+                            key: (i + 1).to_string(),
+                            label: (*name).to_string(),
+                            detail: (*desc).to_string(),
+                            enabled: true,
+                        })
+                        .collect();
+                    let initial = match self.noise {
+                        NoiseLevel::All => 0,
+                        NoiseLevel::New => 1,
+                        NoiseLevel::Errors => 2,
+                    };
+                    return match self.run_select_menu(
+                        &format!("Watch noise level (current: {}):", self.noise.name()),
+                        &items,
+                        initial,
+                        "↑/↓ move · Enter apply · 1-3 hotkey · q/Esc cancel",
+                    ) {
+                        Ok(SelectOutcome::Picked(idx)) => {
+                            self.exec_slash(SlashCmd::Noise(Some(levels[idx].0.to_string())))
+                        }
+                        Ok(SelectOutcome::Slash(s)) => self.exec_slash_from_menu(&s),
+                        Ok(SelectOutcome::Eof) => {
+                            STOP.store(true, Ordering::Relaxed);
+                            SlashOutcome::Output(String::new())
+                        }
+                        Ok(SelectOutcome::Cancelled) | Err(_) => {
+                            SlashOutcome::Output(format!("{}\n\n", paint(Role::Dim, "Kept current noise level.")))
+                        }
+                    };
+                }
+                SlashOutcome::Output(format!(
+                    "{}\n{}\n\n",
+                    paint(Role::Header, &format!("Watch noise level: {}", self.noise.name())),
+                    paint(Role::Dim, &format!("Options: {}", NoiseLevel::VALID))
+                ))
+            }
+            SlashCmd::Noise(Some(raw)) => {
+                let next = match NoiseLevel::parse(&raw) {
+                    Ok(n) => n,
+                    Err(err) => return SlashOutcome::Output(note(&format!("{err}"))),
+                };
+                self.set_noise(next);
+                let desc = match next {
+                    NoiseLevel::All => "Watch noise: all (explain every finished command).",
+                    NoiseLevel::New => "Watch noise: new (explain each program once; remembering seen programs).",
+                    NoiseLevel::Errors => "Watch noise: errors (quiet on clean exit 0 without warnings).",
+                };
+                SlashOutcome::Output(format!("{}\n\n", paint(Role::Success, desc)))
+            }
             SlashCmd::Quiet(arg) => {
-                let next = match arg.as_deref().map(str::to_ascii_lowercase).as_deref() {
-                    None => !self.quiet,
+                let next_quiet = match arg.as_deref().map(str::to_ascii_lowercase).as_deref() {
+                    None => self.noise == NoiseLevel::All,
                     Some("on" | "true" | "1") => true,
                     Some("off" | "false" | "0") => false,
                     Some(other) => {
@@ -1643,16 +1826,12 @@ impl PaneState {
                         )));
                     }
                 };
-                self.quiet = next;
-                if next {
-                    self.explained.get_or_insert_with(HashSet::new);
+                self.set_noise(if next_quiet { NoiseLevel::New } else { NoiseLevel::All });
+                let msg = if next_quiet {
+                    "Quiet mode: on (noise: new — explain each program once)."
                 } else {
-                    self.explained = None;
-                }
-                self.prefs.quiet = Some(next);
-                self.save_prefs();
-                let msg =
-                    if next { "Quiet mode: on (each program explained once per session)." } else { "Quiet mode: off." };
+                    "Quiet mode: off (noise: all)."
+                };
                 SlashOutcome::Output(format!("{}\n\n", paint(Role::Success, msg)))
             }
             SlashCmd::Tips(arg) => match arg.as_deref().map(str::to_ascii_lowercase).as_deref() {
@@ -1706,7 +1885,36 @@ impl PaneState {
                     SlashOutcome::Output(note(&format!("unknown tips setting \"{other}\"; use on, off, or next")))
                 }
             },
+            SlashCmd::Cheat(cheat) => self.exec_cheat(cheat),
         }
+    }
+
+    fn exec_cheat(&mut self, cheat: crate::cheats::Cheat) -> SlashOutcome {
+        self.pet_session.merge_disk_metadata();
+        let progress_path = self
+            .pet_session
+            .path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|dir| dir.join("progress.toml"))
+            .or_else(progress::default_state_path);
+        let mut progress = progress_path.as_deref().map_or_else(progress::Progress::default, progress::load_from);
+        let now = crate::date::now_epoch();
+        let outcome = crate::cheats::apply(cheat, &mut self.pet_session.pet, &mut progress, now);
+        if outcome.pet_changed {
+            self.pet_session.transient = Some(Mood::Celebrating);
+            self.pet_session.save_direct();
+        }
+        if outcome.progress_changed {
+            if let Some(path) = &progress_path {
+                let _ = progress::save_to(path, &progress);
+            }
+            if self.mode == PaneMode::Lab {
+                self.lab_xp = Some((progress.xp, progress.streak));
+            }
+        }
+        self.emit_header_refresh();
+        SlashOutcome::Output(format!("{}\n", outcome.text))
     }
 
     fn apply_mode_switch(&mut self, target: PaneMode, args: Vec<String>) -> SlashOutcome {
@@ -1753,12 +1961,21 @@ impl PaneState {
                 EffectiveMode::Off => "off",
             };
             let _ = writeln!(out, "  Render style: {} (effective: {eff})", paint(Role::Value, self.pet_style.name()));
+            let collected = self.pet_session.pet.pebbles_collected();
+            let total_pebbles = crate::pet::PEBBLE_CATALOG.len();
+            let secret_pebbles = self.pet_session.pet.secret_pebbles_collected();
+            let secret_note = if secret_pebbles > 0 { format!(" (+{secret_pebbles} secret)") } else { String::new() };
+            let _ = writeln!(
+                out,
+                "  Pebbles:      {}/{total_pebbles} collected{secret_note} (use `/pet pebbles` to view)",
+                paint(Role::Value, &collected.to_string())
+            );
             let _ = writeln!(
                 out,
                 "{}\n",
                 paint(
                     Role::Dim,
-                    "  Commands: /pet name <NAME> · /pet species <SPECIES> · /pet style <auto|pixel|ascii|off> · /pet customize"
+                    "  Commands: /pet pebbles · /pet name <NAME> · /pet species <SPECIES> · /pet style <auto|pixel|ascii|off> · /pet customize"
                 )
             );
             return SlashOutcome::Output(out);
@@ -1766,6 +1983,13 @@ impl PaneState {
 
         let sub = args[0].to_ascii_lowercase();
         match sub.as_str() {
+            "pebbles" => {
+                if args.len() != 1 {
+                    return SlashOutcome::Output(note("usage: /pet pebbles"));
+                }
+                self.pet_session.merge_disk_metadata();
+                SlashOutcome::Output(format!("{}\n", self.pet_session.pet.render_pebbles()))
+            }
             "name" => {
                 let new_name = args[1..].join(" ");
                 if new_name.trim().is_empty() {
@@ -1958,9 +2182,15 @@ impl PaneState {
                     Err(err) => SlashOutcome::Output(note(&format!("cannot export sprite template: {err}"))),
                 }
             }
-            _ => SlashOutcome::Output(note(
-                "usage: /pet [status | name <NAME> | species <penguin|cat|turtle|owl> | style <auto|pixel|ascii|off> | customize]",
-            )),
+            _ => {
+                let joined = args.join(" ");
+                if let Some(cheat) = crate::cheats::lookup(&joined) {
+                    return self.exec_cheat(cheat);
+                }
+                SlashOutcome::Output(note(
+                    "usage: /pet [status | pebbles | name <NAME> | species <penguin|cat|beaver|turtle|dolphin|bear|snake|bee|owl> | style <auto|pixel|ascii|off> | customize]",
+                ))
+            }
         }
     }
 
@@ -1976,8 +2206,21 @@ impl PaneState {
         }
     }
 
+    fn active_miss_log_path(&self) -> Option<PathBuf> {
+        let path = self.miss_log_path.as_ref()?;
+        let disk_pref =
+            self.prefs_path.as_deref().map(prefs::load_from).and_then(|p| p.miss_log).or(self.prefs.miss_log);
+        let enabled = crate::misses::resolve_enabled(
+            std::env::var("HUH_MISS_LOG").ok().as_deref(),
+            crate::mode::config_path().as_deref(),
+            disk_pref,
+        );
+        enabled.then(|| path.clone())
+    }
+
     fn run_watch_line(&mut self, line: &str) -> Option<(PaneMode, Vec<String>)> {
-        let ctx = Input::new(&self.everything, &self.usable, self.safety, self.files.clone(), None);
+        let ctx = Input::new(&self.everything, &self.usable, self.safety, self.files.clone(), None)
+            .with_miss_log(self.active_miss_log_path());
         let reply = answer_line(line, &ctx, self.last_finished.as_ref());
         self.run_watch_reply(reply)
     }
@@ -1998,6 +2241,43 @@ struct PaneHost<'a> {
 }
 
 impl PaneHost<'_> {
+    fn sync_on_pet_event(&mut self, mood: Option<Mood>, celebrate: bool, lab_milestones: Option<u32>) -> String {
+        let prev_ids: HashSet<String> = self.state.pet_session.pet.pebbles.iter().map(|p| p.id.clone()).collect();
+        self.state.pet_session.reload_from_disk(celebrate);
+        if !celebrate && mood.is_some() {
+            self.state.pet_session.transient = mood;
+        }
+        if self.state.pet_session.enabled
+            && let Some(count) = lab_milestones
+        {
+            let today = crate::date::from_epoch(crate::date::now_epoch());
+            let synced = self.state.pet_session.pet.sync_lab_milestones(count, today);
+            if !synced.is_empty() {
+                self.state.pet_session.transient = Some(Mood::Celebrating);
+                self.state.pet_session.save_direct();
+            }
+        }
+        self.state.refresh_lab_xp();
+        let mut toast = String::new();
+        if self.state.pet_session.enabled {
+            let new_pebbles: Vec<&'static PebbleDef> = self
+                .state
+                .pet_session
+                .pet
+                .pebbles
+                .iter()
+                .filter(|p| !prev_ids.contains(&p.id))
+                .filter_map(|p| crate::pet::pebble_def(&p.id))
+                .collect();
+            if !new_pebbles.is_empty() {
+                self.state.pet_session.transient = Some(Mood::Celebrating);
+                toast = format_pebble_gifts(&self.state.pet_session.pet.name, &new_pebbles);
+            }
+        }
+        self.state.emit_header_refresh();
+        toast
+    }
+
     fn run_lab_outcome(&mut self, outcome: SlashOutcome) -> SlashEffect {
         match outcome {
             SlashOutcome::Output(text) => {
@@ -2050,12 +2330,16 @@ impl LabHost for PaneHost<'_> {
     }
 
     fn on_pet_event(&mut self, mood: Option<Mood>, celebrate: bool) {
-        self.state.pet_session.reload_from_disk(celebrate);
-        if !celebrate && mood.is_some() {
-            self.state.pet_session.transient = mood;
+        let count = if self.state.pet_session.enabled && self.state.mode == PaneMode::Lab {
+            let p = progress::load_default();
+            Some((p.completed_lessons.len() + p.completed_practices.len() + p.badges.len()) as u32)
+        } else {
+            None
+        };
+        let toast = self.sync_on_pet_event(mood, celebrate, count);
+        if !toast.is_empty() {
+            write_raw(&toast);
         }
-        self.state.refresh_lab_xp();
-        self.state.emit_header_refresh();
     }
 
     fn handle_slash(&mut self, line: &str) -> std::io::Result<SlashEffect> {
@@ -2204,7 +2488,8 @@ impl LabHost for PaneHost<'_> {
                         .then(|| crate::explain::explain_command(&self.state.everything, &done.command));
                     let has_warning = explanation.as_ref().is_some_and(|e| !e.warnings.is_empty());
                     let now = crate::date::now_epoch();
-                    let (banner, unlocked_sp) = self.state.pet_session.observe_with_unlocks(&done, has_warning, now);
+                    let (banner, unlocked_sp, pebbles) =
+                        self.state.pet_session.observe_with_rewards(&done, has_warning, now);
                     if banner.is_some() {
                         self.state.pet_session.save();
                         self.state.emit_header_refresh();
@@ -2215,6 +2500,10 @@ impl LabHost for PaneHost<'_> {
                     let mut nudge_text = String::new();
                     if !unlocked_sp.is_empty() {
                         nudge_text.push_str(&format_watch_unlocks(&unlocked_sp));
+                        nudged = true;
+                    }
+                    if !pebbles.is_empty() {
+                        nudge_text.push_str(&format_pebble_gifts(&self.state.pet_session.pet.name, &pebbles));
                         nudged = true;
                     }
                     if done.exit.is_some_and(|c| c != 0)
@@ -2287,7 +2576,7 @@ impl LabHost for PaneHost<'_> {
                     .then(|| crate::explain::explain_command(&self.state.everything, &done.command));
                 let has_warning = explanation.as_ref().is_some_and(|e| !e.warnings.is_empty());
                 let now = crate::date::now_epoch();
-                let (banner, unlocked) = self.state.pet_session.observe_with_unlocks(&done, has_warning, now);
+                let (banner, unlocked, pebbles) = self.state.pet_session.observe_with_rewards(&done, has_warning, now);
                 if banner.is_some() {
                     self.state.pet_session.save();
                     self.state.emit_header_refresh();
@@ -2297,6 +2586,10 @@ impl LabHost for PaneHost<'_> {
                 let mut nudge_text = String::new();
                 if !unlocked.is_empty() {
                     nudge_text.push_str(&format_watch_unlocks(&unlocked));
+                    nudged = true;
+                }
+                if !pebbles.is_empty() {
+                    nudge_text.push_str(&format_pebble_gifts(&self.state.pet_session.pet.name, &pebbles));
                     nudged = true;
                 }
                 if done.exit.is_some_and(|c| c != 0)
@@ -2397,6 +2690,13 @@ pub fn run(catalog: &[Command], opts: RunOpts) -> Result<()> {
     let usable = crate::catalog::usable(catalog.to_vec(), &platforms, false);
     let typing = std::io::stdin().is_terminal();
 
+    let seen_path = prefs::default_seen_path();
+    let initial_explained = if opts.noise == NoiseLevel::New {
+        Some(seen_path.as_deref().map(prefs::load_seen).unwrap_or_default())
+    } else {
+        None
+    };
+
     let mut state = PaneState {
         everything: catalog.to_vec(),
         usable,
@@ -2410,12 +2710,14 @@ pub fn run(catalog: &[Command], opts: RunOpts) -> Result<()> {
         pet_style,
         pet_enabled: crate::pet::enabled(),
         stdout_tty: std::io::stdout().is_terminal(),
-        quiet: opts.quiet,
+        noise: opts.noise,
         tips_enabled,
         tip_index: 0,
         tip_ticks: 0,
         last_tip: None,
-        explained: opts.quiet.then(HashSet::new),
+        explained: initial_explained,
+        seen_path,
+        miss_log_path: crate::misses::default_log_path(),
         tty_arg: opts.tty,
         tty_label,
         tick: 0,
@@ -2518,17 +2820,12 @@ pub fn run(catalog: &[Command], opts: RunOpts) -> Result<()> {
                 write_raw(&redraw);
             }
             if let Some(done) = state.follower.as_mut().and_then(Follower::poll) {
-                let (text, has_warning) = render_block(&state.everything, &done, state.explained.as_mut());
-                let now = crate::date::now_epoch();
-                let (banner, unlocked) = state.pet_session.observe_with_unlocks(&done, has_warning, now);
-                if banner.is_some() {
-                    state.pet_session.save();
-                    state.emit_header_refresh();
+                let (text, rewards) = state.handle_watched_finished(done);
+                if let Some(t) = text {
+                    state.write_typewritten(&t);
                 }
-                state.last_finished = Some(done);
-                state.write_typewritten(&text);
-                if !unlocked.is_empty() {
-                    write_raw(&format_watch_unlocks(&unlocked));
+                if !rewards.is_empty() {
+                    write_raw(&rewards);
                 }
             }
             match state.read_watch_line(&mut relocate_ticks) {
@@ -2559,25 +2856,22 @@ pub fn run(catalog: &[Command], opts: RunOpts) -> Result<()> {
         }
 
         if let Some(done) = state.follower.as_mut().and_then(Follower::poll) {
-            let (text, has_warning) = render_block(&state.everything, &done, state.explained.as_mut());
-            let now = crate::date::now_epoch();
-            let (banner, unlocked) = state.pet_session.observe_with_unlocks(&done, has_warning, now);
-            if banner.is_some() {
-                state.pet_session.save();
-                state.emit_header_refresh();
-            }
-            state.last_finished = Some(done);
-            if typing && prompt_shown {
-                write_raw("\r\x1b[2K");
-                prompt_shown = false;
-            }
-            state.write_typewritten(&text);
-            if !unlocked.is_empty() {
-                write_raw(&format_watch_unlocks(&unlocked));
-            }
-            if typing {
-                write_raw(&paint(Role::Dim, PROMPT));
-                prompt_shown = true;
+            let (text, rewards) = state.handle_watched_finished(done);
+            if text.is_some() || !rewards.is_empty() {
+                if typing && prompt_shown {
+                    write_raw("\r\x1b[2K");
+                    prompt_shown = false;
+                }
+                if let Some(t) = text {
+                    state.write_typewritten(&t);
+                }
+                if !rewards.is_empty() {
+                    write_raw(&rewards);
+                }
+                if typing {
+                    write_raw(&paint(Role::Dim, PROMPT));
+                    prompt_shown = true;
+                }
             }
         }
 
@@ -2645,6 +2939,8 @@ mod tests {
         let everything = catalog();
         let usable = crate::catalog::usable(everything.clone(), &["arch".to_string()], false);
         let prefs_path = dir.join("state/prefs.toml");
+        let seen_path = dir.join("state/seen.txt");
+        let miss_log_path = dir.join("state/misses.jsonl");
         let pet_path = dir.join("state/pet.toml");
         let sprite_dir = dir.join("config/sprites");
         PaneState {
@@ -2660,12 +2956,14 @@ mod tests {
             pet_style: RenderStyle::Auto,
             pet_enabled: true,
             stdout_tty,
-            quiet: false,
+            noise: NoiseLevel::All,
             tips_enabled: true,
             tip_index: 0,
             tip_ticks: 0,
             last_tip: None,
             explained: None,
+            seen_path: Some(seen_path),
+            miss_log_path: Some(miss_log_path),
             tty_arg: None,
             tty_label: "no hook".into(),
             tick: 0,
@@ -2973,7 +3271,7 @@ mod tests {
         );
         let Reply::SlashPick { title, defs, .. } = reply("/") else { panic!("expected palette") };
         assert_eq!(title, "Slash commands:");
-        assert_eq!(defs.len(), 11);
+        assert_eq!(defs.len(), 12);
         let Reply::SlashPick { title: amb_title, defs: amb_defs, .. } = reply("/s") else {
             panic!("expected ambiguous")
         };
@@ -2994,6 +3292,7 @@ mod tests {
                 "/theme",
                 "/pet",
                 "/speed",
+                "/noise",
                 "/quiet",
                 "/tips",
                 "/find",
@@ -3011,6 +3310,7 @@ mod tests {
         let reply = |line: &str| answer(line, Mode::Normal, None, vec![]);
         assert_eq!(reply("pet"), Reply::Slash(SlashCmd::Pet(vec![])));
         assert_eq!(reply("  /pet "), Reply::Slash(SlashCmd::Pet(vec![])));
+        assert_eq!(reply("/pet pebbles"), Reply::Slash(SlashCmd::Pet(vec!["pebbles".into()])));
         assert_eq!(reply("/pet name Pip"), Reply::Slash(SlashCmd::Pet(vec!["name".into(), "Pip".into()])));
         assert_eq!(reply("/pet style ascii"), Reply::Slash(SlashCmd::Pet(vec!["style".into(), "ascii".into()])));
         assert_eq!(reply("/pet customize"), Reply::Slash(SlashCmd::Pet(vec!["customize".into()])));
@@ -3206,13 +3506,25 @@ mod tests {
         assert!(sp_set.contains("fast (800ms)"), "{sp_set}");
         assert_eq!(st.speed, Speed::Fast);
 
-        // /quiet toggles and sets explicitly.
+        // /noise and /quiet update noise level and persist to prefs.
+        let SlashOutcome::Output(n_list) = st.exec_slash(SlashCmd::Noise(None)) else { panic!() };
+        assert!(n_list.contains("Watch noise level: all") && n_list.contains("errors"), "{n_list}");
+        let SlashOutcome::Output(n_err) = st.exec_slash(SlashCmd::Noise(Some("errors".into()))) else { panic!() };
+        assert!(n_err.contains("errors"), "{n_err}");
+        assert_eq!(st.noise, NoiseLevel::Errors);
+        assert!(st.explained.is_none());
+
+        let SlashOutcome::Output(n_all) = st.exec_slash(SlashCmd::Noise(Some("all".into()))) else { panic!() };
+        assert!(n_all.contains("all"), "{n_all}");
+        assert_eq!(st.noise, NoiseLevel::All);
+
+        // /quiet toggles and sets explicitly (mapped to NoiseLevel::New / NoiseLevel::All).
         let SlashOutcome::Output(q1) = st.exec_slash(SlashCmd::Quiet(None)) else { panic!() };
         assert!(q1.contains("on"), "{q1}");
-        assert!(st.quiet && st.explained.is_some());
+        assert!(st.noise == NoiseLevel::New && st.explained.is_some());
         let SlashOutcome::Output(q2) = st.exec_slash(SlashCmd::Quiet(Some("off".into()))) else { panic!() };
         assert!(q2.contains("off"), "{q2}");
-        assert!(!st.quiet && st.explained.is_none());
+        assert!(st.noise == NoiseLevel::All && st.explained.is_none());
 
         // /tips toggles, advances, and persists to prefs.
         let SlashOutcome::Output(tip_off) = st.exec_slash(SlashCmd::Tips(Some("off".into()))) else { panic!() };
@@ -3232,10 +3544,15 @@ mod tests {
         let SlashOutcome::Output(sub_ambig) = st.exec_submitted_slash("/quiet o") else { panic!() };
         assert!(sub_ambig.contains("on") && sub_ambig.contains("off"), "{sub_ambig}");
 
-        // /pet status, name, species (locked & unlocked), style, customize.
+        // /pet status, pebbles, name, species (locked & unlocked), style, customize.
         let SlashOutcome::Output(p_status) = st.exec_slash(SlashCmd::Pet(vec![])) else { panic!() };
         assert!(p_status.contains("Pebble (Penguin chick)"), "{p_status}");
         assert!(p_status.contains("/mode lab") && p_status.contains("0/25"), "{p_status}");
+        assert!(p_status.contains("Pebbles:") && p_status.contains("/pet pebbles"), "{p_status}");
+
+        let SlashOutcome::Output(p_peb) = st.exec_slash(SlashCmd::Pet(vec!["pebbles".into()])) else { panic!() };
+        assert!(p_peb.contains("Pebble Collection — Pebble:"), "{p_peb}");
+        assert!(p_peb.contains("Smooth Beach Quartz"), "{p_peb}");
 
         let SlashOutcome::Output(p_name) = st.exec_slash(SlashCmd::Pet(vec!["name".into(), "Biscuit".into()])) else {
             panic!()
@@ -3296,6 +3613,7 @@ mod tests {
         assert_eq!(saved_prefs.speed.as_deref(), Some("fast"));
         assert_eq!(saved_prefs.pet_style.as_deref(), Some("ascii"));
         assert_eq!(saved_prefs.quiet, Some(false));
+        assert_eq!(saved_prefs.noise.as_deref(), Some("all"));
         assert_eq!(saved_prefs.tips, Some(true));
         assert_eq!(saved_prefs.last_mode.as_deref(), Some("watch"));
         assert_eq!(std::fs::read_to_string(&config_path).unwrap(), original_config);
@@ -3433,5 +3751,153 @@ mod tests {
             assert!(matches!(answer(line, Mode::Normal, None, vec![]), Reply::Text(_) | Reply::Instant(_)), "{line}");
         }
         assert!(matches!(answer("/", Mode::Normal, None, vec![]), Reply::SlashPick { .. }));
+    }
+
+    #[test]
+    fn noise_new_persists_seen_and_keeps_safety_warnings() {
+        let (dir, _) = recording("noise-new");
+        let mut s1 = test_state(&dir, false);
+        s1.set_noise(NoiseLevel::New);
+
+        let (first, _) =
+            s1.handle_watched_finished(Finished { command: "ls -la".into(), exit: Some(0), raw: String::new() });
+        assert!(first.as_deref().unwrap_or("").contains("-la"));
+
+        let (repeat, _) =
+            s1.handle_watched_finished(Finished { command: "ls -lh".into(), exit: Some(0), raw: String::new() });
+        assert_eq!(repeat.as_deref(), Some("$ ls -lh  (exit 0)\n\n"));
+
+        // Reload in a fresh pane state from seen.txt: `ls` stays quiet across restarts.
+        let mut s2 = test_state(&dir, false);
+        s2.set_noise(NoiseLevel::New);
+        let (across_restart, _) =
+            s2.handle_watched_finished(Finished { command: "ls -1".into(), exit: Some(0), raw: String::new() });
+        assert_eq!(across_restart.as_deref(), Some("$ ls -1  (exit 0)\n\n"));
+
+        // Mark `rm` seen cleanly first, then trigger a dangerous invocation: warning still appears.
+        let (rm_first, _) =
+            s2.handle_watched_finished(Finished { command: "rm --help".into(), exit: Some(0), raw: String::new() });
+        assert!(rm_first.is_some());
+        let (rm_warn, _) =
+            s2.handle_watched_finished(Finished { command: "rm -rf ~".into(), exit: Some(0), raw: String::new() });
+        assert!(rm_warn.as_deref().unwrap_or("").contains("[destroys data]"), "got: {rm_warn:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn noise_errors_suppresses_clean_exits_but_reports_failures_and_warnings() {
+        let (dir, _) = recording("noise-errors");
+        let mut st = test_state(&dir, false);
+        st.set_noise(NoiseLevel::Errors);
+
+        let (clean, _) =
+            st.handle_watched_finished(Finished { command: "ls -la".into(), exit: Some(0), raw: String::new() });
+        assert!(clean.is_none());
+        assert_eq!(st.last_finished.as_ref().map(|f| f.command.as_str()), Some("ls -la"));
+        assert_eq!(st.pet_session.pet.commands_fed, 1);
+
+        let (failed, _) =
+            st.handle_watched_finished(Finished { command: "ls /missing".into(), exit: Some(2), raw: String::new() });
+        assert!(failed.as_deref().unwrap_or("").contains("exit 2"));
+
+        let (warn, _) =
+            st.handle_watched_finished(Finished { command: "rm -rf ~".into(), exit: Some(0), raw: String::new() });
+        assert!(warn.as_deref().unwrap_or("").contains("[destroys data]"), "got: {warn:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn watch_and_lab_award_and_format_pebble_gifts() {
+        let (dir, _) = recording("pebbles-toast");
+        let mut st = test_state(&dir, false);
+
+        for i in 0..4 {
+            let (_, rewards) = st.handle_watched_finished(Finished {
+                command: format!("pwd # {i}"),
+                exit: Some(0),
+                raw: String::new(),
+            });
+            assert!(!rewards.contains("Smooth Beach Quartz"), "unexpected early gift on step {i}: {rewards}");
+        }
+        let (_, watch_gift) =
+            st.handle_watched_finished(Finished { command: "pwd".into(), exit: Some(0), raw: String::new() });
+        assert!(watch_gift.contains("Smooth Beach Quartz"), "got: {watch_gift}");
+        assert!(st.pet_session.pet.has_pebble("beach_quartz"));
+
+        let mut host = PaneHost { state: &mut st, last_auto_report: None };
+        let lab_gift = host.sync_on_pet_event(Some(Mood::Celebrating), true, Some(1));
+        assert!(lab_gift.contains("Scholar's Pearl"), "got: {lab_gift}");
+        assert!(host.state.pet_session.pet.has_pebble("scholars_pearl"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn watch_plain_query_logs_miss_only_when_unmatched() {
+        let (dir, _) = recording("miss-log");
+        let miss_path = dir.join("misses.jsonl");
+        let everything = catalog();
+        let usable = crate::catalog::usable(everything.clone(), &["arch".to_string()], false);
+        let ctx = Input::new(&everything, &usable, Mode::Normal, vec![], None).with_miss_log(Some(miss_path.clone()));
+
+        let _ = answer_line("frobnicate quantum flux capacitor", &ctx, None);
+        let entries = crate::misses::load_misses(&miss_path);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].request, "frobnicate quantum flux capacitor");
+
+        // Command-line explanation and matched natural-language query should not add misses.
+        let _ = answer_line("ls -la", &ctx, None);
+        let _ = answer_line("list files in current directory", &ctx, None);
+        assert_eq!(crate::misses::load_misses(&miss_path).len(), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cheat_codes_work_in_watch_and_pet_slash_without_logging_misses() {
+        let (dir, _) = recording("cheat-codes");
+        let miss_path = dir.join("misses.jsonl");
+        let mut st = test_state(&dir, false);
+
+        // Watch input routes cheat codes before command parsing or miss logging.
+        let ctx =
+            Input::new(&st.everything, &st.usable, Mode::Normal, vec![], None).with_miss_log(Some(miss_path.clone()));
+        assert_eq!(
+            answer_line("pspsps-dotfile", &ctx, None),
+            Reply::Slash(SlashCmd::Cheat(crate::cheats::Cheat::UnlockPet(Species::Cat)))
+        );
+        assert!(crate::misses::load_misses(&miss_path).is_empty(), "cheat should not log to misses.jsonl");
+
+        // Executing cheat via Watch reply updates pet state & celebrates.
+        assert!(
+            st.run_watch_reply(Reply::Slash(SlashCmd::Cheat(crate::cheats::Cheat::UnlockPet(Species::Cat)))).is_none()
+        );
+        assert!(st.pet_session.pet.is_unlocked(Species::Cat));
+        assert_eq!(st.pet_session.pet.species, Species::Cat);
+        assert_eq!(st.pet_session.transient, Some(Mood::Celebrating));
+
+        // `/pet <cheat>` works cleanly too (including multi-word Konami & secret pebble status).
+        let SlashOutcome::Output(konami_out) = st.exec_pet_slash(
+            &"up up down down left right left right b a".split_whitespace().map(str::to_string).collect::<Vec<_>>(),
+        ) else {
+            panic!("expected cheat output");
+        };
+        assert!(konami_out.contains("8-Bit Star"), "{konami_out}");
+        for sp in Species::ALL {
+            assert!(st.pet_session.pet.is_unlocked(sp), "{sp:?}");
+        }
+        let SlashOutcome::Output(status_out) = st.exec_pet_slash(&[]) else { panic!() };
+        assert!(status_out.contains("(+1 secret)"), "{status_out}");
+
+        // `/pet` manual wizard updates progress.toml freezes cleanly.
+        let SlashOutcome::Output(wiz_out) = st.exec_pet_slash(&["rtfm-wizard".into()]) else { panic!() };
+        assert!(wiz_out.contains("Manual Wizardry"), "{wiz_out}");
+        let progress_path = st.pet_session.path.as_ref().unwrap().parent().unwrap().join("progress.toml");
+        let saved_progress = crate::progress::load_from(&progress_path);
+        assert_eq!(saved_progress.freezes, crate::progress::MAX_FREEZES);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

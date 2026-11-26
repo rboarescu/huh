@@ -111,13 +111,20 @@ pub fn run(matcher: &LocalMatcher, path: &Path, platforms: &[String]) -> Result<
 /// Scores as a system with these platform words (see platform.rs): package names are filled in
 /// for it and cases tagged with its package manager family are included.
 pub fn score_for(matcher: &LocalMatcher, path: &Path, platforms: &[String]) -> Result<Report> {
+    struct ResetEval;
+    impl Drop for ResetEval {
+        fn drop(&mut self) {
+            crate::sysinfo::use_fixture(false);
+            crate::platform::use_platform_for_eval(&[]);
+            crate::platform::set_eval_mode(false);
+        }
+    }
+    crate::platform::set_eval_mode(true);
     crate::platform::use_platform_for_eval(platforms);
     // Users, groups, shells and services come from the fixture, never from the machine running the eval.
     crate::sysinfo::use_fixture(true);
-    let report = score_cases(matcher, path, platforms);
-    crate::sysinfo::use_fixture(false);
-    crate::platform::use_platform_for_eval(&[]);
-    report
+    let _reset = ResetEval;
+    score_cases(matcher, path, platforms)
 }
 
 fn score_cases(matcher: &LocalMatcher, path: &Path, platforms: &[String]) -> Result<Report> {

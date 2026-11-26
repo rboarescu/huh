@@ -29,3 +29,17 @@ command = "none"
 request = "which package owns /usr/bin/ls"
 command = "package owns file"
 expect = "dpkg -S /usr/bin/ls"
+
+[[case]]
+request = "what is my current theme"
+command = "none"
+
+[[case]]
+request = "what is my screen resolution"
+command = "screen resolution"
+expect = "xrandr"
+
+[[case]]
+request = "pretty print data.json"
+command = "jq pretty"
+expect = "jq . data.json"

@@ -54,13 +54,14 @@ fn shell_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
-/// The pane command: `huh --here --tty <tty>` (plus `--quiet` and `--mode`), told where the
-/// recordings are (`--dir`) because a new window does not inherit this shell's environment, and to
-/// keep its window open on an error (`--hold`) so the message can be read.
+/// The pane command: `huh --here --tty <tty>` (plus `--quiet`, `--noise`, and `--mode`), told
+/// where the recordings are (`--dir`) because a new window does not inherit this shell's
+/// environment, and to keep its window open on an error (`--hold`) so the message can be read.
 fn pane_command(
     huh: &Path,
     tty: &str,
     quiet: bool,
+    noise: Option<&str>,
     dir: Option<&Path>,
     log: Option<&Path>,
     initial_mode: Option<&str>,
@@ -74,7 +75,9 @@ fn pane_command(
         cmd.extend(["--dir".into(), dir.display().to_string()]);
     }
     cmd.push("--hold".into());
-    if quiet {
+    if let Some(level) = noise.filter(|n| !n.is_empty()) {
+        cmd.extend(["--noise".into(), level.into()]);
+    } else if quiet {
         cmd.push("--quiet".into());
     }
     if let Some(mode) = initial_mode.filter(|m| !m.is_empty()) {
@@ -125,7 +128,14 @@ fn split_argv(pane: Option<&str>, cmd: &[String]) -> Vec<String> {
 
 /// tmux, new session on a private server with no user config: the user's shell on the left
 /// (closing it ends the session), the `huh` pane on the right, following the left pane's tty.
-fn session_argv(huh: &Path, quiet: bool, id: u32, dir: Option<&Path>, initial_mode: Option<&str>) -> Vec<String> {
+fn session_argv(
+    huh: &Path,
+    quiet: bool,
+    noise: Option<&str>,
+    id: u32,
+    dir: Option<&Path>,
+    initial_mode: Option<&str>,
+) -> Vec<String> {
     let name = format!("huh-{id}");
     let left = format!("{name}:0.0");
     let shell = format!("\"${{SHELL:-/bin/sh}}\"; tmux kill-session -t {name}");
@@ -135,7 +145,9 @@ fn session_argv(huh: &Path, quiet: bool, id: u32, dir: Option<&Path>, initial_mo
     if let Some(dir) = dir {
         right.push_str(&format!(" --dir {}", shell_quote(&dir.display().to_string())));
     }
-    if quiet {
+    if let Some(level) = noise.filter(|n| !n.is_empty()) {
+        right.push_str(&format!(" --noise {}", shell_quote(level)));
+    } else if quiet {
         right.push_str(" --quiet");
     }
     if let Some(mode) = initial_mode.filter(|m| !m.is_empty()) {
@@ -156,16 +168,18 @@ fn session_argv(huh: &Path, quiet: bool, id: u32, dir: Option<&Path>, initial_mo
     argv
 }
 
-/// Chooses what to start, with an optional initial pane mode (`watch` or `lab`). Pure: `env`
-/// reads an environment variable, `have` says whether a program is installed, `tty` is the
-/// terminal of standard input (None when it is not one), `huh` the absolute path of this binary,
-/// `id` any number unique to this run.
+/// Chooses what to start, with an optional initial pane mode (`watch` or `lab`) and watch noise
+/// level (`all`, `new`, `errors`). Pure: `env` reads an environment variable, `have` says whether
+/// a program is installed, `tty` is the terminal of standard input (None when it is not one),
+/// `huh` the absolute path of this binary, `id` any number unique to this run.
+#[allow(clippy::too_many_arguments)]
 pub fn decide_for(
     env: &dyn Fn(&str) -> Option<String>,
     have: &dyn Fn(&str) -> bool,
     tty: Option<&str>,
     huh: &Path,
     quiet: bool,
+    noise: Option<&str>,
     initial_mode: Option<&str>,
     id: u32,
 ) -> Plan {
@@ -180,7 +194,7 @@ pub fn decide_for(
     }
     let dir = recordings_dir(env);
     let log = env("HUH_SESSION_LOG").filter(|v| !v.is_empty()).map(PathBuf::from);
-    let cmd = pane_command(huh, tty, quiet, dir.as_deref(), log.as_deref(), initial_mode);
+    let cmd = pane_command(huh, tty, quiet, noise, dir.as_deref(), log.as_deref(), initial_mode);
     if tmux.is_some() {
         return Plan::Split(split_argv(env("TMUX_PANE").filter(|p| !p.is_empty()).as_deref(), &cmd));
     }
@@ -200,12 +214,12 @@ pub fn decide_for(
         }
     }
     if have("tmux") {
-        return Plan::Session(session_argv(huh, quiet, id, dir.as_deref(), initial_mode));
+        return Plan::Session(session_argv(huh, quiet, noise, id, dir.as_deref(), initial_mode));
     }
     Plan::Unavailable { tty: tty.to_string() }
 }
 
-/// Backward-compatible alias for `decide_for(..., None, id)`.
+/// Backward-compatible alias for `decide_for(..., None, None, id)`.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn decide(
     env: &dyn Fn(&str) -> Option<String>,
@@ -215,7 +229,7 @@ pub fn decide(
     quiet: bool,
     id: u32,
 ) -> Plan {
-    decide_for(env, have, tty, huh, quiet, None, id)
+    decide_for(env, have, tty, huh, quiet, None, None, id)
 }
 
 /// The text for `Plan::Unavailable`: how to get tmux, how to open a second window.
@@ -423,7 +437,7 @@ mod tests {
     }
 
     #[test]
-    fn decide_for_passes_initial_mode() {
+    fn decide_for_passes_initial_mode_and_noise() {
         let split_env: HashMap<&str, &str> = [("TMUX", "/s,1,0")].into();
         let Plan::Split(argv) = decide_for(
             &|k| split_env.get(k).map(|v| v.to_string()),
@@ -431,6 +445,7 @@ mod tests {
             Some("/dev/pts/1"),
             Path::new(HUH),
             false,
+            None,
             Some("lab"),
             1,
         ) else {
@@ -445,19 +460,27 @@ mod tests {
             Some("/dev/pts/2"),
             Path::new(HUH),
             false,
+            Some("errors"),
             Some("watch"),
             1,
         ) else {
             panic!()
         };
-        assert!(argv.ends_with(&strings(&["--hold", "--mode", "watch"])), "{argv:?}");
+        assert!(argv.ends_with(&strings(&["--hold", "--noise", "errors", "--mode", "watch"])), "{argv:?}");
 
         let Plan::Session(argv) =
-            decide_for(&|_| None, &|p| p == "tmux", Some("/dev/pts/3"), Path::new(HUH), true, Some("lab"), 5)
+            decide_for(&|_| None, &|p| p == "tmux", Some("/dev/pts/3"), Path::new(HUH), true, None, Some("lab"), 5)
         else {
             panic!()
         };
         assert!(argv.last().unwrap().ends_with("--hold --quiet --mode lab"), "{argv:?}");
+
+        let Plan::Session(argv_noise) =
+            decide_for(&|_| None, &|p| p == "tmux", Some("/dev/pts/3"), Path::new(HUH), false, Some("errors"), None, 6)
+        else {
+            panic!()
+        };
+        assert!(argv_noise.last().unwrap().ends_with("--hold --noise errors"), "{argv_noise:?}");
     }
 
     #[test]

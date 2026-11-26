@@ -262,7 +262,7 @@ hints = [
 [practice.setup]
 files = [
     { path = "deploy.sh", content = "#!/bin/sh\necho ready\n", mode = 0o644 },
-    { path = "secret.key", content = "TOP-SECRET-PRACTICE-KEY\n", mode = 0o644 },
+    { path = "secret.key", content = "TOP-SECRET-PRACTICE-KEY\n# vault-passphrase: open-pebble-vault\n", mode = 0o644 },
 ]
 
 [[practice.checks]]

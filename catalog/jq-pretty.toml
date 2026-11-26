@@ -1,0 +1,11 @@
+name = "jq pretty"
+description = "Pretty-print and colour-format JSON with jq"
+template = "jq . {file}"
+kind = "query"
+keywords = ["pretty print json", "pretty-print json", "format json", "indent json", "beautify json", "readable json", "jq pretty"]
+
+[[slots]]
+id = "file"
+kind = "path"
+what = "the JSON file to format"
+extract = "filename"

@@ -62,6 +62,12 @@ omarchy pkg aur add huh-bin     # or via AUR (yay -S huh-bin)
 
 > **First-class on Omarchy:** `huh` natively reads your live desktop palette from `~/.local/state/omarchy/current/theme/colors.toml` (`theme = "omarchy"`), resolves Arch/Omarchy commands (`omarchy pkg add`, `omarchy update`), and launches side-by-side via `xdg-terminal-exec` (`--app-id=huh`) or Ghostty (`--class=huh.pane`) for crisp Hyprland window rules.
 
+Optional Omarchy / Hyprland shortcut (`~/.config/hypr/bindings.lua`, then run `hyprctl reload`; check free chords with `SUPER + K`):
+
+```lua
+o.bind("SUPER + ALT + H", "huh companion", "xdg-terminal-exec --app-id=huh --title=huh -- huh --here")
+```
+
 ### From source (Cargo)
 
 ```bash
@@ -81,8 +87,8 @@ install -Dm755 target/x86_64-unknown-linux-musl/release/huh ~/.local/bin/huh
 
 Run `huh setup` once for an Omarchy-style interactive wizard across **Bash**, **Zsh**, and **Fish**:
 
-- Configures terminal recording (needed for `huh why` & live `watch` mode), prompt keybindings (`Alt+h`/`Alt+f` inline suggestion, `Alt+e` inline explanation), default pane mode, theme, pet render style, typewriter speed, and rotating header tips.
-- Saves live UI preferences atomically to `~/.local/state/huh/prefs.toml` while leaving `~/.config/huh/config.toml` untouched.
+- Configures terminal recording (needed for `huh why` & live `watch` mode), prompt keybindings (`Alt+h`/`Alt+f` inline suggestion, `Alt+e` inline explanation), default pane mode, theme, Watch noise level (`all` / `new` / `errors`), pet render style, typewriter speed, and rotating header tips.
+- Saves live UI preferences atomically to `~/.local/state/huh/prefs.toml` while leaving `~/.config/huh/config.toml` untouched (and prints the Omarchy Hyprland `o.bind` keybinding tip when running on Omarchy).
 
 ---
 
@@ -90,7 +96,7 @@ Run `huh setup` once for an Omarchy-style interactive wizard across **Bash**, **
 
 ### 1. Suggest a command from plain language (`huh "..."`)
 
-`huh` searches **310 curated catalog entries**, extracts values, sizes, ports, and real filenames from your current directory, and fills distro-appropriate commands:
+`huh` searches **316 curated catalog entries**, extracts values, sizes, ports, and real filenames from your current directory, and fills distro-appropriate commands:
 
 ```text
 $ huh "make deploy.sh executable"
@@ -164,13 +170,14 @@ Running bare `huh` opens a unified side-by-side companion pane next to your shel
 huh                          # open Watch + Lab companion pane beside your shell
 huh --mode lab               # launch directly into interactive Linux Lab mode
 huh --here                   # run in the current terminal pane
-huh --quiet                  # explain each program once per session
+huh --noise new              # explain unseen programs only (alias: --quiet); all | new | errors
 ```
 
 Inside the pane:
 - **`watch` mode (default):** Passively follows finished commands in the adjacent shell (`220 ms` poll loop), explains flags, outputs, and failures with an ANSI-safe variable-rate typewriter, and still lets you type commands, plain questions, `?tools`, `why`, or `pet` directly at the `huh> ` prompt.
+- **Watch noise levels (`/noise`):** Choose `all` (default — explain every finished command), `new` (explain unseen programs once and persist seen names to `~/.local/state/huh/seen.txt`; backward-compatible with `--quiet` / `/quiet`), or `errors` (stay quiet on clean `exit 0` commands and speak up on non-zero exits or safety warnings).
 - **Live `/` fuzzy slash dropdown & pickers:** Typing `/` pops up an inline TTY dropdown with Stage 1–3 completions (`Tab` completes, `↑`/`↓` navigates, `Enter` runs or prefills, `/etc/hosts`-style Unix paths are never hijacked):
-  - `/mode [watch|lab]` (`/watch`, `/lab`), `/safety [normal|expert]`, `/theme [name]`, `/pet [status|name|species|style|customize]`, `/speed [off|fast|normal|slow|<ms>]`, `/quiet [on|off]`, `/tips [on|off|next]`, `/find [words]`, `/help`.
+  - `/mode [watch|lab]` (`/watch`, `/lab`), `/safety [normal|expert]`, `/theme [name]`, `/pet [status|name|species|style|pebbles|customize]`, `/speed [off|fast|normal|slow|<ms>]`, `/noise [all|new|errors]`, `/quiet [on|off]`, `/tips [on|off|next]`, `/find [words]`, `/help`.
 - **Pinned DECSTBM header:** Keeps the animated `L2b` logo, **Pebble / your pet**, `[WATCH]` / `[LAB]` status bar, and Row-7 15-second rotating usage tips pinned at the top while explanations scroll underneath.
 
 ---
@@ -226,9 +233,10 @@ An offline, zero-punishment **11-unit, 33-lesson, 165-question, 9-lab, 19-badge*
 | `bee` (**Queen Bee**) | **Anabee** | `P3` Queen / `A3` | Unit 11 (`pixel_painter`) | 200 commands or 14-day streak |
 | `owl` (**Snowy Owl**) | **Pebble** | `P4` Wizard / `A1` | Unit 8 (`night_watch`) | 250 commands or 5 warnings heeded |
 
-Switching species automatically adopts that species' canonical default name when on any default mascot name while keeping custom `/pet name <NAME>` nicknames intact. Customize your own sprite sheet anytime:
+Switching species automatically adopts that species' canonical default name when on any default mascot name while keeping custom `/pet name <NAME>` nicknames intact. As Watch and Lab affection milestones accumulate, your companion also gifts **14 collectible shiny pebbles** (*Smooth Beach Quartz*, *Scholar's Pearl*, and more) with live pane toasts. Customize your sprite sheet or inspect your pebble collection anytime:
 
 ```bash
+huh pet --pebbles                       # list earned & locked shiny pebbles (or `/pet pebbles`)
 huh pet --customize                     # writes ~/.config/huh/sprites/<species>.toml
 huh pet --style ascii                   # force 4x10 ASCII (or auto | pixel | off)
 ```
@@ -263,17 +271,17 @@ A warning informs; it never forbids. `huh` shows it and you decide. Every warnin
 ## Themes & Privacy
 
 - **9 built-in themes:** `babyblue` (default truecolour + light-background adaptation + 256-colour fallback), `auto` (Omarchy / terminal 16 colors), `omarchy` (reads live Omarchy theme colors), `dark`, `light`, `nord`, `gruvbox`, `catppuccin`, and `mono`. Preview all palettes with `huh themes` or switch live via `/theme`.
-- **Utility subcommands:** `huh find [words]` (`fzf` catalog + `$PATH` browser), `huh tools [words]`, `huh check`, `huh welcome`, `huh eval`, `huh eval-errors`.
+- **Utility subcommands:** `huh find [words]` (`fzf` catalog + `$PATH` browser), `huh tools [words]`, `huh misses [--limit N|--raw|--clear|--enable|--disable]` (opt-in local miss log for unmatched queries), `huh check`, `huh welcome`, `huh eval`, `huh eval-errors`.
 - **Local-only data separation:**
   - User-owned config: `~/.config/huh/config.toml` (never rewritten by slash commands)
-  - Live companion & Lab state: `~/.local/state/huh/{prefs,pet,progress}.toml` (atomic writes)
+  - Live companion & Lab state: `~/.local/state/huh/{prefs,pet,progress}.toml` plus optional `seen.txt` (`noise = "new"`) and `misses.jsonl` (`huh misses`, opt-in via `huh misses --enable`, `miss_log = true`, or `HUH_MISS_LOG=1`) (atomic writes)
   - Ephemeral shell log buffer (when `huh setup` / `huh shell-init` recording is enabled): `$XDG_RUNTIME_DIR/huh/<pid>.log` (`0600`, 1 MB ring buffer, gone on logout)
 
 ---
 
 ## Architecture & Contributing
 
-`huh` enforces strict modularity and automated regression suites (**434 release tests** covering 11 `evals/*.toml` request benchmarks, 6 `evals/errors*.toml` Error Doctor suites, `outputs`, `explain`, `lessons`, `sprites`, `tui`, `slash`, `platform`, and subprocess-isolation checks).
+`huh` enforces strict modularity and automated regression suites (**468 regression tests** covering 11 `evals/*.toml` request benchmarks, 6 `evals/errors*.toml` Error Doctor suites, `outputs`, `explain`, `lessons`, `sprites`, `tui`, `slash`, `platform`, `pet`, `misses`, `prefs`, `setup`, `pane`, and subprocess-isolation checks).
 
 - Read the full internals, platform extension format, and module map in **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**.
 - Track completed milestones and upcoming ideas in **[`ROADMAP.md`](ROADMAP.md)**.

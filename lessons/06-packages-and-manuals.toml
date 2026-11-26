@@ -36,7 +36,7 @@ choices = [
 ]
 answer = 0
 hint = "`man` is short for \"manual\", and the viewer uses the first letter of \"quit\"."
-note = "Almost every Linux command has a manual page. Inside `man`, use arrow keys or `/` to search, and press `q` anytime to exit."
+note = "Almost every Linux command has a manual page. Inside `man`, use arrow keys or `/` to search, and press `q` anytime to exit. (Secret for thorough manual readers: tell huh `rtfm-wizard`.)"
 
 [[lessons.questions]]
 kind = "type_command"

@@ -47,7 +47,7 @@ For installation and day-to-day usage, see the main [README](../README.md).
 
 ### 4. Platform Detection & Catalog Resolution (`src/platform.rs`, `data/platforms.toml`, `src/catalog.rs`)
 
-- **System families:** Maps `/etc/os-release` `ID`/`ID_LIKE` (else `$PATH` package manager fallback) across `arch`, `omarchy` (extends `arch`), `debian`, `fedora`, `suse`, `alpine`, `void`, `gentoo`, `nixos`, and `nix` (standalone Nix).
+- **System families:** Maps `/etc/os-release` `ID`/`ID_LIKE` (else `$PATH` package manager fallback) across `arch`, `omarchy` (extends `arch`), `debian`, `fedora`, `suse`, `tumbleweed` (extends `suse`), `alpine`, `void`, `gentoo`, `nixos`, and `nix` (standalone Nix).
 - **Unified package facts:** `{pkg_install}`, `{pkg_remove}`, `{pkg_search}`, `{pkg_update}`, `{pkg_owns}`, `{pkg_provides}`, `{pkg_query}`, `{pkg_list}`, and `{pkg_clean}` fill templates in both `catalog/*.toml` and `lessons/*.toml`.
 - **Missing-program `NOTE:`:** Scans `$PATH` (plus `sbin` dirs for `sudo` entries). Known packages print exact distro install commands (and `[notes]` caveats); unknown programs print `provides` searches rather than guessing package names; distro tools (`pacman`, `omarchy`, `yay`, `flatpak`) are never recommended via another family's manager.
 - **User overrides:** Extend or override the embedded catalog and platform tables at runtime via `--catalog <DIR>`, `$HUH_CATALOG`, `~/.config/huh/catalog/*.toml`, `$HUH_PLATFORMS`, or `~/.config/huh/platforms.toml`.
@@ -66,14 +66,16 @@ For installation and day-to-day usage, see the main [README](../README.md).
 
 | Kind | Path | Owned By | Purpose |
 |---|---|---|---|
-| User config | `$XDG_CONFIG_HOME/huh/config.toml` | User (never modified by live slash commands) | `default_mode`, `mode`/`safety`, `theme`, `animation`, `pin`, `pet`, `typewriter`, `typewriter_ms`, `tips`, `daily_goal` |
+| User config | `$XDG_CONFIG_HOME/huh/config.toml` | User (never modified by live slash commands) | `default_mode`, `mode`/`safety`, `theme`, `animation`, `pin`, `pet`, `typewriter`, `typewriter_ms`, `tips`, `daily_goal`, `miss_log` |
 | Custom sprites | `$XDG_CONFIG_HOME/huh/sprites/*.toml` | User (`huh pet --customize`) | 32×32 palette + grid overrides; invalid files fall back silently |
-| Runtime prefs | `$XDG_STATE_HOME/huh/prefs.toml` | Pane (atomic write via tmp + rename) | Live `/mode`, `/safety`, `/theme`, `/speed`, `/quiet`, `/tips`, `/pet style` |
-| Companion state | `$XDG_STATE_HOME/huh/pet.toml` | Companion (atomic merge/save) | Pet name, species, stats, streaks, dual-track unlock counters |
+| Runtime prefs | `$XDG_STATE_HOME/huh/prefs.toml` | Pane / CLI (atomic write via tmp + rename) | Live `/mode`, `/safety`, `/theme`, `/speed`, `/noise` (`/quiet`), `/tips`, `/pet style`, `huh misses --enable\|--disable` |
+| Seen programs | `$XDG_STATE_HOME/huh/seen.txt` | Watch (`noise = "new"`) | Atomic list of already-explained command names persisted across restarts |
+| Miss log | `$XDG_STATE_HOME/huh/misses.jsonl` | CLI / Watch (`huh misses`) | Opt-in local JSONL log (`0600`, capped at 1,000 entries) of unmatched queries |
+| Companion state | `$XDG_STATE_HOME/huh/pet.toml` | Companion (atomic merge/save) | Pet name, species, stats, streaks, dual-track unlock counters, gifted pebbles |
 | Course state | `$XDG_STATE_HOME/huh/progress.toml` | Lab (atomic write) | XP, daily goal, UTC streaks + freezes, 19 badges, completed lessons/labs, 6-box Leitner SRS deck |
 | Practice sandboxes | `$XDG_DATA_HOME/huh/practice/` | Lab (`practice.rs`) | Throwaway directories + cleanup |
 
-**Resolution order:** CLI flag > environment variable (`HUH_MODE`, `HUH_THEME`, `HUH_NO_TIPS`, `HUH_NO_TYPEWRITER`, `HUH_TYPEWRITER_MS`, `HUH_NO_PIN`, `HUH_NO_PET`, `HUH_KITTY_GRAPHICS`) > `config.toml` > `prefs.toml` > defaults.
+**Resolution order:** CLI flag > environment variable (`HUH_MODE`, `HUH_THEME`, `HUH_NO_TIPS`, `HUH_NO_TYPEWRITER`, `HUH_TYPEWRITER_MS`, `HUH_NO_PIN`, `HUH_NO_PET`, `HUH_KITTY_GRAPHICS`, `HUH_MISS_LOG`) > `config.toml` > `prefs.toml` > defaults.
 
 ---
 
@@ -82,18 +84,18 @@ For installation and day-to-day usage, see the main [README](../README.md).
 Run the built-in evaluation suites directly from any checkout:
 
 ```bash
-huh check                                            # validate all 310 catalog entries
+huh check                                            # validate all 316 catalog entries
 huh eval                                             # evals/cases.toml (238 cases)
 huh eval --cases evals/heldout.toml                  # evals/heldout.toml (138 cases)
 huh eval --cases evals/safety.toml                   # evals/safety.toml (110 cases)
 huh eval --cases evals/sysadmin.toml                 # evals/sysadmin.toml (120 cases)
 huh eval --cases evals/everyday.toml                 # evals/everyday.toml (17 cases)
-huh eval --cases evals/debian.toml --platform debian # distro simulation (arch, debian, fedora, suse, alpine, void, gentoo, nixos)
+huh eval --cases evals/debian.toml --platform debian # distro simulation (arch, debian, fedora, suse, tumbleweed, alpine, void, gentoo, nixos)
 huh eval-errors                                      # evals/errors.toml (30 cases)
 huh eval-errors --cases evals/errors-real.toml       # evals/errors-real.toml (67 real-world failures)
 ```
 
-All `evals/*.toml` suites run automatically in `cargo test --release --quiet` (**434 passed, 0 failed, 2 ignored** manual dump helpers).
+All `evals/*.toml` suites run automatically in `cargo test --release --quiet` (**468 passed, 0 failed, 2 ignored** manual dump helpers).
 
 ---
 
@@ -101,15 +103,15 @@ All `evals/*.toml` suites run automatically in `cargo test --release --quiet` (*
 
 | File | Role |
 |---|---|
-| [`build.rs`](../build.rs) | Embeds sorted `catalog/*.toml` (310), `lessons/*.toml` (11), and `sprites/*.toml` (9) at compile time |
-| [`src/main.rs`](../src/main.rs) | CLI (`huh`), request pipeline, `explain`, `why`, `setup`, `pet`, `check`, and companion-pane launch |
+| [`build.rs`](../build.rs) | Embeds sorted `catalog/*.toml` (316), `lessons/*.toml` (11), and `sprites/*.toml` (9) at compile time |
+| [`src/main.rs`](../src/main.rs) | CLI (`huh`), request pipeline, `explain`, `why`, `misses`, `setup`, `pet`, `check`, and companion-pane launch |
 | [`src/matcher.rs`](../src/matcher.rs) | `LocalMatcher`: BM25F index, stems/concepts, domain coherence, unmodeled checks, slot ranking |
 | [`src/candidates.rs`](../src/candidates.rs), [`src/extract.rs`](../src/extract.rs), [`src/values.rs`](../src/values.rs) | Token, phrase, path, size, port, device, extension, and typed candidate extraction |
 | [`src/sysinfo.rs`](../src/sysinfo.rs), [`src/readers.rs`](../src/readers.rs) | Read-only `/etc/{passwd,group,shells}` + systemd units and specialized sysadmin slot extractors |
 | [`src/assemble.rs`](../src/assemble.rs), [`src/guard.rs`](../src/guard.rs) | Shortlisting, slot filling, shell quoting, missing-program `NOTE:`, and normal-mode safety abstentions |
 | [`src/hint.rs`](../src/hint.rs), [`src/hints.txt`](../src/hints.txt) | Closest-tool pointer table (`ffmpeg`, `convert`, `pandoc`, `wine`, etc.) when no exact catalog command applies |
-| [`src/platform.rs`](../src/platform.rs), [`data/platforms.toml`](../data/platforms.toml) | OS detection, 9 Linux distro families, package-task templates, and per-family package names |
-| [`src/catalog.rs`](../src/catalog.rs), `catalog/*.toml` | Catalog schema, validation, platform filtering, and 310 curated command definitions |
+| [`src/platform.rs`](../src/platform.rs), [`data/platforms.toml`](../data/platforms.toml) | OS detection, 10 Linux distro families (plus standalone Nix), package-task templates, and per-family package names |
+| [`src/catalog.rs`](../src/catalog.rs), `catalog/*.toml` | Catalog schema, validation, platform filtering, and 316 curated command definitions |
 | [`src/doctor.rs`](../src/doctor.rs) | Deterministic Error Doctor (`huh why`: exit codes, typo scans, permissions, FUSE 2, Exec format error, crashes) |
 | [`src/outputs.rs`](../src/outputs.rs), [`src/outputs.txt`](../src/outputs.txt) | Tabular & status command output explainer for `cmd \| huh` |
 | [`src/shell.rs`](../src/shell.rs), [`src/explain.rs`](../src/explain.rs), [`src/breakdown.rs`](../src/breakdown.rs), [`src/decode.rs`](../src/decode.rs) | Static bash-subset parser and recursive command breakdown |
@@ -117,9 +119,11 @@ All `evals/*.toml` suites run automatically in `cargo test --release --quiet` (*
 | [`src/risk.rs`](../src/risk.rs), [`src/risk_extra.rs`](../src/risk_extra.rs), [`src/risk_kinds.rs`](../src/risk_kinds.rs), [`src/render.rs`](../src/render.rs) | 14 standardized warning detectors, risk taxonomy, and 80-column output renderer |
 | [`src/launch.rs`](../src/launch.rs) | Side-pane launcher (`tmux` split, tiling desktop window, `tmux -L huh`) and `fzf` runner — sole module spawning subprocesses |
 | [`src/session.rs`](../src/session.rs), [`src/setup.rs`](../src/setup.rs) | `script` PTY recording sink, bash/zsh/fish shell hooks/bindings, and `huh setup` wizard |
-| [`src/pane.rs`](../src/pane.rs), [`src/tui.rs`](../src/tui.rs), [`src/slash.rs`](../src/slash.rs) | Unified `watch` + `lab` event loop, raw-mode `select_menu`, live `/` fuzzy dropdown `LineEditor`, 11 slash commands |
+| [`src/pane.rs`](../src/pane.rs), [`src/tui.rs`](../src/tui.rs), [`src/slash.rs`](../src/slash.rs) | Unified `watch` + `lab` event loop, raw-mode `select_menu`, live `/` fuzzy dropdown `LineEditor`, 12 slash commands |
 | [`src/pin.rs`](../src/pin.rs), [`src/tips.rs`](../src/tips.rs), [`src/typewriter.rs`](../src/typewriter.rs), [`src/style.rs`](../src/style.rs), [`src/welcome.rs`](../src/welcome.rs) | DECSTBM pinned header, 18 rotating header tips, ANSI-safe variable-rate typewriter, 9 color themes, `L2b` welcome animation |
-| [`src/pet.rs`](../src/pet.rs), [`src/date.rs`](../src/date.rs), [`src/sprite.rs`](../src/sprite.rs), `sprites/*.toml` | `#!` companion state machine (9 species × 6 moods), Kitty Graphics APC/DCS renderer, 4×10 ASCII fallback, custom sheets |
+| [`src/pet.rs`](../src/pet.rs), [`src/date.rs`](../src/date.rs), [`src/sprite.rs`](../src/sprite.rs), `sprites/*.toml` | `#!` companion state machine (9 species × 6 moods), pebble milestones, Kitty Graphics APC/DCS renderer, 4×10 ASCII fallback, custom sheets |
 | [`src/learn.rs`](../src/learn.rs), [`src/lessons.rs`](../src/lessons.rs), [`src/practice.rs`](../src/practice.rs), `lessons/*.toml` | `/mode lab` runner, 11-unit / 33-lesson / 165-question / 9-lab curriculum, `unlock_after` branching, sandbox checker |
+| [`src/cheats.rs`](../src/cheats.rs) | Hidden lesson easter eggs updating local companion/course state (zero shell execution) |
+| [`src/misses.rs`](../src/misses.rs) | Pure-std opt-in JSONL local miss log (`0600`, atomic 1,000-entry rotation) for `huh misses` |
 | [`src/progress.rs`](../src/progress.rs), [`src/srs.rs`](../src/srs.rs), [`src/prefs.rs`](../src/prefs.rs), [`src/mode.rs`](../src/mode.rs) | XP, UTC streaks with freezes, 19 badges, 6-box Leitner SRS, atomic `prefs.toml`, and `config.toml` loaders |
 | [`src/find.rs`](../src/find.rs), [`src/tools.rs`](../src/tools.rs), [`src/eval.rs`](../src/eval.rs) | Fuzzy command/binary finder, PATH tool scanner, and evaluation runners |

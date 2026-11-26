@@ -1,0 +1,6 @@
+name = "hyprctl monitors"
+description = "Show connected monitors and their screen resolution and refresh rate in Hyprland"
+template = "hyprctl monitors"
+kind = "query"
+platform = "omarchy"
+keywords = ["screen resolution", "monitor resolution", "display resolution", "monitors", "refresh rate", "what is my screen resolution", "show displays", "connected monitors", "hyprctl monitors"]

@@ -222,7 +222,7 @@ list = "dnf list --installed"
 clean = "sudo dnf clean all"
 
 [families.suse]
-ids = ["opensuse", "opensuse-leap", "opensuse-tumbleweed", "opensuse-microos", "opensuse-slowroll", "suse", "sles", "sled", "sle-micro", "geckolinux"]
+ids = ["opensuse", "opensuse-leap", "opensuse-microos", "suse", "sles", "sled", "sle-micro", "geckolinux"]
 detect = ["zypper"]
 install = "sudo zypper install"
 remove = "sudo zypper remove"
@@ -233,6 +233,12 @@ provides = "zypper search --provides {}"
 query = "rpm -q"
 list = "zypper search --installed-only"
 clean = "sudo zypper clean --all"
+
+# openSUSE Tumbleweed and Slowroll are rolling releases, so system updates use `zypper dup`.
+[families.tumbleweed]
+extends = "suse"
+ids = ["opensuse-tumbleweed", "opensuse-slowroll"]
+update = "sudo zypper dup"
 
 [families.alpine]
 ids = ["alpine", "postmarketos", "wolfi"]

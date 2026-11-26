@@ -207,7 +207,22 @@ pub fn manager(platforms: &[String]) -> Option<String> {
 }
 
 thread_local! {
+    static EVAL_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static PINNED: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// For `eval::score_for`: marks that simulated-platform scoring is active on this thread so
+/// runtime environment adjustments (such as stripping `sudo` when running as root without `sudo`)
+/// are not applied to eval expectations.
+pub fn set_eval_mode(active: bool) {
+    EVAL_ACTIVE.with(|flag| flag.set(active));
+}
+
+/// True when `eval` or `eval-errors` simulated-platform mode is active on this thread.
+pub fn in_eval() -> bool {
+    EVAL_ACTIVE.with(std::cell::Cell::get)
+        || PINNED.with(|pinned| pinned.borrow().is_some())
+        || EVAL_PLATFORM.with(|platform| platform.borrow().is_some())
 }
 
 /// For `huh eval-errors` and tests: on this thread, pretend to be this platform with no program
@@ -389,20 +404,19 @@ pub fn install_advice(program: &str, package: Option<&str>, platforms: &[String]
     match package_name(data, &family, program, package) {
         Name::Package(name) => {
             let key = package.or_else(|| data.programs.get(program).map(String::as_str)).unwrap_or(program);
+            let cmd = fill(&fact(platforms, "pkg_install")?, &name);
             Some(Advice {
-                command: fill(&fact(platforms, "pkg_install")?, &name),
+                command: strip_sudo_runtime(&cmd),
                 installs: true,
                 package: Some(name),
                 note: release_note(data, &family, key),
             })
         }
         Name::NotPackaged => None,
-        Name::Unknown => Some(Advice {
-            command: fill(&fact(platforms, "pkg_provides")?, program),
-            installs: false,
-            package: None,
-            note: None,
-        }),
+        Name::Unknown => {
+            let cmd = fill(&fact(platforms, "pkg_provides")?, program);
+            Some(Advice { command: strip_sudo_runtime(&cmd), installs: false, package: None, note: None })
+        }
     }
 }
 
@@ -497,6 +511,176 @@ pub fn locate(program: &str) -> Found {
     locate_in(program, &path_dirs(), &sbin)
 }
 
+/// True when the current process runs as root (`geteuid() == 0`) on Unix.
+#[cfg(unix)]
+pub fn is_root() -> bool {
+    unsafe extern "C" {
+        fn geteuid() -> u32;
+    }
+    // SAFETY: `geteuid()` is a standard POSIX query with no preconditions or side effects.
+    unsafe { geteuid() == 0 }
+}
+
+#[cfg(not(unix))]
+pub fn is_root() -> bool {
+    false
+}
+
+/// True when `program` is an executable directly on `$PATH` (never spawns a subprocess).
+pub fn on_path(program: &str) -> bool {
+    matches!(locate_in(program, &path_dirs(), &[]), Found::OnPath(_))
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_ROOT_WITHOUT_SUDO: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn with_root_without_sudo_for_test<T>(enabled: bool, f: impl FnOnce() -> T) -> T {
+    struct Reset(Option<bool>);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            TEST_ROOT_WITHOUT_SUDO.with(|c| c.set(self.0));
+        }
+    }
+    let prev = TEST_ROOT_WITHOUT_SUDO.with(|c| {
+        let old = c.get();
+        c.set(Some(enabled));
+        old
+    });
+    let _guard = Reset(prev);
+    f()
+}
+
+/// True when real runtime suggestions/commands should omit `sudo` because the user is root and
+/// `sudo` is absent from `$PATH`. Always false during `eval` simulated-platform checks.
+pub fn is_root_without_sudo() -> bool {
+    if in_eval() {
+        return false;
+    }
+    #[cfg(test)]
+    if let Some(forced) = TEST_ROOT_WITHOUT_SUDO.with(std::cell::Cell::get) {
+        return forced;
+    }
+    !cfg!(test) && is_root() && !on_path("sudo")
+}
+
+/// Strips `sudo ` prefixes at command positions (start of line or after `&&`, `||`, `;`, `|`,
+/// newline) when running as root without `sudo` (`is_root && !has_sudo`). Leaves `sudo` untouched
+/// when it is an argument (`apt install sudo`, `man sudo`), when flags follow it (`sudo -u ...`),
+/// or inside quotes.
+pub fn strip_sudo_if_root_without_sudo(line: &str, is_root: bool, has_sudo: bool) -> String {
+    if !(is_root && !has_sudo) {
+        return line.to_string();
+    }
+    let bytes = line.as_bytes();
+    let mut out = String::with_capacity(line.len());
+    let mut i = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    let mut at_cmd_start = true;
+
+    while i < bytes.len() {
+        let rest = &line[i..];
+        let ch = rest.chars().next().unwrap();
+        let ch_len = ch.len_utf8();
+
+        if escaped {
+            out.push(ch);
+            escaped = false;
+            i += ch_len;
+            continue;
+        }
+        if in_single {
+            if ch == '\'' {
+                in_single = false;
+            }
+            out.push(ch);
+            i += ch_len;
+            continue;
+        }
+        if in_double {
+            if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_double = false;
+            }
+            out.push(ch);
+            i += ch_len;
+            continue;
+        }
+
+        if ch == '\\' {
+            escaped = true;
+            at_cmd_start = false;
+            out.push(ch);
+            i += ch_len;
+            continue;
+        }
+        if ch == '\'' {
+            in_single = true;
+            at_cmd_start = false;
+            out.push(ch);
+            i += ch_len;
+            continue;
+        }
+        if ch == '"' {
+            in_double = true;
+            at_cmd_start = false;
+            out.push(ch);
+            i += ch_len;
+            continue;
+        }
+
+        if at_cmd_start {
+            if ch == ' ' || ch == '\t' {
+                out.push(ch);
+                i += ch_len;
+                continue;
+            }
+            if let Some(after_sudo) = rest.strip_prefix("sudo")
+                && after_sudo.starts_with([' ', '\t'])
+            {
+                let trimmed = after_sudo.trim_start_matches([' ', '\t']);
+                if !trimmed.is_empty()
+                    && !trimmed.starts_with('-')
+                    && !trimmed.starts_with('&')
+                    && !trimmed.starts_with('|')
+                    && !trimmed.starts_with(';')
+                {
+                    i = line.len() - trimmed.len();
+                    continue;
+                }
+            }
+            at_cmd_start = false;
+        }
+
+        if rest.starts_with("&&") || rest.starts_with("||") {
+            out.push_str(&rest[..2]);
+            i += 2;
+            at_cmd_start = true;
+            continue;
+        }
+        if (ch == '|' || ch == ';' || ch == '\n') && !(ch == '|' && out.ends_with('>')) {
+            out.push(ch);
+            i += ch_len;
+            at_cmd_start = true;
+            continue;
+        }
+
+        out.push(ch);
+        i += ch_len;
+    }
+    out
+}
+
+/// Applies `strip_sudo_if_root_without_sudo` for the live runtime environment (no-op during eval).
+pub fn strip_sudo_runtime(line: &str) -> String {
+    if is_root_without_sudo() { strip_sudo_if_root_without_sudo(line, true, false) } else { line.to_string() }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -522,7 +706,8 @@ mod tests {
         ("ID=fedora\n", "fedora", "sudo dnf install"),
         ("ID=\"rocky\"\nID_LIKE=\"rhel centos fedora\"\n", "fedora", "sudo dnf install"),
         ("ID=\"almalinux\"\nID_LIKE=\"rhel centos fedora\"\n", "fedora", "sudo dnf install"),
-        ("ID=\"opensuse-tumbleweed\"\nID_LIKE=\"opensuse suse\"\n", "suse", "sudo zypper install"),
+        ("ID=\"opensuse-tumbleweed\"\nID_LIKE=\"opensuse suse\"\n", "tumbleweed", "sudo zypper install"),
+        ("ID=\"opensuse-slowroll\"\nID_LIKE=\"opensuse suse\"\n", "tumbleweed", "sudo zypper install"),
         ("ID=\"opensuse-leap\"\nID_LIKE=\"suse opensuse\"\n", "suse", "sudo zypper install"),
         ("ID=sles\nID_LIKE=\"suse\"\n", "suse", "sudo zypper install"),
         ("ID=alpine\n", "alpine", "sudo apk add"),
@@ -534,7 +719,7 @@ mod tests {
     #[test]
     fn embedded_data_is_valid() {
         let data = data();
-        for name in ["arch", "omarchy", "debian", "fedora", "suse", "alpine", "void", "gentoo", "nixos"] {
+        for name in ["arch", "omarchy", "debian", "fedora", "suse", "tumbleweed", "alpine", "void", "gentoo", "nixos"] {
             assert!(data.families.contains_key(name), "missing family {name}");
         }
         for (name, family) in &data.families {
@@ -887,5 +1072,70 @@ mod tests {
         let dir = expand_tilde(Path::new("~/bin"), home.to_str());
         assert!(matches!(locate_in("mine", &[dir], &[]), Found::OnPath(_)));
         std::fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    fn tumbleweed_uses_zypper_dup_while_leap_and_sles_keep_update() {
+        for os_release in [
+            "ID=\"opensuse-tumbleweed\"\nID_LIKE=\"opensuse suse\"\n",
+            "ID=\"opensuse-slowroll\"\nID_LIKE=\"opensuse suse\"\n",
+        ] {
+            let platform = detect_with(os_release, &|_| false);
+            assert_eq!(manager(&platform).as_deref(), Some("tumbleweed"), "{os_release}");
+            assert_eq!(fact(&platform, "pkg_update").as_deref(), Some("sudo zypper dup"), "{os_release}");
+            assert_eq!(fact(&platform, "pkg_install").as_deref(), Some("sudo zypper install"), "{os_release}");
+            assert_eq!(
+                install_advice("btrfs", None, &platform).map(|a| a.command).as_deref(),
+                Some("sudo zypper install btrfsprogs"),
+                "{os_release}"
+            );
+        }
+        for os_release in ["ID=\"opensuse-leap\"\nID_LIKE=\"suse opensuse\"\n", "ID=sles\nID_LIKE=\"suse\"\n"] {
+            let platform = detect_with(os_release, &|_| false);
+            assert_eq!(manager(&platform).as_deref(), Some("suse"), "{os_release}");
+            assert_eq!(fact(&platform, "pkg_update").as_deref(), Some("sudo zypper update"), "{os_release}");
+        }
+    }
+
+    #[test]
+    fn strips_sudo_only_when_root_without_sudo() {
+        // Root without sudo: strips command-position `sudo` prefixes, including chained/piped commands.
+        assert_eq!(strip_sudo_if_root_without_sudo("sudo apt install htop", true, false), "apt install htop");
+        assert_eq!(
+            strip_sudo_if_root_without_sudo("sudo apt update && sudo apt upgrade", true, false),
+            "apt update && apt upgrade"
+        );
+        assert_eq!(
+            strip_sudo_if_root_without_sudo("echo 'hello' | sudo tee -a /etc/hosts", true, false),
+            "echo 'hello' | tee -a /etc/hosts"
+        );
+        assert_eq!(strip_sudo_if_root_without_sudo("sudo apt install sudo", true, false), "apt install sudo");
+        assert_eq!(strip_sudo_if_root_without_sudo("man sudo", true, false), "man sudo");
+        assert_eq!(strip_sudo_if_root_without_sudo("sudo -u postgres psql", true, false), "sudo -u postgres psql");
+        assert_eq!(strip_sudo_if_root_without_sudo("echo 'sudo test'", true, false), "echo 'sudo test'");
+
+        // Root with sudo present: keeps `sudo`.
+        assert_eq!(strip_sudo_if_root_without_sudo("sudo apt install htop", true, true), "sudo apt install htop");
+        assert_eq!(
+            strip_sudo_if_root_without_sudo("sudo apt update && sudo apt upgrade", true, true),
+            "sudo apt update && sudo apt upgrade"
+        );
+
+        // Non-root without sudo: keeps `sudo`.
+        assert_eq!(strip_sudo_if_root_without_sudo("sudo apt install htop", false, false), "sudo apt install htop");
+        assert_eq!(
+            strip_sudo_if_root_without_sudo("sudo apt update && sudo apt upgrade", false, false),
+            "sudo apt update && sudo apt upgrade"
+        );
+
+        // Runtime install_advice obeys root-without-sudo, while eval mode leaves `sudo` intact.
+        with_root_without_sudo_for_test(true, || {
+            let deb = words(&["debian"]);
+            assert_eq!(install_advice("htop", None, &deb).map(|a| a.command).as_deref(), Some("apt install htop"));
+            use_platform_for_eval(&deb);
+            let eval_cmd = install_advice("htop", None, &deb).map(|a| a.command);
+            use_platform_for_eval(&[]);
+            assert_eq!(eval_cmd.as_deref(), Some("sudo apt install htop"));
+        });
     }
 }

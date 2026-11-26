@@ -276,7 +276,7 @@ hints = [
 
 [practice.setup]
 files = [
-    { path = "app.log", content = "INFO: game server started\nINFO: player sam joined\nERROR: disk almost full\nINFO: autosave skipped\nERROR: failed to write checkpoint\n" },
+    { path = "app.log", content = "INFO: game server started\nINFO: player sam joined\nERROR: disk almost full\nINFO: autosave skipped\nERROR: failed to write checkpoint\nDEBUG: slow and steady wins the pipe — code: grep-for-shells\n" },
 ]
 
 [[practice.checks]]

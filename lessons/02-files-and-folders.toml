@@ -271,6 +271,7 @@ hints = [
 [practice.setup]
 files = [
     { path = "draft.txt", content = "hello from huh\n" },
+    { path = ".beaver_blueprint", content = "# Bóbr's secret dam passphrase: bobr-builds-dams\n" },
 ]
 
 [[practice.checks]]

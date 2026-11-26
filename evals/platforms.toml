@@ -185,6 +185,55 @@ expect = "rpm -qf /usr/bin/ls"
 
 [[case]]
 request = "install htop"
+platform = "tumbleweed"
+command = "package install"
+expect = "sudo zypper install htop"
+
+[[case]]
+request = "install dig"
+platform = "tumbleweed"
+command = "package install"
+expect = "sudo zypper install bind-utils"
+
+[[case]]
+request = "install btrfs-progs"
+platform = "tumbleweed"
+command = "package install"
+expect = "sudo zypper install btrfsprogs"
+
+[[case]]
+request = "remove htop"
+platform = "tumbleweed"
+command = "package remove"
+expect = "sudo zypper remove htop"
+
+[[case]]
+request = "search for a package called ripgrep"
+platform = "tumbleweed"
+command = "package search"
+expect = "zypper search ripgrep"
+
+[[case]]
+request = "update all packages"
+platform = "tumbleweed"
+command = "system update"
+expect = "sudo zypper dup"
+
+[[case]]
+request = "which package owns /usr/bin/ls"
+platform = "tumbleweed"
+command = "package owns file"
+expect = "rpm -qf /usr/bin/ls"
+
+[[case]]
+request = "clean up old packages"
+platform = "tumbleweed"
+command = "package cache clean"
+expect = "sudo zypper clean --all"
+warn = true
+
+[[case]]
+request = "install htop"
 platform = "alpine"
 command = "package install"
 expect = "sudo apk add htop"

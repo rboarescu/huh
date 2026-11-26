@@ -64,6 +64,12 @@ const SPECIFIC_ENTRIES: &[&str] = &[
     "flatpak list",
     "flatpak uninstall",
     "mpv",
+    "bluetoothctl pair",
+    "omarchy theme current",
+    "hyprctl monitors",
+    "screen resolution",
+    "jq pretty",
+    "jq extract",
 ];
 
 const STOPWORDS: &[&str] = &[
@@ -681,6 +687,10 @@ impl<'a> QueryContext<'a> {
 
     fn has_log_file(&self) -> bool {
         self.raw_tokens.iter().any(|t| t.lower.ends_with(".log"))
+    }
+
+    fn has_json(&self) -> bool {
+        self.has_any(&["json", "jq"]) || self.raw_tokens.iter().any(|t| t.lower.ends_with(".json"))
     }
 
     fn has_remote_scp(&self) -> bool {
@@ -1768,7 +1778,8 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
             && !q.has_any(&["biggest to smallest", "order", "sort"]) => bonus += 8.5,
         "free" if q.has_word("ram") || (q.has_word("memory") && q.has_any(&["free", "much", "use"]) && !q.has_any(&["docker", "container", "vm", "virtual", "model", "ollama"])) => bonus += 7.0,
         "smartctl" if q.raw.contains("/dev/") || (q.has_any(&["disk", "drive", "ssd", "nvme"]) && q.has_any(&["health", "healthy", "smart"])) => bonus += 7.5,
-        "lsblk" if q.has_any(&["disk", "disks", "partition", "partitions", "block device", "block devices"]) && !q.has_any(&["health", "healthy", "free", "space"]) => bonus += 6.0,
+        "lsblk" if q.has_any(&["disk", "disks", "drive", "drives", "partition", "partitions", "block device", "block devices"])
+            && !q.has_any(&["health", "healthy", "free", "space", "mounted", "mount", "unmount", "umount", "eject", "format", "wipe", "zero", "erase", "burn", "flash", "fsck", "filesystem", "speed", "benchmark", "copy", "cp"]) => bonus += 7.0,
         "stat" if q.has_any(&["when was", "last modified", "last changed", "facts about", "metadata"])
             || (q.has_word("size") && q.has_word("permissions") && q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text))) => bonus += 8.0,
         "file" if q.has_any(&["what type of file", "what kind of file", "type of file", "kind of file"]) => bonus += 8.0,
@@ -1786,6 +1797,8 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "umount" if q.has_any(&["unmount", "umount"]) && q.raw_tokens.iter().any(|t| ["/mnt", "/media", "/run/media", "~/", "/srv", "/home"].iter().any(|p| t.text.starts_with(p))) => bonus += 9.0,
         "package installed" if q.has_exact_word("installed") && !q.has_exact_word("where") && !q.has_any(&["packages", "everything", "all", "list"]) => bonus += 8.0,
         "bluetoothctl info" if q.has_any(&["connected"]) && q.has_any(&["is", "are", "am"]) && q.has_any(&["bluetooth", "headphones", "headset", "earbuds", "airpods", "speaker"]) => bonus += 9.0,
+        "bluetoothctl pair" if q.has_exact_word("pair") && !q.has_exact_word("paired") && q.has_any(&["bluetooth", "headphones", "headset", "earbuds", "airpods", "speaker", "device"]) => bonus += 9.5,
+        "bluetoothctl devices" if q.has_any(&["paired", "known", "devices"]) && q.has_any(&["bluetooth", "headphones", "headset", "earbuds", "airpods", "speaker"]) && !q.has_any(&["is my", "is the", "are my", "connect", "disconnect", "pair"]) => bonus += 9.0,
         "run script" if q.has_any(&["run", "execute", "launch", "start"])
             && q.raw_tokens.iter().any(|t| [".sh", ".py", ".bash", ".pl", ".rb"].iter().any(|ext| t.lower.ends_with(ext))) => bonus += 9.0,
         "wifi current" if q.has_any(&["connected to", "am i on", "am i connected", "current wifi", "which wifi", "what wifi", "which network", "what network", "my ssid", "current ssid"]) => bonus += 8.0,
@@ -1813,7 +1826,10 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
         "less" if q.has_any(&["scroll", "huge", "page through"]) => bonus += 7.0,
         "cat" if (q.has_any(&["written in", "whole contents", "line numbers", "print", "dump"])
             || (q.has_any(&["contents", "inside"]) && q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text))))
-            && !q.has_any(&["first", "last", "column", "scroll", "find", "search", "tar", "zip", "archive"]) => bonus += 9.0,
+            && !q.has_any(&["first", "last", "column", "scroll", "find", "search", "tar", "zip", "archive"])
+            && !(q.has_json() && q.has_any(&["pretty", "pretty print", "format", "indent", "beautify", "extract", "filter", "query", "parse", "jq"])) => bonus += 9.0,
+        "jq pretty" if q.has_json() && q.has_any(&["pretty", "pretty print", "format", "indent", "beautify", "readable"]) && !q.has_any(&["post", "curl", "api", "http", "extract", "field", "key", "keys", "filter", "query", "parse", "value"]) => bonus += 11.0,
+        "jq extract" if q.has_json() && q.has_any(&["extract", "field", "key", "keys", "filter", "query", "parse", "value", "select", "get", "pull", "read"]) && !q.has_any(&["post", "curl", "api", "http", "pretty", "beautify"]) => bonus += 10.5,
         "nano" if (q.has_any(&["edit", "editor", "nano"]) || (q.has_word("change") && q.raw_tokens.iter().any(|t| looks_like_regular_file(&t.text))))
             && !q.has_any(&["chmod", "modified", "stop", "prevent", "protect"]) && !has_upper_env => bonus += 6.5,
         "wc" if q.has_any(&["how many", "count", "number of", "how long"]) && q.has_any(&["lines", "words", "characters"]) && !q.has_any(&["how often", "occurs", "each line"]) => bonus += 8.5,
@@ -1873,8 +1889,11 @@ fn command_intent_bonus(_cmd: &Command, name_lower: &str, name_words: &[String],
             && q.has_any(&["wifi", "sound", "audio", "bluetooth", "top bar", "shell", "bar", "terminal", "trackpad", "touchpad"])
             && !q.has_word("service") => bonus += 7.5,
         "omarchy theme bg next" if q.has_word("wallpaper") || (q.has_word("background") && !q.has_phrase("in the background") && !q.has_any(&["container", "image", "service"])) => bonus += 9.0,
-        "omarchy theme list" if q.has_word("theme") && q.has_any(&["which", "list", "choose", "available", "what"]) => bonus += 9.0,
+        "omarchy theme current" if q.has_word("theme") && (q.has_any(&["current", "active", "currently"]) || (q.has_word("using") && !q.has_any(&["switch", "change", "set", "use", "apply"])) || (!q.has_any(&["themes", "list", "choose", "available", "switch", "change", "set", "use", "apply"]) && q.has_any(&["what", "which"]))) => bonus += 10.0,
+        "omarchy theme list" if q.has_word("theme") && q.has_any(&["which", "list", "choose", "available", "what", "themes"]) && !q.has_any(&["current", "active", "currently", "am i using"]) => bonus += 9.0,
         "omarchy theme set" if q.has_word("theme") && q.has_any(&["switch", "change", "set", "use", "apply"]) => bonus += 8.5,
+        "hyprctl monitors" if (q.has_any(&["resolution", "monitor", "monitors", "refresh rate", "hyprctl"]) || (q.has_any(&["display", "displays", "screen"]) && q.has_any(&["size", "dimensions", "connected", "attached"]))) && !q.has_word("xrandr") => bonus += 16.0,
+        "screen resolution" if q.has_any(&["resolution", "monitor", "monitors", "refresh rate", "xrandr"]) || (q.has_any(&["display", "displays", "screen"]) && q.has_any(&["size", "dimensions", "connected", "attached"])) => bonus += 9.0,
         "omarchy font list" if q.has_word("font") && q.has_any(&["what", "which", "list", "available"]) => bonus += 9.0,
         "omarchy font set" if q.has_word("font") && q.has_any(&["use", "set", "change", "switch"]) => bonus += 8.5,
         "omarchy capture screenshot" if q.has_any(&["screenshot", "screen shot"]) => bonus += 9.5,
@@ -2602,8 +2621,10 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         "git branch" => return !has(&["delete", "remove", "drop", "get rid of"]) && has(&["branch", "branches", "git"]),
         "suspend" => return has(&["sleep", "suspend"]),
         "hibernate" => return has(&["hibernate", "hibernation"]),
+        "bluetoothctl pair" =>
+            return q.has_exact_word("pair") && !q.has_exact_word("paired") && has(&["bluetooth", "headphones", "headset", "earbuds", "airpods", "speaker"]),
         "bluetoothctl connect" | "bluetoothctl disconnect" | "bluetoothctl devices" | "bluetoothctl info" | "bluetooth status" =>
-            return has(&["bluetooth", "headphones", "headset", "earbuds", "airpods"]),
+            return has(&["bluetooth", "headphones", "headset", "earbuds", "airpods", "speaker"]),
         "udisksctl unmount" if q.raw_tokens.iter().any(|t| ["/mnt", "/media", "/run/media", "~/", "/srv", "/home"].iter().any(|p| t.text.starts_with(p))) => return false,
         "udisksctl mount" | "udisksctl unmount" | "udisksctl power-off" =>
             return has(&["usb", "drive", "disk", "stick", "mount", "unmount", "eject", "partition", "sd card", "flash", "device"]) && !has(&["docker", "container", "image"]),
@@ -2710,7 +2731,7 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
     }
     if name.starts_with("omarchy ") {
         return match name {
-            "omarchy theme set" | "omarchy theme list" => has(&["theme", "themes", "colour", "color"]),
+            "omarchy theme set" | "omarchy theme list" | "omarchy theme current" => has(&["theme", "themes", "colour", "color"]),
             "omarchy theme bg next" => has(&["wallpaper"]) || (has(&["background"]) && !has(&["in the background"]) && !has(&["container", "image", "service"])),
             "omarchy font set" | "omarchy font list" => has(&["font", "fonts", "monospace"]),
             "omarchy capture screenshot" => has(&["screenshot", "capture"]),
@@ -2810,6 +2831,10 @@ fn passes_domain_coherence(cmd: &Command, q: &QueryContext<'_>) -> bool {
         // Whether there is something to open is checked in `details`, once values are bound.
         "xdg-open" => has(&["open", "viewer", "xdg-open"]) && !has(&["resize", "convert", "port", "shell", "terminal", "every time", "change it"]),
         "free" => has(&["ram", "memory", "swap"]) && !has(&["model", "ollama", "docker", "container"]),
+        "hyprctl monitors" | "screen resolution" => (has(&["resolution", "monitor", "monitors", "refresh rate", "xrandr", "hyprctl"]) || (has(&["display", "displays", "screen"]) && has(&["size", "resolution", "dimensions", "connected", "attached", "monitors", "monitor", "check", "what"]))) && !has(&["brightness", "bright", "dim", "night", "lock", "screenshot", "record", "wallpaper", "clear", "clean", "docker", "system", "resource"]),
+        "jq pretty" => q.has_json() && has(&["pretty", "pretty print", "format", "indent", "beautify", "readable", "print", "show", "view"]) && !has(&["post", "curl", "api", "http", "extract", "field", "key", "keys", "filter", "query", "parse", "value", "decompress", "gunzip"]),
+        "jq extract" => q.has_json() && has(&["extract", "field", "key", "keys", "filter", "query", "parse", "value", "select", "get", "pull", "read"]) && !has(&["post", "curl", "api", "http", "pretty", "beautify", "decompress", "gunzip"]),
+        "cat" => !(q.has_json() && has(&["pretty", "pretty print", "format", "indent", "beautify", "extract", "filter", "query", "parse", "jq"])),
         _ => true,
     }
 }
@@ -3092,6 +3117,7 @@ fn score_flag(cmd_name: &str, flag: &Flag, terms: &HashMap<String, f64>, q: &Que
             Some(has(&["disable", "off", "stop", "do not", "no longer", "prevent", "turn off", "--disable"]))
         }
         ("cargo build", "release") => Some(has(&["release", "optimised", "optimized", "production", "--release"])),
+        ("jq extract", "raw") => Some(has(&["raw", "unquoted", "without quotes", "no quotes", "-r"])),
         _ => None,
     };
 
@@ -3305,6 +3331,7 @@ enum SlotRole {
     BranchName,
     SessionName,
     WifiSsid,
+    JqFilter,
     GenericPath,
     GenericText,
 }
@@ -3370,6 +3397,7 @@ fn infer_slot_role(cmd_name: &str, slot_id: &str, kind: SlotKind) -> SlotRole {
         ("git switch", "branch") => SlotRole::BranchName,
         (_, "name") if cmd_name.starts_with("tmux ") => SlotRole::SessionName,
         (_, "ssid") => SlotRole::WifiSsid,
+        ("jq extract", "filter") => SlotRole::JqFilter,
         _ => match kind {
             SlotKind::Path => SlotRole::GenericPath,
             SlotKind::Text | SlotKind::Choice => SlotRole::GenericText,
@@ -4529,6 +4557,10 @@ fn shape_value(role: SlotRole, cand: &str, candidates: &Candidates, q: &QueryCon
         {
             format!("{cand}*")
         }
+        SlotRole::JqFilter if cand.starts_with("*.") => {
+            let dotted = format!(".{}", &cand[2..]);
+            if q.raw_tokens.iter().any(|rt| rt.text == dotted) { dotted } else { cand.to_string() }
+        }
         _ => cand.to_string(),
     }
 }
@@ -5205,6 +5237,19 @@ fn score_by_role(
                 0.0
             }
         }
+        SlotRole::JqFilter => {
+            let is_dot_filter =
+                cand.starts_with('.') && cand.len() >= 2 && !cand.ends_with(".json");
+            let is_bare_dot_glob = cand.starts_with("*.")
+                && q.raw_tokens
+                    .iter()
+                    .any(|rt| rt.text == format!(".{}", &cand[2..]));
+            if quoted || is_dot_filter || is_bare_dot_glob {
+                9.5
+            } else {
+                0.0
+            }
+        }
     }
 }
 
@@ -5619,7 +5664,7 @@ mod tests {
     fn package_requests_on_every_family() {
         let all = load_catalog();
         let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals/platforms.toml");
-        for family in ["debian", "fedora", "suse", "alpine", "void", "gentoo", "nixos", "nix"] {
+        for family in ["debian", "fedora", "suse", "tumbleweed", "alpine", "void", "gentoo", "nixos", "nix"] {
             let platform = vec![family.to_string()];
             let matcher = LocalMatcher::new(&catalog::usable(all.clone(), &platform, false));
             let report = eval::score_for(&matcher, &file, &platform).unwrap();

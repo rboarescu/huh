@@ -273,7 +273,7 @@ hints = [
 dirs = ["templates"]
 files = [
     { path = "templates/penguin.toml", content = "species = \"penguin\"\nstyle = \"P1\"\n\n[palette]\nK = \"#141c2e\"\n3 = \"#89cff0\"\nS = \"shadow\"\n" },
-    { path = "palette-notes.txt", content = "Tip: change 3 = \"#89cff0\" to 3 = \"accent\" in sprites/penguin.toml so Pebble's crest follows your /theme!\n" },
+    { path = "palette-notes.txt", content = "Tip: change 3 = \"#89cff0\" to 3 = \"accent\" in sprites/penguin.toml so Pebble's crest follows your /theme!\n# studio secret: honeycomb-palette\n" },
 ]
 
 [[practice.checks]]

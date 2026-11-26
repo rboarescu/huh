@@ -142,8 +142,9 @@ pub fn build(
     {
         *value = "python3".into();
     }
-    let line =
+    let raw_line =
         package_line(command, &mut values, &mut notes, &mut parts).unwrap_or_else(|| fill(&command.template, &values));
+    let line = crate::platform::strip_sudo_runtime(&raw_line);
 
     Ok(Some(Suggestion {
         command: command.name.clone(),
@@ -647,5 +648,47 @@ mod tests {
                 ("data.tsv".to_string(), "the file to read".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn build_strips_sudo_when_root_without_sudo_except_in_eval() {
+        let dmesg: Command = toml::from_str(include_str!("../catalog/dmesg.toml")).unwrap();
+        let details = Details { fit: 0.95, flags: vec![], slots: vec![] };
+
+        let append: Command = toml::from_str(include_str!("../catalog/append-to-system-file.toml")).unwrap();
+        let append_details = Details {
+            fit: 0.95,
+            flags: vec![],
+            slots: vec![
+                SlotPick::Value { named: 0.95, value: "127.0.0.1 foo".into() },
+                SlotPick::Value { named: 0.95, value: "/etc/hosts".into() },
+            ],
+        };
+
+        let update = crate::catalog::resolve(
+            vec![toml::from_str(include_str!("../catalog/system-update.toml")).unwrap()],
+            &["debian".to_string()],
+        )
+        .pop()
+        .unwrap();
+        let update_details = Details { fit: 0.95, flags: vec![], slots: vec![] };
+
+        crate::platform::with_root_without_sudo_for_test(true, || {
+            let built_dmesg = build(&dmesg, 0.9, &details, &mut |_| None).unwrap().unwrap();
+            assert_eq!(built_dmesg.line, "dmesg");
+
+            let built_append = build(&append, 0.9, &append_details, &mut |_| None).unwrap().unwrap();
+            assert_eq!(built_append.line, "echo '127.0.0.1 foo' | tee -a /etc/hosts");
+
+            let built_update = build(&update, 0.9, &update_details, &mut |_| None).unwrap().unwrap();
+            assert_eq!(built_update.line, "apt update && apt upgrade");
+
+            crate::platform::set_eval_mode(true);
+            let eval_dmesg = build(&dmesg, 0.9, &details, &mut |_| None).unwrap().unwrap();
+            let eval_update = build(&update, 0.9, &update_details, &mut |_| None).unwrap().unwrap();
+            crate::platform::set_eval_mode(false);
+            assert_eq!(eval_dmesg.line, "sudo dmesg");
+            assert_eq!(eval_update.line, "sudo apt update && sudo apt upgrade");
+        });
     }
 }

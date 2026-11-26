@@ -2,6 +2,7 @@ mod assemble;
 mod breakdown;
 mod candidates;
 mod catalog;
+mod cheats;
 mod date;
 mod decode;
 mod doctor;
@@ -17,6 +18,7 @@ mod learn;
 mod lessons;
 mod manpage;
 mod matcher;
+mod misses;
 mod mode;
 mod outputs;
 mod pane;
@@ -103,6 +105,9 @@ struct Cli {
     /// Starting companion pane mode (watch or lab)
     #[arg(long, conflicts_with = "request", value_name = "MODE")]
     mode: Option<String>,
+    /// Watch noise level (all, new, errors)
+    #[arg(long, conflicts_with = "request", value_name = "LEVEL")]
+    noise: Option<String>,
     /// Hide the explanation of a program already explained in this companion session
     #[arg(long, conflicts_with = "request")]
     quiet: bool,
@@ -147,7 +152,7 @@ enum Action {
         /// Give your pet a new name (1-20 characters)
         #[arg(long, value_name = "NAME")]
         name: Option<String>,
-        /// Switch to an unlocked species (penguin, cat, turtle, owl)
+        /// Switch to an unlocked species (penguin, cat, beaver, turtle, dolphin, bear, snake, bee, owl)
         #[arg(long, value_name = "SPECIES")]
         species: Option<String>,
         /// Set pet render style (auto, pixel, ascii, off)
@@ -156,6 +161,27 @@ enum Action {
         /// Export an editable 32x32 sprite TOML template for the active species
         #[arg(long)]
         customize: bool,
+        /// Show collected shiny pebbles and the next milestone
+        #[arg(long)]
+        pebbles: bool,
+    },
+    /// Inspect or configure the opt-in local miss log
+    Misses {
+        /// Maximum number of top/recent entries to show
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        /// Print raw JSONL lines instead of the summary
+        #[arg(long)]
+        raw: bool,
+        /// Delete the local miss log file
+        #[arg(long)]
+        clear: bool,
+        /// Enable local miss logging in ~/.local/state/huh/prefs.toml
+        #[arg(long, conflicts_with = "disable")]
+        enable: bool,
+        /// Disable local miss logging in ~/.local/state/huh/prefs.toml
+        #[arg(long)]
+        disable: bool,
     },
     /// Explain why the last command failed (or pipe output in)
     Why,
@@ -667,8 +693,30 @@ fn exit_quietly_on_closed_pipe() {
     }
 }
 
+/// Records a missed plain-language request locally when `suggestions` is empty.
+pub(crate) fn record_outcome_miss(path: &std::path::Path, request: &str, outcome: &Outcome) {
+    if !outcome.suggestions.is_empty() {
+        return;
+    }
+    let kind = if outcome.hint.is_some() {
+        misses::KIND_REFUSAL
+    } else if outcome.pointer.is_some() {
+        misses::KIND_HINT_ONLY
+    } else {
+        misses::KIND_NO_MATCH
+    };
+    let record = misses::MissRecord {
+        ts: misses::now_iso_utc(),
+        request: request.to_string(),
+        kind: kind.to_string(),
+        platform: catalog::this_platform().join(","),
+        pointer: outcome.pointer.clone().or_else(|| outcome.hint.clone()),
+    };
+    misses::record_miss(path, &record);
+}
+
 /// Starts the unified companion pane beside this terminal (see launch.rs).
-fn side(quiet: bool, dry_run: bool, initial_mode: Option<&str>) -> Result<()> {
+fn side(quiet: bool, noise: Option<&str>, dry_run: bool, initial_mode: Option<&str>) -> Result<()> {
     let dry_run = dry_run || std::env::var_os("HUH_DRY_RUN").is_some_and(|v| !v.is_empty() && v != "0");
     let tty = launch::stdin_tty().or_else(|| dry_run.then(|| "<this tty>".to_string()));
     let huh = std::env::current_exe()?;
@@ -680,6 +728,7 @@ fn side(quiet: bool, dry_run: bool, initial_mode: Option<&str>) -> Result<()> {
         tty.as_deref(),
         &huh,
         quiet,
+        noise,
         initial_mode,
         std::process::id(),
     );
@@ -775,7 +824,7 @@ fn main() -> Result<()> {
             }
             return Ok(());
         }
-        Some(Action::Pet { name, species, style: pet_style, customize }) => {
+        Some(Action::Pet { name, species, style: pet_style, customize, pebbles }) => {
             let mut pet = pet::load_default();
             let mut changed = false;
             if let Some(n) = name {
@@ -795,13 +844,58 @@ fn main() -> Result<()> {
                 prefs.pet_style = Some(parsed.name().to_string());
                 prefs::save_default(&prefs)?;
             }
-            print!("{}", pet::render_status(&pet, date::now_epoch(), None, !pet::enabled()));
+            if *pebbles {
+                print!("{}", pet.render_pebbles());
+            } else {
+                print!("{}", pet::render_status(&pet, date::now_epoch(), None, !pet::enabled()));
+            }
             if *customize {
                 let dir = sprite::override_dir().ok_or_else(|| {
                     anyhow::anyhow!("cannot find sprite config directory ($XDG_CONFIG_HOME or $HOME)")
                 })?;
                 let path = sprite::export_template(pet.species, &dir)?;
                 println!("\nSprite template ({}): {}", pet.species.name(), path.display());
+            }
+            return Ok(());
+        }
+        Some(Action::Misses { limit, raw, clear, enable, disable }) => {
+            let mut prefs = prefs::load_default();
+            if *enable || *disable {
+                prefs.miss_log = Some(*enable);
+                prefs::save_default(&prefs)?;
+            }
+            let log_path = misses::default_log_path()
+                .ok_or_else(|| anyhow::anyhow!("cannot find state directory ($XDG_STATE_HOME or $HOME)"))?;
+            let enabled = misses::resolve_enabled(
+                std::env::var("HUH_MISS_LOG").ok().as_deref(),
+                mode::config_path().as_deref(),
+                prefs.miss_log,
+            );
+            if *enable || *disable {
+                let state_label = if *enable { "enabled" } else { "disabled" };
+                if let Some(prefs_path) = prefs::default_state_path() {
+                    println!("Miss logging {state_label} in {}.", prefs_path.display());
+                } else {
+                    println!("Miss logging {state_label}.");
+                }
+                if *enable && !enabled {
+                    eprintln!("note: overridden to disabled by HUH_MISS_LOG or config.toml");
+                } else if *disable && enabled {
+                    eprintln!("note: overridden to enabled by HUH_MISS_LOG or config.toml");
+                }
+            }
+            if *clear {
+                if misses::clear_misses(&log_path)? {
+                    println!("Cleared miss log at {}.", log_path.display());
+                } else {
+                    println!("No miss log found at {}.", log_path.display());
+                }
+            }
+            if *raw {
+                print!("{}", misses::render_raw(&log_path, *limit));
+            } else if !*clear && !*enable && !*disable {
+                let records = misses::load_misses(&log_path);
+                print!("{}", misses::render_summary(&records, enabled, &log_path, *limit));
             }
             return Ok(());
         }
@@ -816,15 +910,17 @@ fn main() -> Result<()> {
                 && !cli.here
                 && cli.tty.is_none()
                 && cli.mode.is_none()
+                && cli.noise.is_none()
                 && !cli.quiet
             {
                 return why();
             }
             let prefs = prefs::load_default();
             let cli_mode = cli.mode.as_deref().map(prefs::PaneMode::parse).transpose()?;
+            let cli_noise = cli.noise.as_deref().map(prefs::NoiseLevel::parse).transpose()?;
             let config_text = mode::config_path().and_then(|p| std::fs::read_to_string(p).ok());
             let initial_mode = prefs::resolve_initial_pane_mode(cli_mode, config_text.as_deref(), &prefs)?;
-            let quiet = cli.quiet || prefs.quiet.unwrap_or(false);
+            let noise = prefs::resolve_noise_level(cli_noise, cli.quiet, config_text.as_deref(), &prefs)?;
 
             if cli.here || cli.tty.is_some() {
                 let everything = catalog::load_default(cli.catalog)?;
@@ -837,7 +933,7 @@ fn main() -> Result<()> {
                 )?;
                 let opts = pane::RunOpts {
                     initial_mode,
-                    quiet,
+                    noise,
                     tty: cli.tty.clone(),
                     safety,
                     theme: active_theme,
@@ -858,7 +954,10 @@ fn main() -> Result<()> {
                 return Ok(());
             }
 
-            return side(quiet, cli.dry_run, cli_mode.map(|m| m.name()));
+            let forward_noise = cli_noise.map(prefs::NoiseLevel::name);
+            let forward_quiet =
+                cli_noise.is_none() && (cli.quiet || (prefs.noise.is_none() && prefs.quiet.unwrap_or(false)));
+            return side(forward_quiet, forward_noise, cli.dry_run, cli_mode.map(|m| m.name()));
         }
         _ => {}
     }
@@ -874,7 +973,8 @@ fn main() -> Result<()> {
             | Action::Themes
             | Action::Welcome
             | Action::Setup
-            | Action::Pet { .. },
+            | Action::Pet { .. }
+            | Action::Misses { .. },
         ) => {
             unreachable!("handled above")
         }
@@ -947,6 +1047,21 @@ fn main() -> Result<()> {
                      `huh explain \"<command>\"`, or `huh why`"
                 );
             }
+            if !cli.first_line_only
+                && let Some(cheat) = cheats::lookup(&request)
+            {
+                let mut pet = pet::load_default();
+                let mut progress = progress::load_default();
+                let outcome = cheats::apply(cheat, &mut pet, &mut progress, date::now_epoch());
+                if outcome.pet_changed {
+                    pet::save_default(&pet)?;
+                }
+                if outcome.progress_changed {
+                    progress::save_default(&progress)?;
+                }
+                print!("{}", outcome.text);
+                return Ok(());
+            }
             let catalog = if cli.all_commands {
                 catalog::resolve(catalog::matchable(everything), &catalog::this_platform())
             } else {
@@ -984,6 +1099,16 @@ fn main() -> Result<()> {
                 }
                 std::process::exit(1);
             }
+            if outcome.suggestions.is_empty()
+                && misses::resolve_enabled(
+                    std::env::var("HUH_MISS_LOG").ok().as_deref(),
+                    mode::config_path().as_deref(),
+                    prefs.miss_log,
+                )
+                && let Some(path) = misses::default_log_path()
+            {
+                record_outcome_miss(&path, &request, &outcome);
+            }
             print(&outcome, &catalog, cli.brief);
         }
     }
@@ -993,6 +1118,7 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn questions_about_a_command_point_to_explain() {
@@ -1077,13 +1203,69 @@ mod tests {
             Some(Action::ShellInit { shell: session::ShellArg::Zsh, hooks: true })
         ));
         assert!(matches!(
-            Cli::try_parse_from(["huh", "pet", "--style", "ascii", "--customize"]).unwrap().action,
-            Some(Action::Pet { style: Some(_), customize: true, .. })
+            Cli::try_parse_from(["huh", "pet", "--style", "ascii", "--customize", "--pebbles"]).unwrap().action,
+            Some(Action::Pet { style: Some(_), customize: true, pebbles: true, .. })
         ));
+        assert!(matches!(
+            Cli::try_parse_from(["huh", "misses", "--limit", "5", "--raw", "--clear"]).unwrap().action,
+            Some(Action::Misses { limit: 5, raw: true, clear: true, enable: false, disable: false })
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["huh", "misses", "--enable"]).unwrap().action,
+            Some(Action::Misses { enable: true, disable: false, .. })
+        ));
+        assert!(Cli::try_parse_from(["huh", "misses", "--enable", "--disable"]).is_err());
+        let noise_cli = Cli::try_parse_from(["huh", "--noise", "errors", "--dry-run"]).unwrap();
+        assert_eq!(noise_cli.noise.as_deref(), Some("errors"));
+        assert!(noise_cli.dry_run);
         let tutor_req = Cli::try_parse_from(["huh", "tutor"]).unwrap();
         assert!(tutor_req.action.is_none() && tutor_req.request == ["tutor"]);
         let learn_req = Cli::try_parse_from(["huh", "learn"]).unwrap();
         assert!(learn_req.action.is_none() && learn_req.request == ["learn"]);
         assert!(Cli::try_parse_from(["huh", "--here", "list files"]).is_err());
+    }
+
+    #[test]
+    fn outcome_miss_recording_classifies_no_match_hint_and_refusal() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target/main-tests")
+            .join(format!("miss-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let log = dir.join("misses.jsonl");
+
+        let catalog = catalog::load_embedded().unwrap();
+        let matcher = LocalMatcher::new(&catalog::usable(catalog, &["arch".to_string()], false));
+
+        // Successful match does not record a miss.
+        let ok = suggest(&matcher, "make deploy.sh executable", vec![], &mut |_| None).unwrap();
+        record_outcome_miss(&log, "make deploy.sh executable", &ok);
+        assert!(!log.exists());
+
+        // Plain no_match records KIND_NO_MATCH.
+        let none = suggest(&matcher, "zzz qqq xxx", vec![], &mut |_| None).unwrap();
+        record_outcome_miss(&log, "zzz qqq xxx", &none);
+
+        // Refusal records KIND_REFUSAL.
+        let refusal = suggest(&matcher, "wipe the drive /dev/sdb", vec![], &mut |_| None).unwrap();
+        record_outcome_miss(&log, "wipe the drive /dev/sdb", &refusal);
+
+        // Hint-only (e.g. closest tool pointer with no suggestion) records KIND_HINT_ONLY.
+        let hint_only = Outcome {
+            suggestions: vec![],
+            ranked: vec![],
+            millis: 1,
+            hint: None,
+            pointer: Some("hint: closest tool is ffmpeg\nmore details".into()),
+        };
+        record_outcome_miss(&log, "transcode mkv to av1", &hint_only);
+
+        let loaded = misses::load_misses(&log);
+        assert_eq!(loaded.len(), 3);
+        assert_eq!(loaded[0].kind, misses::KIND_NO_MATCH);
+        assert_eq!(loaded[1].kind, misses::KIND_REFUSAL);
+        assert_eq!(loaded[2].kind, misses::KIND_HINT_ONLY);
+        assert_eq!(loaded[2].pointer.as_deref(), Some("hint: closest tool is ffmpeg"));
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -1,0 +1,21 @@
+name = "jq extract"
+description = "Extract or query a field from a JSON file with jq"
+template = "jq {raw} {filter} {file}"
+kind = "query"
+keywords = ["extract from json", "extract field from json", "get field from json", "read key from json", "query json", "filter json", "parse json", "jq filter", "json value"]
+
+[[flags]]
+id = "raw"
+value = "-r"
+question = "Does the user want raw string output without surrounding quotes?"
+
+[[slots]]
+id = "filter"
+kind = "text"
+what = "the jq filter, such as '.name' or '.items[]'"
+
+[[slots]]
+id = "file"
+kind = "path"
+what = "the JSON file to read"
+extract = "filename"

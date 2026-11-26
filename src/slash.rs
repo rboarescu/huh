@@ -1,8 +1,8 @@
 //! Slash command definitions, live fuzzy completions, and submit-time fuzzy resolution.
 //!
-//! Covers all 11 pane slash commands (`/mode`, `/watch`, `/lab`, `/safety`, `/theme`, `/pet`,
-//! `/speed`, `/quiet`, `/tips`, `/find`, `/help`) while guarding Unix paths (`/etc/hosts`,
-//! `/usr/bin/env`) and non-matching word extensions (`/finder`, `/modeled`).
+//! Covers all 12 pane slash commands (`/mode`, `/watch`, `/lab`, `/safety`, `/theme`, `/pet`,
+//! `/speed`, `/noise`, `/quiet`, `/tips`, `/find`, `/help`) while guarding Unix paths
+//! (`/etc/hosts`, `/usr/bin/env`) and non-matching word extensions (`/finder`, `/modeled`).
 
 use crate::find;
 use crate::pet::Species;
@@ -16,7 +16,7 @@ pub struct SlashDef {
     pub usage: &'static str,
 }
 
-/// All 11 companion-pane slash commands in display order.
+/// All 12 companion-pane slash commands in display order.
 pub const COMMANDS: &[SlashDef] = &[
     SlashDef { name: "/mode", summary: "Switch Watch / Lab mode", usage: "/mode [watch|lab]" },
     SlashDef { name: "/watch", summary: "Switch to Watch mode", usage: "/watch" },
@@ -30,9 +30,10 @@ pub const COMMANDS: &[SlashDef] = &[
     SlashDef {
         name: "/pet",
         summary: "Inspect or customize Pebble",
-        usage: "/pet [status|name|species|style|customize]",
+        usage: "/pet [status|pebbles|name|species|style|customize]",
     },
     SlashDef { name: "/speed", summary: "Set typewriter speed", usage: "/speed [off|fast|normal|slow|<ms>]" },
+    SlashDef { name: "/noise", summary: "Set watch noise level", usage: "/noise [all|new|errors]" },
     SlashDef { name: "/quiet", summary: "Toggle repeating command explanations", usage: "/quiet [on|off]" },
     SlashDef { name: "/tips", summary: "Toggle or cycle header tips", usage: "/tips [on|off|next]" },
     SlashDef { name: "/find", summary: "Fuzzy search catalog & tools", usage: "/find [words]" },
@@ -95,6 +96,12 @@ const SPEED_ARGS: &[OptionDef] = &[
     OptionDef { name: "off", summary: "Instant (no typewriter)" },
 ];
 
+const NOISE_ARGS: &[OptionDef] = &[
+    OptionDef { name: "all", summary: "Explain every finished command" },
+    OptionDef { name: "new", summary: "Explain each program once" },
+    OptionDef { name: "errors", summary: "Only failures and warnings" },
+];
+
 const QUIET_ARGS: &[OptionDef] = &[
     OptionDef { name: "on", summary: "Explain each program once" },
     OptionDef { name: "off", summary: "Explain every command" },
@@ -108,6 +115,7 @@ const TIPS_ARGS: &[OptionDef] = &[
 
 const PET_SUBCMDS: &[OptionDef] = &[
     OptionDef { name: "status", summary: "Show Pebble status card" },
+    OptionDef { name: "pebbles", summary: "Show gifted shiny pebbles" },
     OptionDef { name: "name", summary: "Rename Pebble (needs name)" },
     OptionDef { name: "species", summary: "Switch unlocked pet species" },
     OptionDef { name: "style", summary: "Set auto / pixel / ascii / off" },
@@ -405,6 +413,7 @@ pub fn completions(line: &str, unlocked_species: &[Species]) -> Vec<SlashComplet
         "/safety" => option_completions("/safety", SAFETY_ARGS, after_cmd),
         "/theme" => theme_completions(after_cmd),
         "/speed" => option_completions("/speed", SPEED_ARGS, after_cmd),
+        "/noise" => option_completions("/noise", NOISE_ARGS, after_cmd),
         "/quiet" => option_completions("/quiet", QUIET_ARGS, after_cmd),
         "/tips" => option_completions("/tips", TIPS_ARGS, after_cmd),
         "/lab" => option_completions("/lab", LAB_ARGS, after_cmd),
@@ -569,6 +578,13 @@ pub fn resolve_submit(line: &str) -> FuzzyResolution {
                 }
             }
         }
+        "/noise" if args.len() == 1 => {
+            let opts = ["all", "new", "errors"];
+            match resolve_option(def, &opts, args[0]) {
+                Ok((v, arg_exact)) => finish_resolution(cmd_exact && arg_exact, format!("/noise {v}")),
+                Err(ambig) => ambig,
+            }
+        }
         "/quiet" if args.len() == 1 => {
             if matches!(args[0].to_ascii_lowercase().as_str(), "true" | "false" | "1" | "0") {
                 finish_resolution(cmd_exact, format!("/quiet {}", args[0].to_ascii_lowercase()))
@@ -596,11 +612,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn command_table_lists_all_eleven_in_order() {
+    fn command_table_lists_all_twelve_in_order() {
         let names: Vec<&str> = COMMANDS.iter().map(|c| c.name).collect();
         assert_eq!(
             names,
-            ["/mode", "/watch", "/lab", "/safety", "/theme", "/pet", "/speed", "/quiet", "/tips", "/find", "/help",]
+            [
+                "/mode", "/watch", "/lab", "/safety", "/theme", "/pet", "/speed", "/noise", "/quiet", "/tips", "/find",
+                "/help",
+            ]
         );
         for def in COMMANDS {
             assert!(def.name.starts_with('/'));
@@ -636,7 +655,7 @@ mod tests {
     #[test]
     fn stage1_completions_cover_palette_prefixes_and_fuzzy_commands() {
         let all = completions("/", &[]);
-        assert_eq!(all.len(), 11);
+        assert_eq!(all.len(), 12);
         assert_eq!(all[0].display, "/mode");
         assert_eq!(all[0].insert, "/mode ");
         assert!(all[0].auto_submit);
@@ -660,6 +679,12 @@ mod tests {
         assert_eq!(p.len(), 1);
         assert_eq!(p[0].display, "/pet");
         assert_eq!(p[0].insert, "/pet ");
+
+        let no = completions("/no", &[]);
+        assert_eq!(no.len(), 1);
+        assert_eq!(no[0].display, "/noise");
+        assert_eq!(no[0].insert, "/noise ");
+        assert!(no[0].auto_submit);
 
         // Subsequence match and 1-edit Damerau-Levenshtein typo match.
         let md = completions("/md", &[]);
@@ -697,6 +722,9 @@ mod tests {
         let speed: Vec<String> = completions("/speed ", &[]).into_iter().map(|c| c.display).collect();
         assert_eq!(speed, ["normal", "fast", "slow", "off"]);
 
+        let noise: Vec<String> = completions("/noise ", &[]).into_iter().map(|c| c.display).collect();
+        assert_eq!(noise, ["all", "new", "errors"]);
+
         let quiet: Vec<String> = completions("/quiet ", &[]).into_iter().map(|c| c.display).collect();
         assert_eq!(quiet, ["on", "off"]);
 
@@ -712,17 +740,23 @@ mod tests {
         assert_eq!(th_cat[0].insert, "/theme catppuccin");
         assert!(th_cat[0].auto_submit);
 
+        let no_err = completions("/no er", &[]);
+        assert_eq!(no_err.len(), 1);
+        assert_eq!(no_err[0].insert, "/noise errors");
+        assert!(no_err[0].auto_submit);
+
         // /pet stage 2: name has trailing space and auto_submit: false; species/style have trailing space & auto_submit: true.
         let pet = completions("/pet ", &[]);
         assert_eq!(
             pet.iter().map(|c| c.display.as_str()).collect::<Vec<_>>(),
-            ["status", "name", "species", "style", "customize",]
+            ["status", "pebbles", "name", "species", "style", "customize",]
         );
         assert_eq!((pet[0].insert.as_str(), pet[0].auto_submit), ("/pet status", true));
-        assert_eq!((pet[1].insert.as_str(), pet[1].auto_submit), ("/pet name ", false));
-        assert_eq!((pet[2].insert.as_str(), pet[2].auto_submit), ("/pet species ", true));
-        assert_eq!((pet[3].insert.as_str(), pet[3].auto_submit), ("/pet style ", true));
-        assert_eq!((pet[4].insert.as_str(), pet[4].auto_submit), ("/pet customize", true));
+        assert_eq!((pet[1].insert.as_str(), pet[1].auto_submit), ("/pet pebbles", true));
+        assert_eq!((pet[2].insert.as_str(), pet[2].auto_submit), ("/pet name ", false));
+        assert_eq!((pet[3].insert.as_str(), pet[3].auto_submit), ("/pet species ", true));
+        assert_eq!((pet[4].insert.as_str(), pet[4].auto_submit), ("/pet style ", true));
+        assert_eq!((pet[5].insert.as_str(), pet[5].auto_submit), ("/pet customize", true));
 
         // /pet species stage 3 shows unlocked vs (locked).
         let sp = completions("/pet species ", &[Species::Penguin, Species::Cat]);
@@ -769,6 +803,7 @@ mod tests {
         assert_eq!(resolve_submit("/pet name  Éclair "), FuzzyResolution::Exact("/pet name Éclair".into()));
         assert_eq!(resolve_submit("/lab  practice  2"), FuzzyResolution::Exact("/lab practice 2".into()));
         assert_eq!(resolve_submit("/speed 500ms"), FuzzyResolution::Exact("/speed 500ms".into()));
+        assert_eq!(resolve_submit("/noise errors"), FuzzyResolution::Exact("/noise errors".into()));
 
         // Fuzzy command + sub-arg unique matches.
         assert_eq!(
@@ -788,6 +823,14 @@ mod tests {
             FuzzyResolution::Unique { resolved: "/theme catppuccin".into(), note: "→ /theme catppuccin".into() }
         );
         assert_eq!(
+            resolve_submit("/no er"),
+            FuzzyResolution::Unique { resolved: "/noise errors".into(), note: "→ /noise errors".into() }
+        );
+        assert_eq!(
+            resolve_submit("/pet peb"),
+            FuzzyResolution::Unique { resolved: "/pet pebbles".into(), note: "→ /pet pebbles".into() }
+        );
+        assert_eq!(
             resolve_submit("/pet sp tur"),
             FuzzyResolution::Unique { resolved: "/pet species turtle".into(), note: "→ /pet species turtle".into() }
         );
@@ -802,10 +845,10 @@ mod tests {
 
         // Ambiguous commands and ambiguous sub-args.
         assert_eq!(resolve_submit("/s"), FuzzyResolution::Ambiguous(vec![&COMMANDS[3], &COMMANDS[6]]));
-        assert_eq!(resolve_submit("/t"), FuzzyResolution::Ambiguous(vec![&COMMANDS[4], &COMMANDS[8]]));
+        assert_eq!(resolve_submit("/t"), FuzzyResolution::Ambiguous(vec![&COMMANDS[4], &COMMANDS[9]]));
         assert_eq!(resolve_submit("/pet st"), FuzzyResolution::Ambiguous(vec![&COMMANDS[5]]));
-        assert_eq!(resolve_submit("/quiet o"), FuzzyResolution::Ambiguous(vec![&COMMANDS[7]]));
-        assert_eq!(resolve_submit("/tips o"), FuzzyResolution::Ambiguous(vec![&COMMANDS[8]]));
+        assert_eq!(resolve_submit("/quiet o"), FuzzyResolution::Ambiguous(vec![&COMMANDS[8]]));
+        assert_eq!(resolve_submit("/tips o"), FuzzyResolution::Ambiguous(vec![&COMMANDS[9]]));
         assert_eq!(resolve_submit("/pet style a"), FuzzyResolution::Ambiguous(vec![&COMMANDS[5]]));
 
         // Additional DL transpositions, numeric speed, and /pet subcommands.
@@ -841,6 +884,7 @@ mod tests {
         );
         assert_eq!(resolve_submit("/pet species"), FuzzyResolution::Exact("/pet species".into()));
         assert_eq!(resolve_submit("/pet style"), FuzzyResolution::Exact("/pet style".into()));
+        assert_eq!(resolve_submit("/pet pebbles"), FuzzyResolution::Exact("/pet pebbles".into()));
 
         // Guardrail: `/finder`, `/modeled`, and unrelated commands are Unknown, never fuzzy-matched.
         assert_eq!(resolve_submit("/finder"), FuzzyResolution::Unknown("/finder".into()));

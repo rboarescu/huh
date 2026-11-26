@@ -79,7 +79,7 @@ choices = [
 ]
 answer = 2
 hint = "`127.0.0.1` means \"only this machine\", while `0.0.0.0` listens on every network interface."
-note = "Checking `ss -tuln` lets you verify which services stay safely local (`127.0.0.1`) versus open to the network (`0.0.0.0`)."
+note = "Checking `ss -tuln` lets you verify which services stay safely local (`127.0.0.1`) versus open to the network (`0.0.0.0`). (Night owls watching port 443 sometimes whisper `hoot-on-port-443`.)"
 expect_output_match = true
 
 [[lessons.questions]]
