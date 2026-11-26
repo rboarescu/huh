@@ -54,9 +54,10 @@ fn shell_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
-/// The pane command: `huh --here --tty <tty>` (plus `--quiet`, `--noise`, and `--mode`), told
-/// where the recordings are (`--dir`) because a new window does not inherit this shell's
+/// The pane command: `huh --here --tty <tty>` (or `--auto`, plus `--quiet`/`--noise` and `--mode`),
+/// told where the recordings are (`--dir`) because a new window does not inherit this shell's
 /// environment, and to keep its window open on an error (`--hold`) so the message can be read.
+#[allow(clippy::too_many_arguments)]
 fn pane_command(
     huh: &Path,
     tty: &str,
@@ -65,12 +66,18 @@ fn pane_command(
     dir: Option<&Path>,
     log: Option<&Path>,
     initial_mode: Option<&str>,
+    auto: bool,
 ) -> Vec<String> {
-    let mut cmd = vec![huh.display().to_string(), "--here".into(), "--tty".into(), tty.into()];
-    // The launching terminal's own recording: the pane follows exactly this terminal.
-    if let Some(log) = log {
-        cmd.extend(["--log".into(), log.display().to_string()]);
-    }
+    let mut cmd = if auto {
+        vec![huh.display().to_string(), "--here".into(), "--auto".into()]
+    } else {
+        let mut cmd = vec![huh.display().to_string(), "--here".into(), "--tty".into(), tty.into()];
+        // The launching terminal's own recording: the pane follows exactly this terminal.
+        if let Some(log) = log {
+            cmd.extend(["--log".into(), log.display().to_string()]);
+        }
+        cmd
+    };
     if let Some(dir) = dir {
         cmd.extend(["--dir".into(), dir.display().to_string()]);
     }
@@ -127,7 +134,9 @@ fn split_argv(pane: Option<&str>, cmd: &[String]) -> Vec<String> {
 }
 
 /// tmux, new session on a private server with no user config: the user's shell on the left
-/// (closing it ends the session), the `huh` pane on the right, following the left pane's tty.
+/// (closing it ends the session), the `huh` pane on the right, following the left pane's tty
+/// (or auto-following across recorded terminals when `auto` is set).
+#[allow(clippy::too_many_arguments)]
 fn session_argv(
     huh: &Path,
     quiet: bool,
@@ -135,13 +144,18 @@ fn session_argv(
     id: u32,
     dir: Option<&Path>,
     initial_mode: Option<&str>,
+    auto: bool,
 ) -> Vec<String> {
     let name = format!("huh-{id}");
     let left = format!("{name}:0.0");
     let shell = format!("\"${{SHELL:-/bin/sh}}\"; tmux kill-session -t {name}");
-    // `#` and `{` are joined at run time so no tmux version can expand the format early.
-    let tty = format!("\"$(tmux display -p -t {left} \"$(printf '#%s' '{{pane_tty}}')\")\"");
-    let mut right = format!("{PANE_ENV}=1 exec {} --here --tty {tty} --hold", shell_quote(&huh.display().to_string()));
+    let mut right = if auto {
+        format!("{PANE_ENV}=1 exec {} --here --auto --hold", shell_quote(&huh.display().to_string()))
+    } else {
+        // `#` and `{` are joined at run time so no tmux version can expand the format early.
+        let tty = format!("\"$(tmux display -p -t {left} \"$(printf '#%s' '{{pane_tty}}')\")\"");
+        format!("{PANE_ENV}=1 exec {} --here --tty {tty} --hold", shell_quote(&huh.display().to_string()))
+    };
     if let Some(dir) = dir {
         right.push_str(&format!(" --dir {}", shell_quote(&dir.display().to_string())));
     }
@@ -181,6 +195,7 @@ pub fn decide_for(
     quiet: bool,
     noise: Option<&str>,
     initial_mode: Option<&str>,
+    auto: bool,
     id: u32,
 ) -> Plan {
     let set = |name: &str| env(name).is_some_and(|v| !v.is_empty());
@@ -194,7 +209,7 @@ pub fn decide_for(
     }
     let dir = recordings_dir(env);
     let log = env("HUH_SESSION_LOG").filter(|v| !v.is_empty()).map(PathBuf::from);
-    let cmd = pane_command(huh, tty, quiet, noise, dir.as_deref(), log.as_deref(), initial_mode);
+    let cmd = pane_command(huh, tty, quiet, noise, dir.as_deref(), log.as_deref(), initial_mode, auto);
     if tmux.is_some() {
         return Plan::Split(split_argv(env("TMUX_PANE").filter(|p| !p.is_empty()).as_deref(), &cmd));
     }
@@ -214,12 +229,12 @@ pub fn decide_for(
         }
     }
     if have("tmux") {
-        return Plan::Session(session_argv(huh, quiet, noise, id, dir.as_deref(), initial_mode));
+        return Plan::Session(session_argv(huh, quiet, noise, id, dir.as_deref(), initial_mode, auto));
     }
     Plan::Unavailable { tty: tty.to_string() }
 }
 
-/// Backward-compatible alias for `decide_for(..., None, None, id)`.
+/// Backward-compatible alias for `decide_for(..., None, None, false, id)`.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn decide(
     env: &dyn Fn(&str) -> Option<String>,
@@ -229,7 +244,7 @@ pub fn decide(
     quiet: bool,
     id: u32,
 ) -> Plan {
-    decide_for(env, have, tty, huh, quiet, None, None, id)
+    decide_for(env, have, tty, huh, quiet, None, None, false, id)
 }
 
 /// The text for `Plan::Unavailable`: how to get tmux, how to open a second window.
@@ -447,6 +462,7 @@ mod tests {
             false,
             None,
             Some("lab"),
+            false,
             1,
         ) else {
             panic!()
@@ -462,25 +478,92 @@ mod tests {
             false,
             Some("errors"),
             Some("watch"),
+            false,
             1,
         ) else {
             panic!()
         };
         assert!(argv.ends_with(&strings(&["--hold", "--noise", "errors", "--mode", "watch"])), "{argv:?}");
 
-        let Plan::Session(argv) =
-            decide_for(&|_| None, &|p| p == "tmux", Some("/dev/pts/3"), Path::new(HUH), true, None, Some("lab"), 5)
-        else {
+        let Plan::Session(argv) = decide_for(
+            &|_| None,
+            &|p| p == "tmux",
+            Some("/dev/pts/3"),
+            Path::new(HUH),
+            true,
+            None,
+            Some("lab"),
+            false,
+            5,
+        ) else {
             panic!()
         };
         assert!(argv.last().unwrap().ends_with("--hold --quiet --mode lab"), "{argv:?}");
 
-        let Plan::Session(argv_noise) =
-            decide_for(&|_| None, &|p| p == "tmux", Some("/dev/pts/3"), Path::new(HUH), false, Some("errors"), None, 6)
-        else {
+        let Plan::Session(argv_noise) = decide_for(
+            &|_| None,
+            &|p| p == "tmux",
+            Some("/dev/pts/3"),
+            Path::new(HUH),
+            false,
+            Some("errors"),
+            None,
+            false,
+            6,
+        ) else {
             panic!()
         };
         assert!(argv_noise.last().unwrap().ends_with("--hold --noise errors"), "{argv_noise:?}");
+    }
+
+    #[test]
+    fn decide_for_auto_omits_tty_and_log_across_plans() {
+        let win_env: HashMap<&str, &str> =
+            [("HYPRLAND_INSTANCE_SIGNATURE", "1"), ("HUH_SESSION_LOG", "/tmp/huh/123.log")].into();
+        let Plan::Window { argv, .. } = decide_for(
+            &|k| win_env.get(k).map(|v| v.to_string()),
+            &|p| p == "ghostty",
+            Some("/dev/pts/2"),
+            Path::new(HUH),
+            false,
+            None,
+            None,
+            true,
+            1,
+        ) else {
+            panic!()
+        };
+        assert!(argv.contains(&"--auto".to_string()), "{argv:?}");
+        assert!(!argv.contains(&"--tty".to_string()), "{argv:?}");
+        assert!(!argv.contains(&"--log".to_string()), "{argv:?}");
+        assert!(argv.windows(2).any(|w| w == ["--dir", "/tmp/huh"]), "{argv:?}");
+
+        let split_env: HashMap<&str, &str> = [("TMUX", "/s,1,0"), ("HUH_SESSION_LOG", "/tmp/huh/123.log")].into();
+        let Plan::Split(split_argv) = decide_for(
+            &|k| split_env.get(k).map(|v| v.to_string()),
+            &|_| true,
+            Some("/dev/pts/1"),
+            Path::new(HUH),
+            false,
+            Some("new"),
+            None,
+            true,
+            2,
+        ) else {
+            panic!()
+        };
+        let pane_cmd = split_argv.last().unwrap();
+        assert!(pane_cmd.contains("--here --auto --dir /tmp/huh --hold --noise new"), "{pane_cmd}");
+        assert!(!pane_cmd.contains("--tty") && !pane_cmd.contains("--log"), "{pane_cmd}");
+
+        let Plan::Session(sess_argv) =
+            decide_for(&|_| None, &|p| p == "tmux", Some("/dev/pts/3"), Path::new(HUH), true, None, None, true, 7)
+        else {
+            panic!()
+        };
+        let sess_cmd = sess_argv.last().unwrap();
+        assert!(sess_cmd.contains("--here --auto --hold --quiet"), "{sess_cmd}");
+        assert!(!sess_cmd.contains("--tty"), "{sess_cmd}");
     }
 
     #[test]

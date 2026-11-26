@@ -18,7 +18,7 @@ use crate::practice::{self, Practice, RecordedCommand, Report};
 use crate::prefs::{self, NoiseLevel, PaneMode, Prefs};
 use crate::progress;
 use crate::session;
-use crate::slash::{self, FuzzyResolution, SlashDef};
+use crate::slash::{self, AttachHint, FuzzyResolution, SlashDef};
 use crate::sprite::{self, EffectiveMode, RenderStyle};
 use crate::style::{self, Role, Style, TermEnv, Theme, paint};
 use crate::tips;
@@ -27,7 +27,7 @@ use crate::tui::{self, Completion, EditorEvent, LineEditor, SelectItem, SelectOu
 use crate::typewriter::{self, Speed};
 use anyhow::Result;
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
@@ -64,6 +64,7 @@ pub struct RunOpts {
     pub initial_mode: PaneMode,
     pub noise: NoiseLevel,
     pub tty: Option<String>,
+    pub auto: bool,
     pub safety: Mode,
     pub theme: Theme,
     pub color_on: bool,
@@ -102,6 +103,17 @@ impl Follower {
         Follower { log: log.to_path_buf(), seen: stamp(&status), status, waited: 0 }
     }
 
+    /// Starts with nothing yet acknowledged, so even the first fast command in a brand-new
+    /// recording is reported when `poll()` runs.
+    pub fn new_from_start(log: &Path) -> Follower {
+        let status = log.with_extension("status");
+        Follower { log: log.to_path_buf(), seen: None, status, waited: 0 }
+    }
+
+    pub fn log_path(&self) -> &Path {
+        &self.log
+    }
+
     /// True when the status file changed with a non-empty command since the last polled command.
     pub fn has_new_activity(&self) -> bool {
         let Some(now) = stamp(&self.status) else { return false };
@@ -126,33 +138,108 @@ impl Follower {
     }
 }
 
+#[derive(Clone, Debug)]
+struct RecordedSession {
+    log: PathBuf,
+    tty: String,
+    cwd: Option<String>,
+    last_cmd: Option<String>,
+    last_active: Option<SystemTime>,
+}
+
 fn last_activity(log: &Path) -> Option<SystemTime> {
     let status = log.with_extension("status");
     std::fs::metadata(&status).or_else(|_| std::fs::metadata(log)).ok()?.modified().ok()
 }
 
-fn ttys_of(log: &Path) -> Vec<String> {
+fn proc_dirs_for(log: &Path) -> Vec<PathBuf> {
     let Some(pid) = log.file_stem() else { return Vec::new() };
     let proc_dir = Path::new("/proc").join(pid);
-    let stdin_of = |dir: &Path| std::fs::read_link(dir.join("fd/0")).ok().map(|t| t.display().to_string());
-    let mut out = Vec::new();
-    let children = std::fs::read_dir(proc_dir.join("task"))
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(proc_dir.join("task"))
         .into_iter()
         .flatten()
         .flatten()
         .filter_map(|task| std::fs::read_to_string(task.path().join("children")).ok())
-        .flat_map(|list| list.split_whitespace().map(str::to_string).collect::<Vec<_>>());
-    for child in children {
-        if let Some(t) = stdin_of(&Path::new("/proc").join(&child)).filter(|t| t.starts_with("/dev/")) {
-            out.push(t);
-        }
-    }
-    out.extend(stdin_of(&proc_dir));
-    out
+        .flat_map(|list| list.split_whitespace().map(|child| Path::new("/proc").join(child)).collect::<Vec<_>>())
+        .collect();
+    dirs.push(proc_dir);
+    dirs
+}
+
+fn ttys_of(log: &Path) -> Vec<String> {
+    proc_dirs_for(log)
+        .into_iter()
+        .filter_map(|dir| std::fs::read_link(dir.join("fd/0")).ok())
+        .map(|t| t.display().to_string())
+        .filter(|t| t.starts_with("/dev/"))
+        .collect()
 }
 
 fn tty_of(log: &Path) -> Option<String> {
     ttys_of(log).into_iter().next()
+}
+
+fn session_tty(log: &Path, check_alive: bool) -> Option<String> {
+    if check_alive && let Some(tty) = tty_of(log) {
+        return Some(tty);
+    }
+    log.file_stem().and_then(|n| n.to_str()).map(str::to_string)
+}
+
+fn shorten_home(path: &Path) -> String {
+    if let Some(home) = std::env::var_os("HOME").filter(|v| !v.is_empty())
+        && let Ok(rest) = path.strip_prefix(&home)
+    {
+        return if rest.as_os_str().is_empty() { "~".into() } else { format!("~/{}", rest.display()) };
+    }
+    path.display().to_string()
+}
+
+fn cwd_of(log: &Path) -> Option<String> {
+    proc_dirs_for(log)
+        .into_iter()
+        .find_map(|dir| std::fs::read_link(dir.join("cwd")).ok())
+        .map(|cwd| shorten_home(&cwd))
+}
+
+fn truncate_chars(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let keep: String = text.chars().take(max_chars.saturating_sub(1)).collect();
+    format!("{keep}\u{2026}")
+}
+
+fn last_cmd_of(log: &Path) -> Option<String> {
+    let status = std::fs::read_to_string(log.with_extension("status")).ok()?;
+    if status.trim().is_empty() {
+        return None;
+    }
+    let (_, cmd) = session::parse_status(&status);
+    let compact = cmd.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.is_empty() {
+        return None;
+    }
+    Some(truncate_chars(&compact, 28))
+}
+
+fn format_relative_age(t: SystemTime, now: SystemTime) -> String {
+    let secs = now.duration_since(t).map(|d| d.as_secs()).unwrap_or(0);
+    if secs < 5 {
+        "just now".into()
+    } else if secs < 60 {
+        format!("{secs}s ago")
+    } else if secs < 3600 {
+        format!("{}m ago", secs / 60)
+    } else if secs < 86_400 {
+        format!("{}h ago", secs / 3600)
+    } else {
+        format!("{}d ago", secs / 86_400)
+    }
+}
+
+fn own_recording_path() -> Option<PathBuf> {
+    std::env::var_os("HUH_SESSION_LOG").filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
 fn recordings(dir: &Path, own: Option<&Path>, check_alive: bool) -> Vec<PathBuf> {
@@ -166,6 +253,68 @@ fn recordings(dir: &Path, own: Option<&Path>, check_alive: bool) -> Vec<PathBuf>
         .collect();
     found.sort_by_key(|a| std::cmp::Reverse(a.0));
     found.into_iter().map(|(_, p)| p).collect()
+}
+
+fn discover_sessions(dir: &Path, own: Option<&Path>, check_alive: bool) -> Vec<RecordedSession> {
+    recordings(dir, own, check_alive)
+        .into_iter()
+        .map(|log| RecordedSession {
+            tty: session_tty(&log, check_alive).unwrap_or_else(|| log.display().to_string()),
+            cwd: if check_alive { cwd_of(&log) } else { None },
+            last_cmd: last_cmd_of(&log),
+            last_active: last_activity(&log),
+            log,
+        })
+        .collect()
+}
+
+fn session_detail(session: &RecordedSession, attached: bool, now: SystemTime) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(cwd) = &session.cwd {
+        parts.push(cwd.clone());
+    }
+    if let Some(cmd) = &session.last_cmd {
+        parts.push(format!("last: {cmd}"));
+    }
+    if let Some(active) = session.last_active {
+        parts.push(format_relative_age(active, now));
+    }
+    let mut detail = parts.join(" · ");
+    if attached {
+        if detail.is_empty() {
+            detail = "attached".into();
+        } else {
+            detail.push_str(" (attached)");
+        }
+    }
+    detail
+}
+
+fn resolve_attach_target<'a>(sessions: &'a [RecordedSession], raw: &str) -> Option<&'a RecordedSession> {
+    let needle = raw.trim();
+    if needle.is_empty() {
+        return None;
+    }
+    if let Some(exact) = sessions.iter().find(|s| s.tty == needle) {
+        return Some(exact);
+    }
+    if needle.chars().all(|c| c.is_ascii_digit()) {
+        let pts_full = format!("/dev/pts/{needle}");
+        if let Some(hit) = sessions.iter().find(|s| s.tty == pts_full) {
+            return Some(hit);
+        }
+        return sessions.iter().find(|s| s.log.file_stem().and_then(|n| n.to_str()) == Some(needle));
+    }
+    if needle.starts_with("pts/") {
+        let dev_full = format!("/dev/{needle}");
+        if let Some(hit) = sessions.iter().find(|s| s.tty == dev_full) {
+            return Some(hit);
+        }
+    }
+    sessions
+        .iter()
+        .find(|s| s.log.file_stem().and_then(|n| n.to_str()) == Some(needle))
+        .or_else(|| sessions.iter().find(|s| s.log.to_string_lossy() == needle))
 }
 
 fn recording_dir() -> Option<PathBuf> {
@@ -185,20 +334,24 @@ fn recording_dir() -> Option<PathBuf> {
     Some(base.join("huh"))
 }
 
+fn effective_recording_dir(dir_override: &Option<PathBuf>) -> Option<PathBuf> {
+    dir_override.clone().or_else(recording_dir)
+}
+
 fn recording_of_tty(dir: &Path, tty: &str) -> Option<PathBuf> {
     recordings(dir, None, true).into_iter().find(|log| ttys_of(log).iter().any(|t| t == tty))
 }
 
-fn locate(tty: Option<&str>) -> Option<PathBuf> {
-    if let Some(log) = RECORDING.get().filter(|log| log.is_file()) {
+fn locate_in(tty: Option<&str>, dir_override: Option<&Path>, allow_global_log: bool) -> Option<PathBuf> {
+    if allow_global_log && let Some(log) = RECORDING.get().filter(|log| log.is_file()) {
         return Some(log.clone());
     }
-    let dir = recording_dir()?;
+    let dir = dir_override.map(Path::to_path_buf).or_else(recording_dir)?;
     match tty {
         Some(tty) if tty.chars().all(|c| c.is_ascii_digit()) => recording_of_tty(&dir, &format!("/dev/pts/{tty}")),
         Some(tty) => recording_of_tty(&dir, tty),
         None => {
-            let own = std::env::var_os("HUH_SESSION_LOG").map(PathBuf::from);
+            let own = own_recording_path();
             recordings(&dir, own.as_deref(), true).into_iter().next()
         }
     }
@@ -727,6 +880,7 @@ pub enum Reply {
 pub enum SlashCmd {
     ModeInteractive,
     Mode(PaneMode, Vec<String>),
+    Attach(Option<String>),
     Safety(Option<String>),
     Theme(Option<String>),
     Pet(Vec<String>),
@@ -779,6 +933,7 @@ fn help_text() -> String {
      \x20 ?word [word...]     search installed programs, as `huh tools`\n\
      \x20 why / Enter         explain last failure / replay last command in full\n\
      \x20 /mode [watch|lab]   switch Watch / Lab mode (shortcuts: /watch, /lab)\n\
+     \x20 /attach [tty|auto]  switch watched terminal (auto, latest, or TTY)\n\
      \x20 /safety [norm|exp]  toggle safety guardrails;  /theme [name]: live theme\n\
      \x20 /pet [status|pebbles|name|species|style|customize]  manage Pebble & sprites\n\
      \x20 /speed [off|fast|normal|slow|ms]  typewriter;  /noise [all|new|errors]\n\
@@ -871,6 +1026,13 @@ pub fn parse_slash(line: &str) -> Option<Reply> {
     }
     if let Some(args) = split_slash(line, "/lab") {
         return Some(Reply::Slash(SlashCmd::Mode(PaneMode::Lab, args)));
+    }
+    if let Some(args) = split_slash(line, "/attach") {
+        return Some(if args.len() <= 1 {
+            Reply::Slash(SlashCmd::Attach(args.into_iter().next()))
+        } else {
+            Reply::Instant(note("usage: /attach [tty|auto|latest]"))
+        });
     }
     if let Some(args) = split_slash(line, "/safety") {
         return Some(if args.len() <= 1 {
@@ -1003,11 +1165,74 @@ enum SlashOutcome {
     SwitchMode(PaneMode, Vec<String>),
 }
 
-fn slash_completions(line: &str, unlocked_species: &[Species]) -> Vec<Completion> {
-    slash::completions(line, unlocked_species)
+fn discover_attach_hints(dir: Option<&Path>, check_alive: bool, pinned_log: Option<&Path>) -> Vec<AttachHint> {
+    let Some(dir) = dir else {
+        return Vec::new();
+    };
+    let own = own_recording_path();
+    let now = SystemTime::now();
+    discover_sessions(dir, own.as_deref(), check_alive)
+        .into_iter()
+        .map(|s| AttachHint { summary: session_detail(&s, pinned_log == Some(s.log.as_path()), now), target: s.tty })
+        .collect()
+}
+
+fn slash_completions_for(
+    line: &str,
+    unlocked_species: &[Species],
+    rec_dir: Option<&Path>,
+    check_alive: bool,
+    pinned_log: Option<&Path>,
+) -> Vec<Completion> {
+    let trimmed = line.trim_start();
+    let hints = if trimmed.starts_with('/') && trimmed.contains(char::is_whitespace) {
+        discover_attach_hints(rec_dir, check_alive, pinned_log)
+    } else {
+        Vec::new()
+    };
+    slash::completions_with_targets(line, unlocked_species, &hints)
         .into_iter()
         .map(|c| Completion { insert: c.insert, display: c.display, summary: c.summary, auto_submit: c.auto_submit })
         .collect()
+}
+
+#[derive(Clone)]
+struct CompletionSnapshot {
+    unlocked_species: Vec<Species>,
+    rec_dir: Option<PathBuf>,
+    check_alive: bool,
+    pinned_log: Option<PathBuf>,
+}
+
+enum WatchTarget {
+    None,
+    Pinned(Follower),
+    Auto { followers: HashMap<PathBuf, Follower>, active_log: Option<PathBuf> },
+}
+
+impl WatchTarget {
+    fn is_auto(&self) -> bool {
+        matches!(self, WatchTarget::Auto { .. })
+    }
+
+    fn is_none(&self) -> bool {
+        matches!(self, WatchTarget::None)
+    }
+
+    fn pinned_log(&self) -> Option<&Path> {
+        match self {
+            WatchTarget::Pinned(follower) => Some(follower.log_path()),
+            WatchTarget::None | WatchTarget::Auto { .. } => None,
+        }
+    }
+
+    fn has_new_activity(&self) -> bool {
+        match self {
+            WatchTarget::None => false,
+            WatchTarget::Pinned(follower) => follower.has_new_activity(),
+            WatchTarget::Auto { followers, .. } => followers.values().any(Follower::has_new_activity),
+        }
+    }
 }
 
 fn theme_summary(theme: Theme) -> &'static str {
@@ -1045,6 +1270,8 @@ struct PaneState {
     explained: Option<HashSet<String>>,
     seen_path: Option<PathBuf>,
     miss_log_path: Option<PathBuf>,
+    recording_dir_override: Option<PathBuf>,
+    check_proc_alive: bool,
     tty_arg: Option<String>,
     tty_label: String,
     tick: u64,
@@ -1059,7 +1286,7 @@ struct PaneState {
     lab_xp: Option<(u64, u32)>,
     pinned: bool,
     last_finished: Option<Finished>,
-    follower: Option<Follower>,
+    watch: WatchTarget,
     stdin: StdinReader,
     editor: LineEditor,
 }
@@ -1183,16 +1410,135 @@ impl PaneState {
         }
     }
 
+    fn effective_dir(&self) -> Option<PathBuf> {
+        effective_recording_dir(&self.recording_dir_override)
+    }
+
+    fn discover_live_sessions(&self) -> Vec<RecordedSession> {
+        let Some(dir) = self.effective_dir() else {
+            return Vec::new();
+        };
+        let own = own_recording_path();
+        discover_sessions(&dir, own.as_deref(), self.check_proc_alive)
+    }
+
+    fn completion_snapshot(&self) -> CompletionSnapshot {
+        CompletionSnapshot {
+            unlocked_species: self.pet_session.pet.unlocked_species.clone(),
+            rec_dir: self.effective_dir(),
+            check_alive: self.check_proc_alive,
+            pinned_log: self.watch.pinned_log().map(Path::to_path_buf),
+        }
+    }
+
+    fn pin_to_session(&mut self, session: &RecordedSession) -> String {
+        self.watch = WatchTarget::Pinned(Follower::new(&session.log));
+        self.last_finished = None;
+        self.tty_arg = Some(session.tty.clone());
+        self.tty_label = session.tty.clone();
+        self.emit_header_refresh();
+        match &session.cwd {
+            Some(cwd) => format!("Attached to {} ({cwd}).", session.tty),
+            None => format!("Attached to {}.", session.tty),
+        }
+    }
+
     fn try_attach_follower(&mut self) -> Option<String> {
-        if self.follower.is_some() {
+        if !self.watch.is_none() {
             return None;
         }
-        let log = locate(self.tty_arg.as_deref())?;
-        let tty_name = tty_of(&log).unwrap_or_else(|| log.display().to_string());
-        self.follower = Some(Follower::new(&log));
+        let log = locate_in(self.tty_arg.as_deref(), self.recording_dir_override.as_deref(), false)?;
+        let tty_name = session_tty(&log, self.check_proc_alive).unwrap_or_else(|| log.display().to_string());
+        self.watch = WatchTarget::Pinned(Follower::new(&log));
         self.tty_label = tty_name.clone();
         self.emit_header_refresh();
         Some(format!("  {}\n\n", paint(Role::Dim, &format!("Attached to recorded terminal {tty_name}."))))
+    }
+
+    fn poll_watch_step(&mut self, relocate_ticks: &mut u64) -> (Option<String>, Option<Finished>) {
+        let check_alive = self.check_proc_alive;
+        let dir_override = self.recording_dir_override.clone();
+        let mut notice: Option<String> = None;
+        let mut finished: Option<Finished> = None;
+        match &mut self.watch {
+            WatchTarget::None => {
+                *relocate_ticks += 1;
+                if relocate_ticks.is_multiple_of(RELOCATE_EVERY_TICKS)
+                    && let Some(msg) = self.try_attach_follower()
+                {
+                    notice = Some(msg);
+                }
+                if let WatchTarget::Pinned(follower) = &mut self.watch {
+                    finished = follower.poll();
+                }
+            }
+            WatchTarget::Pinned(follower) => {
+                finished = follower.poll();
+            }
+            WatchTarget::Auto { followers, active_log } => {
+                *relocate_ticks += 1;
+                let mut label_update: Option<String> = None;
+                let mut appeared_tty: Option<String> = None;
+                if relocate_ticks.is_multiple_of(RELOCATE_EVERY_TICKS)
+                    && let Some(dir) = effective_recording_dir(&dir_override)
+                {
+                    let own = own_recording_path();
+                    let current = recordings(&dir, own.as_deref(), check_alive);
+                    let current_set: HashSet<PathBuf> = current.iter().cloned().collect();
+                    let was_empty = followers.is_empty();
+                    followers.retain(|path, _| current_set.contains(path));
+                    for path in &current {
+                        followers.entry(path.clone()).or_insert_with(|| Follower::new_from_start(path));
+                    }
+                    if let Some(act) = active_log.as_ref()
+                        && !current_set.contains(act)
+                    {
+                        *active_log = None;
+                        label_update = Some(if followers.is_empty() { "no hook".into() } else { "auto".into() });
+                    } else if was_empty && !followers.is_empty() {
+                        label_update = Some("auto".into());
+                        appeared_tty = Some(
+                            current
+                                .first()
+                                .and_then(|p| session_tty(p, check_alive))
+                                .unwrap_or_else(|| format!("{} terminal(s)", current.len())),
+                        );
+                    } else if !was_empty && followers.is_empty() {
+                        label_update = Some("no hook".into());
+                    }
+                }
+                let mut keys: Vec<PathBuf> = followers.keys().cloned().collect();
+                keys.sort();
+                for path in keys {
+                    let Some(done) = followers.get_mut(&path).and_then(Follower::poll) else {
+                        continue;
+                    };
+                    let tty = session_tty(&path, check_alive).unwrap_or_else(|| path.display().to_string());
+                    if active_log.as_ref() != Some(&path) {
+                        let divider = if active_log.is_some() {
+                            format!("  {}\n", paint(Role::Dim, &format!("[switched to {tty}]")))
+                        } else {
+                            format!("  {}\n", paint(Role::Dim, &format!("[following {tty}]")))
+                        };
+                        notice = Some(divider);
+                        *active_log = Some(path);
+                        label_update = Some(format!("auto ({tty})"));
+                    }
+                    finished = Some(done);
+                    break;
+                }
+                if finished.is_none()
+                    && let Some(tty_desc) = appeared_tty
+                {
+                    notice = Some(format!("  {}\n\n", paint(Role::Dim, &format!("Auto-following {tty_desc}."))));
+                }
+                if let Some(next_label) = label_update {
+                    self.tty_label = next_label;
+                    self.emit_header_refresh();
+                }
+            }
+        }
+        (notice, finished)
     }
 
     fn handle_watched_finished(&mut self, done: Finished) -> (Option<String>, String) {
@@ -1224,15 +1570,11 @@ impl PaneState {
 
     fn poll_watch_activity(&mut self, relocate_ticks: &mut u64) -> Option<String> {
         let mut out = String::new();
-        if self.follower.is_none() {
-            *relocate_ticks += 1;
-            if relocate_ticks.is_multiple_of(RELOCATE_EVERY_TICKS)
-                && let Some(msg) = self.try_attach_follower()
-            {
-                out.push_str(&msg);
-            }
+        let (notice, finished) = self.poll_watch_step(relocate_ticks);
+        if let Some(msg) = notice {
+            out.push_str(&msg);
         }
-        if let Some(done) = self.follower.as_mut().and_then(Follower::poll) {
+        if let Some(done) = finished {
             let (text, rewards) = self.handle_watched_finished(done);
             if let Some(t) = text {
                 out.push_str(&t);
@@ -1254,7 +1596,7 @@ impl PaneState {
         let has_buffered = !use_tty_editor && self.stdin.has_line();
         let mut stdout = std::io::stdout().lock();
         let _ = typewriter::write_animated(&mut stdout, text, budget, &mut |delay| {
-            if STOP.load(Ordering::Relaxed) || self.follower.as_ref().is_some_and(Follower::has_new_activity) {
+            if STOP.load(Ordering::Relaxed) || self.watch.has_new_activity() {
                 return true;
             }
             if use_tty_editor {
@@ -1298,9 +1640,18 @@ impl PaneState {
 
     fn read_editor_line(&mut self, prompt: &str) -> std::io::Result<EditorEvent> {
         let mut editor = std::mem::take(&mut self.editor);
-        let unlocked = Rc::new(RefCell::new(self.pet_session.pet.unlocked_species.clone()));
-        let unlocked_for_comp = Rc::clone(&unlocked);
-        let complete = move |line: &str| slash_completions(line, &unlocked_for_comp.borrow());
+        let snap = Rc::new(RefCell::new(self.completion_snapshot()));
+        let snap_for_comp = Rc::clone(&snap);
+        let complete = move |line: &str| {
+            let s = snap_for_comp.borrow();
+            slash_completions_for(
+                line,
+                &s.unlocked_species,
+                s.rec_dir.as_deref(),
+                s.check_alive,
+                s.pinned_log.as_deref(),
+            )
+        };
         let mut on_tick = || {
             if self.pinned
                 && let Some(redraw) = pin::on_resize()
@@ -1308,7 +1659,7 @@ impl PaneState {
                 write_raw(&redraw);
             }
             self.tick_animation();
-            *unlocked.borrow_mut() = self.pet_session.pet.unlocked_species.clone();
+            *snap.borrow_mut() = self.completion_snapshot();
             None
         };
         let res = editor.read_line_with_cancel(prompt, &complete, &mut on_tick, &STOP);
@@ -1318,9 +1669,18 @@ impl PaneState {
 
     fn read_watch_line(&mut self, relocate_ticks: &mut u64) -> std::io::Result<EditorEvent> {
         let mut editor = std::mem::take(&mut self.editor);
-        let unlocked = Rc::new(RefCell::new(self.pet_session.pet.unlocked_species.clone()));
-        let unlocked_for_comp = Rc::clone(&unlocked);
-        let complete = move |line: &str| slash_completions(line, &unlocked_for_comp.borrow());
+        let snap = Rc::new(RefCell::new(self.completion_snapshot()));
+        let snap_for_comp = Rc::clone(&snap);
+        let complete = move |line: &str| {
+            let s = snap_for_comp.borrow();
+            slash_completions_for(
+                line,
+                &s.unlocked_species,
+                s.rec_dir.as_deref(),
+                s.check_alive,
+                s.pinned_log.as_deref(),
+            )
+        };
         let mut on_tick = || {
             if self.pinned
                 && let Some(redraw) = pin::on_resize()
@@ -1329,7 +1689,7 @@ impl PaneState {
             }
             self.tick_animation();
             let async_out = self.poll_watch_activity(relocate_ticks);
-            *unlocked.borrow_mut() = self.pet_session.pet.unlocked_species.clone();
+            *snap.borrow_mut() = self.completion_snapshot();
             async_out
         };
         let res = editor.read_line_with_cancel(PROMPT, &complete, &mut on_tick, &STOP);
@@ -1463,7 +1823,9 @@ impl PaneState {
 
     fn exec_slash_pick(&mut self, title: &str, raw_line: &str, defs: &[&'static SlashDef]) -> SlashOutcome {
         if defs.len() == 1 {
-            let comps = slash::completions(raw_line, &self.pet_session.pet.unlocked_species);
+            let hints =
+                discover_attach_hints(self.effective_dir().as_deref(), self.check_proc_alive, self.watch.pinned_log());
+            let comps = slash::completions_with_targets(raw_line, &self.pet_session.pet.unlocked_species, &hints);
             if !comps.is_empty() {
                 if self.use_tui() {
                     let items: Vec<SelectItem> = comps
@@ -1589,6 +1951,7 @@ impl PaneState {
                 self.apply_mode_switch(picked, Vec::new())
             }
             SlashCmd::Mode(target, args) => self.apply_mode_switch(target, args),
+            SlashCmd::Attach(arg) => self.exec_attach_slash(arg),
             SlashCmd::Safety(arg) => {
                 let next = match arg {
                     None => {
@@ -1915,6 +2278,156 @@ impl PaneState {
         }
         self.emit_header_refresh();
         SlashOutcome::Output(format!("{}\n", outcome.text))
+    }
+
+    fn attach_shell_init_notice() -> String {
+        let shell_env = std::env::var("SHELL").ok();
+        let shell = session::detect_shell(shell_env.as_deref());
+        let (record_line, hooks_line) = session::init_lines(shell);
+        format!(
+            "{}\n  {}\n{}\n  {}\n{}\n\n",
+            paint(Role::Note, "No recorded terminals are active yet. In an open shell, run:"),
+            record_line,
+            paint(Role::Dim, "If command hooks aren't installed yet, also run:"),
+            hooks_line,
+            paint(Role::Dim, "(Once a recorded shell starts, `huh` attaches automatically.)"),
+        )
+    }
+
+    fn attach_auto(&mut self, sessions: &[RecordedSession]) -> SlashOutcome {
+        let mut followers = HashMap::new();
+        for s in sessions {
+            followers.insert(s.log.clone(), Follower::new(&s.log));
+        }
+        let count = followers.len();
+        self.watch = WatchTarget::Auto { followers, active_log: None };
+        self.last_finished = None;
+        self.tty_arg = None;
+        self.tty_label = if count == 0 { "no hook".into() } else { "auto".into() };
+        self.emit_header_refresh();
+        if count == 0 {
+            SlashOutcome::Output(format!(
+                "{}\n{}",
+                paint(Role::Success, "Watch target set to auto (waiting for a recorded terminal)."),
+                Self::attach_shell_init_notice()
+            ))
+        } else {
+            SlashOutcome::Output(format!(
+                "{}\n\n",
+                paint(
+                    Role::Success,
+                    &format!("Auto-following {count} recorded terminal(s) — switches on whichever runs next."),
+                )
+            ))
+        }
+    }
+
+    fn exec_attach_slash(&mut self, arg: Option<String>) -> SlashOutcome {
+        let sessions = self.discover_live_sessions();
+        if let Some(raw) = arg {
+            let trimmed = raw.trim();
+            if trimmed.eq_ignore_ascii_case("auto") {
+                return self.attach_auto(&sessions);
+            }
+            if trimmed.eq_ignore_ascii_case("latest") {
+                return match sessions.first() {
+                    Some(latest) => {
+                        let msg = self.pin_to_session(latest);
+                        SlashOutcome::Output(format!("{}\n\n", paint(Role::Success, &msg)))
+                    }
+                    None => SlashOutcome::Output(Self::attach_shell_init_notice()),
+                };
+            }
+            return match resolve_attach_target(&sessions, trimmed) {
+                Some(target) => {
+                    let msg = self.pin_to_session(target);
+                    SlashOutcome::Output(format!("{}\n\n", paint(Role::Success, &msg)))
+                }
+                None if sessions.is_empty() => SlashOutcome::Output(Self::attach_shell_init_notice()),
+                None => {
+                    let available: Vec<&str> = sessions.iter().map(|s| s.tty.as_str()).collect();
+                    SlashOutcome::Output(note(&format!(
+                        "no recorded terminal matching \"{trimmed}\"; active: {} (or use /attach auto)",
+                        available.join(", ")
+                    )))
+                }
+            };
+        }
+
+        if sessions.is_empty() {
+            return SlashOutcome::Output(Self::attach_shell_init_notice());
+        }
+
+        let now = SystemTime::now();
+        let is_auto = self.watch.is_auto();
+        let pinned_log = self.watch.pinned_log().map(Path::to_path_buf);
+
+        if self.use_tui() {
+            let mut items = Vec::with_capacity(sessions.len() + 1);
+            items.push(SelectItem {
+                key: "1".into(),
+                label: "auto".into(),
+                detail: if is_auto {
+                    "follow whichever recorded shell finishes next (current)".into()
+                } else {
+                    "follow whichever recorded shell finishes next".into()
+                },
+                enabled: true,
+            });
+            let mut initial = 0usize;
+            for (i, s) in sessions.iter().enumerate() {
+                let is_pinned = pinned_log.as_deref() == Some(s.log.as_path());
+                if is_pinned {
+                    initial = i + 1;
+                }
+                let idx_key = i + 2;
+                items.push(SelectItem {
+                    key: if idx_key <= 9 { idx_key.to_string() } else { String::new() },
+                    label: s.tty.clone(),
+                    detail: session_detail(s, is_pinned, now),
+                    enabled: true,
+                });
+            }
+            return match self.run_select_menu(
+                "Watch terminal:",
+                &items,
+                initial,
+                "↑/↓ move · Enter attach · 1-9 hotkey · q/Esc cancel",
+            ) {
+                Ok(SelectOutcome::Picked(0)) => self.exec_attach_slash(Some("auto".into())),
+                Ok(SelectOutcome::Picked(idx)) => match sessions.get(idx - 1) {
+                    Some(s) => {
+                        let msg = self.pin_to_session(s);
+                        SlashOutcome::Output(format!("{}\n\n", paint(Role::Success, &msg)))
+                    }
+                    None => SlashOutcome::Output(format!("{}\n\n", paint(Role::Dim, "Kept current terminal."))),
+                },
+                Ok(SelectOutcome::Slash(s)) => self.exec_slash_from_menu(&s),
+                Ok(SelectOutcome::Eof) => {
+                    STOP.store(true, Ordering::Relaxed);
+                    SlashOutcome::Output(String::new())
+                }
+                Ok(SelectOutcome::Cancelled) | Err(_) => {
+                    SlashOutcome::Output(format!("{}\n\n", paint(Role::Dim, "Kept current terminal.")))
+                }
+            };
+        }
+
+        let mut out = format!("{}\n", paint(Role::Header, "Recorded terminals:"));
+        let auto_mark = if is_auto { "*" } else { " " };
+        let _ = writeln!(out, "  {auto_mark} [auto]   follow whichever recorded shell finishes next");
+        for (i, s) in sessions.iter().enumerate() {
+            let is_pinned = pinned_log.as_deref() == Some(s.log.as_path());
+            let mark = if is_pinned { "*" } else { " " };
+            let detail = session_detail(s, is_pinned, now);
+            if detail.is_empty() {
+                let _ = writeln!(out, "  {mark} [{}] {:<12}", i + 1, s.tty);
+            } else {
+                let _ = writeln!(out, "  {mark} [{}] {:<12} {}", i + 1, s.tty, paint(Role::Dim, &detail));
+            }
+        }
+        let _ = writeln!(out, "{}\n", paint(Role::Dim, "Switch with `/attach <tty|auto|latest>`."));
+        SlashOutcome::Output(out)
     }
 
     fn apply_mode_switch(&mut self, target: PaneMode, args: Vec<String>) -> SlashOutcome {
@@ -2466,9 +2979,18 @@ impl LabHost for PaneHost<'_> {
             let mut auto_update: Option<PracticePoll> = None;
             let mut relocate_ticks = 0u64;
             let mut editor = std::mem::take(&mut self.state.editor);
-            let unlocked = Rc::new(RefCell::new(self.state.pet_session.pet.unlocked_species.clone()));
-            let unlocked_for_comp = Rc::clone(&unlocked);
-            let complete = move |line: &str| slash_completions(line, &unlocked_for_comp.borrow());
+            let snap = Rc::new(RefCell::new(self.state.completion_snapshot()));
+            let snap_for_comp = Rc::clone(&snap);
+            let complete = move |line: &str| {
+                let s = snap_for_comp.borrow();
+                slash_completions_for(
+                    line,
+                    &s.unlocked_species,
+                    s.rec_dir.as_deref(),
+                    s.check_alive,
+                    s.pinned_log.as_deref(),
+                )
+            };
             let mut on_tick = || {
                 if STOP.load(Ordering::Relaxed) {
                     cancel.store(true, Ordering::Relaxed);
@@ -2479,7 +3001,8 @@ impl LabHost for PaneHost<'_> {
                 {
                     write_raw(&redraw);
                 }
-                if let Some(done) = self.state.follower.as_mut().and_then(Follower::poll) {
+                let (_, finished) = self.state.poll_watch_step(&mut relocate_ticks);
+                if let Some(done) = finished {
                     *reported_cmds += 1;
                     if *reported_cmds == 1 {
                         self.last_auto_report = None;
@@ -2494,7 +3017,6 @@ impl LabHost for PaneHost<'_> {
                         self.state.pet_session.save();
                         self.state.emit_header_refresh();
                     }
-                    *unlocked.borrow_mut() = self.state.pet_session.pet.unlocked_species.clone();
 
                     let mut nudged = false;
                     let mut nudge_text = String::new();
@@ -2524,17 +3046,16 @@ impl LabHost for PaneHost<'_> {
                             self.last_auto_report = Some(key);
                             auto_update = Some(PracticePoll::AutoUpdate { report, recorded: Some(rec), nudged });
                             cancel.store(true, Ordering::Relaxed);
+                            *snap.borrow_mut() = self.state.completion_snapshot();
                             return (!nudge_text.is_empty()).then_some(nudge_text);
                         }
                     } else if nudged {
+                        *snap.borrow_mut() = self.state.completion_snapshot();
                         return Some(nudge_text);
                     }
                 }
                 self.state.tick_animation();
-                relocate_ticks += 1;
-                if self.state.follower.is_none() && relocate_ticks.is_multiple_of(RELOCATE_EVERY_TICKS) {
-                    let _ = self.state.try_attach_follower();
-                }
+                *snap.borrow_mut() = self.state.completion_snapshot();
                 None
             };
             let res = editor.read_line_with_cancel(prompt, &complete, &mut on_tick, &cancel);
@@ -2567,7 +3088,8 @@ impl LabHost for PaneHost<'_> {
                 write_raw(&redraw);
             }
 
-            if let Some(done) = self.state.follower.as_mut().and_then(Follower::poll) {
+            let (_, finished) = self.state.poll_watch_step(&mut relocate_ticks);
+            if let Some(done) = finished {
                 *reported_cmds += 1;
                 if *reported_cmds == 1 {
                     self.last_auto_report = None;
@@ -2627,10 +3149,6 @@ impl LabHost for PaneHost<'_> {
                 PollResult::Eof => return Some(PracticePoll::UserLine(None)),
                 PollResult::Timeout => {
                     self.state.tick_animation();
-                    relocate_ticks += 1;
-                    if self.state.follower.is_none() && relocate_ticks.is_multiple_of(RELOCATE_EVERY_TICKS) {
-                        let _ = self.state.try_attach_follower();
-                    }
                 }
             }
         }
@@ -2646,24 +3164,49 @@ fn write_raw(text: &str) {
 /// Runs the unified `huh` companion pane (`watch` + `lab`) until Ctrl+C or `Ctrl+D`.
 pub fn run(catalog: &[Command], opts: RunOpts) -> Result<()> {
     STOP.store(false, Ordering::Relaxed);
+    let rec_dir_override = opts.dir.clone();
     if let Some(dir) = opts.dir {
         set_recording_dir(dir);
     }
-    if let Some(log) = opts.log {
+    if let Some(log) = opts.log.clone() {
         set_recording(log);
     }
 
-    let mut log = locate(opts.tty.as_deref());
-    if log.is_none() && opts.tty.is_some() && (RECORDING.get().is_some() || recording_dir().is_some_and(|d| d.is_dir()))
-    {
-        for _ in 0..4 {
-            std::thread::sleep(Duration::from_millis(150));
-            log = locate(opts.tty.as_deref());
-            if log.is_some() {
-                break;
+    let auto_follow = opts.auto || (opts.tty.is_none() && opts.log.is_none());
+    let rec_dir = effective_recording_dir(&rec_dir_override);
+    let own = own_recording_path();
+    let (tty_label, initial_watch, initial_auto_count) = if auto_follow {
+        let sessions = rec_dir.as_deref().map(|dir| discover_sessions(dir, own.as_deref(), true)).unwrap_or_default();
+        let mut followers = HashMap::new();
+        for s in &sessions {
+            followers.insert(s.log.clone(), Follower::new(&s.log));
+        }
+        let count = followers.len();
+        let label = if count == 0 { "no hook".to_string() } else { "auto".to_string() };
+        (label, WatchTarget::Auto { followers, active_log: None }, count)
+    } else {
+        let mut log = locate_in(opts.tty.as_deref(), rec_dir_override.as_deref(), true);
+        if log.is_none()
+            && opts.tty.is_some()
+            && (RECORDING.get().is_some() || rec_dir.as_ref().is_some_and(|d| d.is_dir()))
+        {
+            for _ in 0..4 {
+                std::thread::sleep(Duration::from_millis(150));
+                log = locate_in(opts.tty.as_deref(), rec_dir_override.as_deref(), true);
+                if log.is_some() {
+                    break;
+                }
             }
         }
-    }
+        match log {
+            Some(path) => {
+                let tty = tty_of(&path).unwrap_or_else(|| path.display().to_string());
+                let watch = WatchTarget::Pinned(Follower::new(&path));
+                (tty, watch, 1)
+            }
+            None => ("no hook".to_string(), WatchTarget::None, 0),
+        }
+    };
 
     let pinning = pin::wanted();
     let shown = crate::welcome::show_with(crate::welcome::Trigger::Pane, false, false, !pinning);
@@ -2672,10 +3215,6 @@ pub fn run(catalog: &[Command], opts: RunOpts) -> Result<()> {
     }
     catch_ctrl_c();
 
-    let tty_label = match &log {
-        Some(path) => tty_of(path).unwrap_or_else(|| path.display().to_string()),
-        None => "no hook".to_string(),
-    };
     let prefs = prefs::load_default();
     let prefs_path = prefs::default_state_path();
     let config_text = crate::mode::config_path().and_then(|p| std::fs::read_to_string(p).ok());
@@ -2718,6 +3257,8 @@ pub fn run(catalog: &[Command], opts: RunOpts) -> Result<()> {
         explained: initial_explained,
         seen_path,
         miss_log_path: crate::misses::default_log_path(),
+        recording_dir_override: rec_dir_override,
+        check_proc_alive: true,
         tty_arg: opts.tty,
         tty_label,
         tick: 0,
@@ -2732,7 +3273,7 @@ pub fn run(catalog: &[Command], opts: RunOpts) -> Result<()> {
         lab_xp: None,
         pinned: false,
         last_finished: None,
-        follower: log.as_deref().map(Follower::new),
+        watch: initial_watch,
         stdin: StdinReader::new(typing),
         editor: LineEditor::new(),
     };
@@ -2747,32 +3288,28 @@ pub fn run(catalog: &[Command], opts: RunOpts) -> Result<()> {
         crate::welcome::print_welcome(crate::welcome::Trigger::Pane);
     }
 
-    if state.follower.is_none() {
+    if state.watch.is_none() || (state.watch.is_auto() && initial_auto_count == 0) {
         write_raw(&no_hook_notice());
     } else if !state.pinned {
-        let suffix = if state.tty_arg.is_some() { "" } else { ", the terminal that finished a command most recently" };
-        println!(
-            "{}",
-            paint(Role::Dim, &format!("huh: following {}{} (Ctrl+C stops). It only reads.", state.tty_label, suffix))
-        );
-    }
-
-    if state.follower.is_some()
-        && state.tty_arg.is_none()
-        && let Some(current_log) = &log
-    {
-        let own = std::env::var_os("HUH_SESSION_LOG").map(PathBuf::from);
-        let others: Vec<String> = recording_dir()
-            .map(|dir| recordings(&dir, own.as_deref(), true))
-            .unwrap_or_default()
-            .iter()
-            .filter(|p| *p != current_log)
-            .filter_map(|p| tty_of(p))
-            .collect();
-        if !others.is_empty() {
+        if state.watch.is_auto() {
             println!(
-                "Other recorded terminals: {}. To follow one, run `tty` in it, then `huh --tty <number>`.",
-                others.join(", ")
+                "{}",
+                paint(
+                    Role::Dim,
+                    &format!(
+                        "huh: auto-following {initial_auto_count} recorded terminal(s) (Ctrl+C stops). It only reads."
+                    ),
+                )
+            );
+        } else {
+            let suffix =
+                if state.tty_arg.is_some() { "" } else { ", the terminal that finished a command most recently" };
+            println!(
+                "{}",
+                paint(
+                    Role::Dim,
+                    &format!("huh: following {}{} (Ctrl+C stops). It only reads.", state.tty_label, suffix)
+                )
             );
         }
     }
@@ -2819,7 +3356,11 @@ pub fn run(catalog: &[Command], opts: RunOpts) -> Result<()> {
             {
                 write_raw(&redraw);
             }
-            if let Some(done) = state.follower.as_mut().and_then(Follower::poll) {
+            let (notice, finished) = state.poll_watch_step(&mut relocate_ticks);
+            if let Some(msg) = notice {
+                write_raw(&msg);
+            }
+            if let Some(done) = finished {
                 let (text, rewards) = state.handle_watched_finished(done);
                 if let Some(t) = text {
                     state.write_typewritten(&t);
@@ -2855,23 +3396,25 @@ pub fn run(catalog: &[Command], opts: RunOpts) -> Result<()> {
             write_raw(&redraw);
         }
 
-        if let Some(done) = state.follower.as_mut().and_then(Follower::poll) {
-            let (text, rewards) = state.handle_watched_finished(done);
-            if text.is_some() || !rewards.is_empty() {
-                if typing && prompt_shown {
-                    write_raw("\r\x1b[2K");
-                    prompt_shown = false;
-                }
-                if let Some(t) = text {
-                    state.write_typewritten(&t);
-                }
-                if !rewards.is_empty() {
-                    write_raw(&rewards);
-                }
-                if typing {
-                    write_raw(&paint(Role::Dim, PROMPT));
-                    prompt_shown = true;
-                }
+        let (notice, finished) = state.poll_watch_step(&mut relocate_ticks);
+        let (text, rewards) = finished.map_or((None, String::new()), |done| state.handle_watched_finished(done));
+        if notice.is_some() || text.is_some() || !rewards.is_empty() {
+            if typing && prompt_shown {
+                write_raw("\r\x1b[2K");
+                prompt_shown = false;
+            }
+            if let Some(msg) = notice {
+                write_raw(&msg);
+            }
+            if let Some(t) = text {
+                state.write_typewritten(&t);
+            }
+            if !rewards.is_empty() {
+                write_raw(&rewards);
+            }
+            if typing {
+                write_raw(&paint(Role::Dim, PROMPT));
+                prompt_shown = true;
             }
         }
 
@@ -2889,17 +3432,6 @@ pub fn run(catalog: &[Command], opts: RunOpts) -> Result<()> {
             PollResult::Eof => break,
             PollResult::Timeout => {
                 state.tick_animation();
-                relocate_ticks += 1;
-                if state.follower.is_none()
-                    && relocate_ticks.is_multiple_of(RELOCATE_EVERY_TICKS)
-                    && let Some(msg) = state.try_attach_follower()
-                {
-                    if typing && prompt_shown {
-                        write_raw("\r\x1b[2K");
-                        prompt_shown = false;
-                    }
-                    write_raw(&msg);
-                }
             }
         }
     }
@@ -2964,6 +3496,8 @@ mod tests {
             explained: None,
             seen_path: Some(seen_path),
             miss_log_path: Some(miss_log_path),
+            recording_dir_override: None,
+            check_proc_alive: false,
             tty_arg: None,
             tty_label: "no hook".into(),
             tick: 0,
@@ -2978,7 +3512,7 @@ mod tests {
             lab_xp: None,
             pinned: false,
             last_finished: None,
-            follower: None,
+            watch: WatchTarget::None,
             stdin: StdinReader::new(false),
             editor: LineEditor::new(),
         }
@@ -3271,7 +3805,7 @@ mod tests {
         );
         let Reply::SlashPick { title, defs, .. } = reply("/") else { panic!("expected palette") };
         assert_eq!(title, "Slash commands:");
-        assert_eq!(defs.len(), 12);
+        assert_eq!(defs.len(), 13);
         let Reply::SlashPick { title: amb_title, defs: amb_defs, .. } = reply("/s") else {
             panic!("expected ambiguous")
         };
@@ -3288,6 +3822,7 @@ mod tests {
             for word in [
                 "type / for fuzzy commands",
                 "/mode",
+                "/attach",
                 "/safety",
                 "/theme",
                 "/pet",
@@ -3669,7 +4204,7 @@ mod tests {
 
         let mut st = test_state(&dir, false);
         st.mode = PaneMode::Lab;
-        st.follower = Some(Follower::new(&log));
+        st.watch = WatchTarget::Pinned(Follower::new(&log));
         let mut host = PaneHost { state: &mut st, last_auto_report: None };
 
         // Already in Lab: clarified message when extra args are given, watch switches cleanly.
@@ -3899,5 +4434,183 @@ mod tests {
         assert_eq!(saved_progress.freezes, crate::progress::MAX_FREEZES);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parse_slash_handles_attach_variants() {
+        assert_eq!(parse_slash("/attach"), Some(Reply::Slash(SlashCmd::Attach(None))));
+        assert_eq!(parse_slash("/attach auto"), Some(Reply::Slash(SlashCmd::Attach(Some("auto".into())))));
+        assert_eq!(parse_slash("/attach latest"), Some(Reply::Slash(SlashCmd::Attach(Some("latest".into())))));
+        assert_eq!(parse_slash("/attach 3"), Some(Reply::Slash(SlashCmd::Attach(Some("3".into())))));
+        assert_eq!(parse_slash("/attach /dev/pts/3"), Some(Reply::Slash(SlashCmd::Attach(Some("/dev/pts/3".into())))));
+        let Some(Reply::Instant(usage)) = parse_slash("/attach 3 extra") else {
+            panic!("expected usage error");
+        };
+        assert!(usage.contains("usage: /attach [tty|auto|latest]"), "{usage}");
+    }
+
+    #[test]
+    fn resolve_attach_target_matches_tty_short_forms_and_stem() {
+        let sessions = vec![
+            RecordedSession {
+                log: PathBuf::from("/tmp/huh/101.log"),
+                tty: "/dev/pts/3".into(),
+                cwd: None,
+                last_cmd: None,
+                last_active: None,
+            },
+            RecordedSession {
+                log: PathBuf::from("/tmp/huh/102.log"),
+                tty: "/dev/pts/13".into(),
+                cwd: None,
+                last_cmd: None,
+                last_active: None,
+            },
+        ];
+        assert_eq!(resolve_attach_target(&sessions, "3").map(|s| s.tty.as_str()), Some("/dev/pts/3"));
+        assert_eq!(resolve_attach_target(&sessions, "pts/3").map(|s| s.tty.as_str()), Some("/dev/pts/3"));
+        assert_eq!(resolve_attach_target(&sessions, "/dev/pts/3").map(|s| s.tty.as_str()), Some("/dev/pts/3"));
+        assert_eq!(resolve_attach_target(&sessions, "13").map(|s| s.tty.as_str()), Some("/dev/pts/13"));
+        assert_eq!(resolve_attach_target(&sessions, "102").map(|s| s.tty.as_str()), Some("/dev/pts/13"));
+        assert!(resolve_attach_target(&sessions, "999").is_none());
+    }
+
+    #[test]
+    fn attach_slash_switches_between_recordings_and_ignores_global_log_lock() {
+        let (rec_dir, _) = recording("attach-switch");
+        let log_a = rec_dir.join("101.log");
+        let log_b = rec_dir.join("102.log");
+        finish(&log_a, "a\r\n", 0, "ls");
+        finish(&log_b, "b\r\n", 0, "pwd");
+        set_recording(log_a.clone());
+
+        let mut st = test_state(&rec_dir, false);
+        st.recording_dir_override = Some(rec_dir.clone());
+        st.check_proc_alive = false;
+        st.last_finished = Some(Finished { command: "old".into(), exit: Some(0), raw: String::new() });
+
+        let SlashOutcome::Output(out_b) = st.exec_slash(SlashCmd::Attach(Some("102".into()))) else {
+            panic!("expected attach output");
+        };
+        assert!(out_b.contains("Attached to 102."), "{out_b}");
+        assert_eq!(st.tty_label, "102");
+        assert!(st.last_finished.is_none());
+        assert_eq!(st.watch.pinned_log(), Some(log_b.as_path()));
+
+        // Commands on 101 are ignored while pinned to 102; commands on 102 arrive cleanly.
+        finish(&log_a, "from-a\r\n", 0, "whoami");
+        finish(&log_b, "from-b\r\n", 0, "git status");
+        let mut ticks = 0;
+        let (_, got) = st.poll_watch_step(&mut ticks);
+        assert_eq!(got.map(|f| f.command), Some("git status".to_string()));
+
+        // Switching explicitly back to 101 overrides global RECORDING and resets last_finished.
+        st.last_finished = Some(Finished { command: "stale".into(), exit: Some(0), raw: String::new() });
+        let SlashOutcome::Output(out_a) = st.exec_slash(SlashCmd::Attach(Some("101".into()))) else {
+            panic!();
+        };
+        assert!(out_a.contains("Attached to 101."), "{out_a}");
+        assert_eq!(st.tty_label, "101");
+        assert!(st.last_finished.is_none());
+        assert_eq!(st.watch.pinned_log(), Some(log_a.as_path()));
+
+        // `/attach latest` pins to whichever session was updated most recently.
+        std::thread::sleep(Duration::from_millis(20));
+        finish(&log_b, "newer\r\n", 0, "date");
+        let SlashOutcome::Output(out_latest) = st.exec_slash(SlashCmd::Attach(Some("latest".into()))) else {
+            panic!();
+        };
+        assert!(out_latest.contains("Attached to 102."), "{out_latest}");
+        assert_eq!(st.watch.pinned_log(), Some(log_b.as_path()));
+
+        let _ = std::fs::remove_dir_all(&rec_dir);
+    }
+
+    #[test]
+    fn attach_auto_seeds_without_replay_switches_live_and_discovers_or_prunes_sessions() {
+        let (rec_dir, _) = recording("attach-auto");
+        let log_a = rec_dir.join("101.log");
+        let log_b = rec_dir.join("102.log");
+        let log_c = rec_dir.join("103.log");
+        finish(&log_a, "old-a\r\n", 0, "ls");
+        finish(&log_b, "old-b\r\n", 0, "pwd");
+
+        let mut st = test_state(&rec_dir, false);
+        st.recording_dir_override = Some(rec_dir.clone());
+        st.check_proc_alive = false;
+
+        let SlashOutcome::Output(out_auto) = st.exec_slash(SlashCmd::Attach(Some("auto".into()))) else {
+            panic!();
+        };
+        assert!(out_auto.contains("Auto-following 2 recorded terminal(s)"), "{out_auto}");
+        assert_eq!(st.tty_label, "auto");
+
+        // Pre-existing finished commands are not replayed.
+        let mut ticks = 0;
+        assert_eq!(st.poll_watch_step(&mut ticks), (None, None));
+
+        // Command in 101 arrives and updates header to `auto (101)`.
+        finish(&log_a, "out-a\r\n", 0, "echo from-a");
+        let (notice_a, fin_a) = st.poll_watch_step(&mut ticks);
+        assert!(notice_a.as_deref().is_some_and(|n| n.contains("[following 101]")), "{notice_a:?}");
+        assert_eq!(fin_a.map(|f| f.command), Some("echo from-a".to_string()));
+        assert_eq!(st.tty_label, "auto (101)");
+
+        // Command in 102 switches auto-follow live and emits `[switched to 102]`.
+        finish(&log_b, "out-b\r\n", 0, "echo from-b");
+        let (notice_b, fin_b) = st.poll_watch_step(&mut ticks);
+        assert!(notice_b.as_deref().is_some_and(|n| n.contains("[switched to 102]")), "{notice_b:?}");
+        assert_eq!(fin_b.map(|f| f.command), Some("echo from-b".to_string()));
+        assert_eq!(st.tty_label, "auto (102)");
+
+        // Brand-new recording 103 discovered on relocate tick uses `new_from_start` and catches its first command.
+        finish(&log_c, "out-c\r\n", 0, "echo first-in-c");
+        ticks = RELOCATE_EVERY_TICKS - 1;
+        let (notice_c, fin_c) = st.poll_watch_step(&mut ticks);
+        assert!(notice_c.as_deref().is_some_and(|n| n.contains("[switched to 103]")), "{notice_c:?}");
+        assert_eq!(fin_c.map(|f| f.command), Some("echo first-in-c".to_string()));
+        assert_eq!(st.tty_label, "auto (103)");
+
+        // Removing active recording 103 prunes it back to `auto`, then removing all returns to `no hook`.
+        std::fs::remove_file(&log_c).unwrap();
+        std::fs::remove_file(log_c.with_extension("status")).unwrap();
+        ticks = RELOCATE_EVERY_TICKS - 1;
+        assert_eq!(st.poll_watch_step(&mut ticks), (None, None));
+        assert_eq!(st.tty_label, "auto");
+
+        for p in [&log_a, &log_b] {
+            std::fs::remove_file(p).unwrap();
+            std::fs::remove_file(p.with_extension("status")).unwrap();
+        }
+        ticks = RELOCATE_EVERY_TICKS - 1;
+        assert_eq!(st.poll_watch_step(&mut ticks), (None, None));
+        assert_eq!(st.tty_label, "no hook");
+
+        let _ = std::fs::remove_dir_all(&rec_dir);
+    }
+
+    #[test]
+    fn attach_empty_dir_shows_shell_init_and_non_tui_lists_sessions() {
+        let (rec_dir, _) = recording("attach-empty-and-list");
+        let mut st = test_state(&rec_dir, false);
+        st.recording_dir_override = Some(rec_dir.clone());
+        st.check_proc_alive = false;
+
+        let SlashOutcome::Output(empty_out) = st.exec_slash(SlashCmd::Attach(None)) else {
+            panic!();
+        };
+        assert!(empty_out.contains("huh shell-init"), "{empty_out}");
+
+        let log_a = rec_dir.join("101.log");
+        finish(&log_a, "ok\r\n", 0, "cargo test");
+        let SlashOutcome::Output(list_out) = st.exec_slash(SlashCmd::Attach(None)) else {
+            panic!();
+        };
+        assert!(list_out.contains("Recorded terminals:"), "{list_out}");
+        assert!(list_out.contains("[auto]"), "{list_out}");
+        assert!(list_out.contains("101"), "{list_out}");
+        assert!(list_out.contains("last: cargo test"), "{list_out}");
+
+        let _ = std::fs::remove_dir_all(&rec_dir);
     }
 }

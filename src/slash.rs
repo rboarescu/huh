@@ -1,8 +1,9 @@
 //! Slash command definitions, live fuzzy completions, and submit-time fuzzy resolution.
 //!
-//! Covers all 12 pane slash commands (`/mode`, `/watch`, `/lab`, `/safety`, `/theme`, `/pet`,
-//! `/speed`, `/noise`, `/quiet`, `/tips`, `/find`, `/help`) while guarding Unix paths
-//! (`/etc/hosts`, `/usr/bin/env`) and non-matching word extensions (`/finder`, `/modeled`).
+//! Covers all 13 pane slash commands (`/mode`, `/watch`, `/lab`, `/attach`, `/safety`,
+//! `/theme`, `/pet`, `/speed`, `/noise`, `/quiet`, `/tips`, `/find`, `/help`) while guarding
+//! Unix paths (`/etc/hosts`, `/usr/bin/env`) and non-matching word extensions (`/finder`,
+//! `/modeled`).
 
 use crate::find;
 use crate::pet::Species;
@@ -16,7 +17,7 @@ pub struct SlashDef {
     pub usage: &'static str,
 }
 
-/// All 12 companion-pane slash commands in display order.
+/// All 13 companion-pane slash commands in display order.
 pub const COMMANDS: &[SlashDef] = &[
     SlashDef { name: "/mode", summary: "Switch Watch / Lab mode", usage: "/mode [watch|lab]" },
     SlashDef { name: "/watch", summary: "Switch to Watch mode", usage: "/watch" },
@@ -25,6 +26,7 @@ pub const COMMANDS: &[SlashDef] = &[
         summary: "Switch to Lab course & practice mode",
         usage: "/lab [unit|review|practice|progress]",
     },
+    SlashDef { name: "/attach", summary: "Switch watched terminal", usage: "/attach [tty|auto|latest]" },
     SlashDef { name: "/safety", summary: "Toggle normal / expert safeguards", usage: "/safety [normal|expert]" },
     SlashDef { name: "/theme", summary: "Preview or switch colour theme", usage: "/theme [name]" },
     SlashDef {
@@ -142,6 +144,18 @@ const LAB_ARGS: &[OptionDef] = &[
     OptionDef { name: "7", summary: "Unit 7: Archives & Links" },
     OptionDef { name: "8", summary: "Unit 8: Networking & Stay Safe" },
 ];
+
+const ATTACH_ARGS: &[OptionDef] = &[
+    OptionDef { name: "auto", summary: "Follow whichever recorded shell runs last" },
+    OptionDef { name: "latest", summary: "Pin to most recently active shell" },
+];
+
+/// Live recorded terminal completion candidate for `/attach`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AttachHint {
+    pub target: String,
+    pub summary: String,
+}
 
 fn theme_summary(theme: style::Theme) -> &'static str {
     match theme {
@@ -364,8 +378,69 @@ fn pet_species_completions(query: &str, unlocked_species: &[Species]) -> Vec<Sla
         .collect()
 }
 
+fn attach_target_score(query: &str, target: &str) -> Option<(u8, i32)> {
+    let mut keys = vec![target];
+    if let Some(short) = target.strip_prefix("/dev/") {
+        keys.push(short);
+    }
+    if let Some(base) = target.rsplit('/').next()
+        && !keys.contains(&base)
+    {
+        keys.push(base);
+    }
+    keys.into_iter().filter_map(|k| candidate_score(query, k)).max_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)))
+}
+
+fn attach_completions(query: &str, attach_targets: &[AttachHint]) -> Vec<SlashCompletion> {
+    let q = query.trim();
+    let entries = ATTACH_ARGS
+        .iter()
+        .map(|o| (o.name.to_string(), o.summary.to_string(), false))
+        .chain(attach_targets.iter().map(|h| (h.target.clone(), h.summary.clone(), true)));
+    if q.is_empty() {
+        return entries
+            .map(|(display, summary, _)| SlashCompletion {
+                insert: format!("/attach {display}"),
+                display,
+                summary,
+                auto_submit: true,
+            })
+            .collect();
+    }
+    let mut scored: Vec<(usize, u8, i32, String, String)> = entries
+        .enumerate()
+        .filter_map(|(i, (display, summary, is_tty))| {
+            let (tier, score) = if is_tty { attach_target_score(q, &display)? } else { candidate_score(q, &display)? };
+            Some((i, tier, score, display, summary))
+        })
+        .collect();
+    if scored.iter().any(|(_, tier, _, _, _)| *tier >= TIER_PREFIX) {
+        scored.retain(|(_, tier, _, _, _)| *tier >= TIER_PREFIX);
+    }
+    scored.sort_by(|a, b| b.1.cmp(&a.1).then(b.2.cmp(&a.2)).then(a.0.cmp(&b.0)));
+    scored
+        .into_iter()
+        .map(|(_, _, _, display, summary)| SlashCompletion {
+            insert: format!("/attach {display}"),
+            display,
+            summary,
+            auto_submit: true,
+        })
+        .collect()
+}
+
 /// Returns Stage 1 (command) or Stage 2/3 (sub-argument) completions for `line`.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn completions(line: &str, unlocked_species: &[Species]) -> Vec<SlashCompletion> {
+    completions_with_targets(line, unlocked_species, &[])
+}
+
+/// Returns Stage 1 or Stage 2/3 completions for `line`, including live `/attach` terminal targets.
+pub fn completions_with_targets(
+    line: &str,
+    unlocked_species: &[Species],
+    attach_targets: &[AttachHint],
+) -> Vec<SlashCompletion> {
     if !is_slash_candidate(line) {
         return Vec::new();
     }
@@ -410,6 +485,7 @@ pub fn completions(line: &str, unlocked_species: &[Species]) -> Vec<SlashComplet
     }
     match def.name {
         "/mode" => option_completions("/mode", MODE_ARGS, after_cmd),
+        "/attach" => attach_completions(after_cmd, attach_targets),
         "/safety" => option_completions("/safety", SAFETY_ARGS, after_cmd),
         "/theme" => theme_completions(after_cmd),
         "/speed" => option_completions("/speed", SPEED_ARGS, after_cmd),
@@ -553,6 +629,13 @@ pub fn resolve_submit(line: &str) -> FuzzyResolution {
                 Err(ambig) => ambig,
             }
         }
+        "/attach" if args.len() == 1 => {
+            let opts = ["auto", "latest"];
+            match resolve_option(def, &opts, args[0]) {
+                Ok((v, arg_exact)) => finish_resolution(cmd_exact && arg_exact, format!("/attach {v}")),
+                Err(ambig) => ambig,
+            }
+        }
         "/safety" if args.len() == 1 => {
             let opts = ["normal", "expert"];
             match resolve_option(def, &opts, args[0]) {
@@ -612,13 +695,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn command_table_lists_all_twelve_in_order() {
+    fn command_table_lists_all_thirteen_in_order() {
         let names: Vec<&str> = COMMANDS.iter().map(|c| c.name).collect();
         assert_eq!(
             names,
             [
-                "/mode", "/watch", "/lab", "/safety", "/theme", "/pet", "/speed", "/noise", "/quiet", "/tips", "/find",
-                "/help",
+                "/mode", "/watch", "/lab", "/attach", "/safety", "/theme", "/pet", "/speed", "/noise", "/quiet",
+                "/tips", "/find", "/help",
             ]
         );
         for def in COMMANDS {
@@ -630,7 +713,7 @@ mod tests {
 
     #[test]
     fn unix_path_guardrail_rejects_multi_segment_paths_and_non_slash_inputs() {
-        for ok in ["/", "  /  ", "/th", "/md", "/mode lab", "/find /etc/hosts", "/pet name a/b"] {
+        for ok in ["/", "  /  ", "/th", "/md", "/mode lab", "/attach /dev/pts/3", "/find /etc/hosts", "/pet name a/b"] {
             assert!(is_slash_candidate(ok), "expected slash candidate: {ok:?}");
         }
         for nope in [
@@ -655,10 +738,19 @@ mod tests {
     #[test]
     fn stage1_completions_cover_palette_prefixes_and_fuzzy_commands() {
         let all = completions("/", &[]);
-        assert_eq!(all.len(), 12);
+        assert_eq!(all.len(), 13);
         assert_eq!(all[0].display, "/mode");
         assert_eq!(all[0].insert, "/mode ");
         assert!(all[0].auto_submit);
+        let attach = all.iter().find(|c| c.display == "/attach").unwrap();
+        assert_eq!(attach.insert, "/attach ");
+        assert!(attach.auto_submit);
+
+        for q in ["/a", "/at", "/att"] {
+            let m = completions(q, &[]);
+            assert_eq!(m.len(), 1, "{q}");
+            assert_eq!(m[0].display, "/attach", "{q}");
+        }
 
         // Zero-arg commands keep no trailing space.
         let watch = all.iter().find(|c| c.display == "/watch").unwrap();
@@ -844,12 +936,49 @@ mod tests {
         );
 
         // Ambiguous commands and ambiguous sub-args.
-        assert_eq!(resolve_submit("/s"), FuzzyResolution::Ambiguous(vec![&COMMANDS[3], &COMMANDS[6]]));
-        assert_eq!(resolve_submit("/t"), FuzzyResolution::Ambiguous(vec![&COMMANDS[4], &COMMANDS[9]]));
-        assert_eq!(resolve_submit("/pet st"), FuzzyResolution::Ambiguous(vec![&COMMANDS[5]]));
-        assert_eq!(resolve_submit("/quiet o"), FuzzyResolution::Ambiguous(vec![&COMMANDS[8]]));
-        assert_eq!(resolve_submit("/tips o"), FuzzyResolution::Ambiguous(vec![&COMMANDS[9]]));
-        assert_eq!(resolve_submit("/pet style a"), FuzzyResolution::Ambiguous(vec![&COMMANDS[5]]));
+        assert_eq!(resolve_submit("/s"), FuzzyResolution::Ambiguous(vec![&COMMANDS[4], &COMMANDS[7]]));
+        assert_eq!(resolve_submit("/t"), FuzzyResolution::Ambiguous(vec![&COMMANDS[5], &COMMANDS[10]]));
+        assert_eq!(resolve_submit("/pet st"), FuzzyResolution::Ambiguous(vec![&COMMANDS[6]]));
+        assert_eq!(resolve_submit("/quiet o"), FuzzyResolution::Ambiguous(vec![&COMMANDS[9]]));
+        assert_eq!(resolve_submit("/tips o"), FuzzyResolution::Ambiguous(vec![&COMMANDS[10]]));
+        assert_eq!(resolve_submit("/pet style a"), FuzzyResolution::Ambiguous(vec![&COMMANDS[6]]));
+
+        // /attach completion hints & submit resolution.
+        let bare_attach: Vec<String> = completions("/attach ", &[]).into_iter().map(|c| c.display).collect();
+        assert_eq!(bare_attach, ["auto", "latest"]);
+        let hints = [
+            AttachHint { target: "/dev/pts/3".into(), summary: "~/Projects/huh · last: cargo test · 4s ago".into() },
+            AttachHint { target: "/dev/pts/13".into(), summary: "~ · last: ls · 1m ago".into() },
+        ];
+        let with_hints: Vec<String> =
+            completions_with_targets("/attach ", &[], &hints).into_iter().map(|c| c.display).collect();
+        assert_eq!(with_hints, ["auto", "latest", "/dev/pts/3", "/dev/pts/13"]);
+        let narrowed = completions_with_targets("/at 3", &[], &hints);
+        assert_eq!(narrowed.len(), 1);
+        assert_eq!(narrowed[0].insert, "/attach /dev/pts/3");
+        let by_full = completions_with_targets("/attach /dev/pts/13", &[], &hints);
+        assert_eq!(by_full.len(), 1);
+        assert_eq!(by_full[0].insert, "/attach /dev/pts/13");
+        let au = completions_with_targets("/attach au", &[], &hints);
+        assert_eq!(au.len(), 1);
+        assert_eq!(au[0].insert, "/attach auto");
+
+        assert_eq!(resolve_submit("/attach"), FuzzyResolution::Exact("/attach".into()));
+        assert_eq!(
+            resolve_submit("/at"),
+            FuzzyResolution::Unique { resolved: "/attach".into(), note: "→ /attach".into() }
+        );
+        assert_eq!(
+            resolve_submit("/attach au"),
+            FuzzyResolution::Unique { resolved: "/attach auto".into(), note: "→ /attach auto".into() }
+        );
+        assert_eq!(
+            resolve_submit("/attach la"),
+            FuzzyResolution::Unique { resolved: "/attach latest".into(), note: "→ /attach latest".into() }
+        );
+        assert_eq!(resolve_submit("/attach 3"), FuzzyResolution::Exact("/attach 3".into()));
+        assert_eq!(resolve_submit("/attach pts/3"), FuzzyResolution::Exact("/attach pts/3".into()));
+        assert_eq!(resolve_submit("/attach /dev/pts/3"), FuzzyResolution::Exact("/attach /dev/pts/3".into()));
 
         // Additional DL transpositions, numeric speed, and /pet subcommands.
         assert_eq!(

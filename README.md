@@ -68,6 +68,8 @@ Optional Omarchy / Hyprland shortcut (`~/.config/hypr/bindings.lua`, then run `h
 o.bind("SUPER + ALT + H", "huh companion", "xdg-terminal-exec --app-id=huh --title=huh -- huh --here")
 ```
 
+When launched without `--tty` (like the hotkey above) or with `--auto`, `huh` auto-follows whichever recorded terminal finishes a command most recently; run `/attach` inside the pane to pick, switch, or pin terminals live.
+
 ### From source (Cargo)
 
 ```bash
@@ -168,16 +170,17 @@ Running bare `huh` opens a unified side-by-side companion pane next to your shel
 
 ```bash
 huh                          # open Watch + Lab companion pane beside your shell
+huh --auto                   # open companion pane auto-following whichever shell runs last
 huh --mode lab               # launch directly into interactive Linux Lab mode
-huh --here                   # run in the current terminal pane
+huh --here                   # run in the current terminal pane (auto-follows when no --tty)
 huh --noise new              # explain unseen programs only (alias: --quiet); all | new | errors
 ```
 
 Inside the pane:
-- **`watch` mode (default):** Passively follows finished commands in the adjacent shell (`220 ms` poll loop), explains flags, outputs, and failures with an ANSI-safe variable-rate typewriter, and still lets you type commands, plain questions, `?tools`, `why`, or `pet` directly at the `huh> ` prompt.
+- **`watch` mode (default):** Passively follows finished commands in the adjacent shell (`220 ms` poll loop; or switches live across recorded shells under `--auto` / `/attach auto`), explains flags, outputs, and failures with an ANSI-safe variable-rate typewriter, and still lets you type commands, plain questions, `?tools`, `why`, or `pet` directly at the `huh> ` prompt.
 - **Watch noise levels (`/noise`):** Choose `all` (default — explain every finished command), `new` (explain unseen programs once and persist seen names to `~/.local/state/huh/seen.txt`; backward-compatible with `--quiet` / `/quiet`), or `errors` (stay quiet on clean `exit 0` commands and speak up on non-zero exits or safety warnings).
 - **Live `/` fuzzy slash dropdown & pickers:** Typing `/` pops up an inline TTY dropdown with Stage 1–3 completions (`Tab` completes, `↑`/`↓` navigates, `Enter` runs or prefills, `/etc/hosts`-style Unix paths are never hijacked):
-  - `/mode [watch|lab]` (`/watch`, `/lab`), `/safety [normal|expert]`, `/theme [name]`, `/pet [status|name|species|style|pebbles|customize]`, `/speed [off|fast|normal|slow|<ms>]`, `/noise [all|new|errors]`, `/quiet [on|off]`, `/tips [on|off|next]`, `/find [words]`, `/help`.
+  - `/mode [watch|lab]` (`/watch`, `/lab`), `/attach [tty|auto|latest]`, `/safety [normal|expert]`, `/theme [name]`, `/pet [status|name|species|style|pebbles|customize]`, `/speed [off|fast|normal|slow|<ms>]`, `/noise [all|new|errors]`, `/quiet [on|off]`, `/tips [on|off|next]`, `/find [words]`, `/help`.
 - **Pinned DECSTBM header:** Keeps the animated `L2b` logo, **Pebble / your pet**, `[WATCH]` / `[LAB]` status bar, and Row-7 15-second rotating usage tips pinned at the top while explanations scroll underneath.
 
 ---

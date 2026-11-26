@@ -114,6 +114,9 @@ struct Cli {
     /// Follow the recording of this terminal (e.g. /dev/pts/3) in this pane
     #[arg(long, conflicts_with = "request", value_name = "TTY")]
     tty: Option<String>,
+    /// Follow whichever recorded terminal finishes a command most recently
+    #[arg(long, conflicts_with_all = ["request", "tty"])]
+    auto: bool,
     /// Print how the companion pane would be started without launching it (also HUH_DRY_RUN=1)
     #[arg(long, conflicts_with = "request")]
     dry_run: bool,
@@ -716,7 +719,7 @@ pub(crate) fn record_outcome_miss(path: &std::path::Path, request: &str, outcome
 }
 
 /// Starts the unified companion pane beside this terminal (see launch.rs).
-fn side(quiet: bool, noise: Option<&str>, dry_run: bool, initial_mode: Option<&str>) -> Result<()> {
+fn side(quiet: bool, noise: Option<&str>, dry_run: bool, initial_mode: Option<&str>, auto: bool) -> Result<()> {
     let dry_run = dry_run || std::env::var_os("HUH_DRY_RUN").is_some_and(|v| !v.is_empty() && v != "0");
     let tty = launch::stdin_tty().or_else(|| dry_run.then(|| "<this tty>".to_string()));
     let huh = std::env::current_exe()?;
@@ -730,6 +733,7 @@ fn side(quiet: bool, noise: Option<&str>, dry_run: bool, initial_mode: Option<&s
         quiet,
         noise,
         initial_mode,
+        auto,
         std::process::id(),
     );
     let platforms = platform::detect();
@@ -909,6 +913,7 @@ fn main() -> Result<()> {
                 && !cli.dry_run
                 && !cli.here
                 && cli.tty.is_none()
+                && !cli.auto
                 && cli.mode.is_none()
                 && cli.noise.is_none()
                 && !cli.quiet
@@ -935,6 +940,7 @@ fn main() -> Result<()> {
                     initial_mode,
                     noise,
                     tty: cli.tty.clone(),
+                    auto: cli.auto,
                     safety,
                     theme: active_theme,
                     color_on,
@@ -957,7 +963,7 @@ fn main() -> Result<()> {
             let forward_noise = cli_noise.map(prefs::NoiseLevel::name);
             let forward_quiet =
                 cli_noise.is_none() && (cli.quiet || (prefs.noise.is_none() && prefs.quiet.unwrap_or(false)));
-            return side(forward_quiet, forward_noise, cli.dry_run, cli_mode.map(|m| m.name()));
+            return side(forward_quiet, forward_noise, cli.dry_run, cli_mode.map(|m| m.name()), cli.auto);
         }
         _ => {}
     }
@@ -1223,6 +1229,12 @@ mod tests {
         let learn_req = Cli::try_parse_from(["huh", "learn"]).unwrap();
         assert!(learn_req.action.is_none() && learn_req.request == ["learn"]);
         assert!(Cli::try_parse_from(["huh", "--here", "list files"]).is_err());
+        let auto_side = Cli::try_parse_from(["huh", "--auto"]).unwrap();
+        assert!(auto_side.auto && !auto_side.here && auto_side.tty.is_none());
+        let auto_here = Cli::try_parse_from(["huh", "--here", "--auto"]).unwrap();
+        assert!(auto_here.auto && auto_here.here && auto_here.tty.is_none());
+        assert!(Cli::try_parse_from(["huh", "--auto", "--tty", "3"]).is_err());
+        assert!(Cli::try_parse_from(["huh", "--auto", "list files"]).is_err());
     }
 
     #[test]
