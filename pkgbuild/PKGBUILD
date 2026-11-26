@@ -1,7 +1,7 @@
 # Maintainer: Radu Boarescu <https://github.com/rboarescu/huh>
 
 pkgname=huh-bin
-pkgver=0.2.0
+pkgver=0.2.1
 pkgrel=1
 pkgdesc="Offline deterministic terminal companion, command explainer, error doctor & lab"
 arch=('x86_64' 'aarch64')

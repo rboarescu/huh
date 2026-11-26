@@ -95,7 +95,7 @@ huh eval-errors                                      # evals/errors.toml (30 cas
 huh eval-errors --cases evals/errors-real.toml       # evals/errors-real.toml (67 real-world failures)
 ```
 
-All `evals/*.toml` suites run automatically in `cargo test --release --quiet` (**468 passed, 0 failed, 2 ignored** manual dump helpers).
+All `evals/*.toml` suites run automatically in `cargo test --release --quiet` (**474 passed, 0 failed, 2 ignored** manual dump helpers).
 
 ---
 

@@ -42,7 +42,7 @@ Inspect [`install.sh`](install.sh) or run it directly — it verifies `SHA256SUM
 curl -fsSL https://raw.githubusercontent.com/rboarescu/huh/master/install.sh | sh
 ```
 
-*(Override destination or release version with `HUH_INSTALL_DIR=...` or `HUH_VERSION=v0.2.0`.)*
+*(Override destination or release version with `HUH_INSTALL_DIR=...` or `HUH_VERSION=v0.2.1`.)*
 
 ### Omarchy & Arch Linux
 
@@ -284,7 +284,7 @@ A warning informs; it never forbids. `huh` shows it and you decide. Every warnin
 
 ## Architecture & Contributing
 
-`huh` enforces strict modularity and automated regression suites (**468 regression tests** covering 11 `evals/*.toml` request benchmarks, 6 `evals/errors*.toml` Error Doctor suites, `outputs`, `explain`, `lessons`, `sprites`, `tui`, `slash`, `platform`, `pet`, `misses`, `prefs`, `setup`, `pane`, and subprocess-isolation checks).
+`huh` enforces strict modularity and automated regression suites (**474 regression tests** covering 11 `evals/*.toml` request benchmarks, 6 `evals/errors*.toml` Error Doctor suites, `outputs`, `explain`, `lessons`, `sprites`, `tui`, `slash`, `platform`, `pet`, `misses`, `prefs`, `setup`, `pane`, and subprocess-isolation checks).
 
 - Read the full internals, platform extension format, and module map in **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**.
 - Track completed milestones and upcoming ideas in **[`ROADMAP.md`](ROADMAP.md)**.
