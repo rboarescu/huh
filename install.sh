@@ -3,7 +3,7 @@
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/rboarescu/huh/master/install.sh | sh
 # Environment overrides:
-#   HUH_VERSION=v0.1.1        (default: latest)
+#   HUH_VERSION=v0.2.0        (default: latest)
 #   HUH_INSTALL_DIR=~/.local/bin
 
 set -eu
@@ -60,7 +60,7 @@ main() {
                 | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
                 | head -n 1
         ) || [ -z "$tag" ]; then
-            err "could not determine latest release tag from GitHub; pass HUH_VERSION=v0.1.1 explicitly"
+            err "could not determine latest release tag from GitHub; pass HUH_VERSION=v0.2.0 explicitly"
         fi
     else
         tag="$VERSION"

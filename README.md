@@ -42,7 +42,7 @@ Inspect [`install.sh`](install.sh) or run it directly — it verifies `SHA256SUM
 curl -fsSL https://raw.githubusercontent.com/rboarescu/huh/master/install.sh | sh
 ```
 
-*(Override destination or release version with `HUH_INSTALL_DIR=...` or `HUH_VERSION=v0.1.1`.)*
+*(Override destination or release version with `HUH_INSTALL_DIR=...` or `HUH_VERSION=v0.2.0`.)*
 
 ### Omarchy & Arch Linux
 

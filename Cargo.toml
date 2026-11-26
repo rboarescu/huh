@@ -1,6 +1,6 @@
 [package]
 name = "huh"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 description = "Plain-language terminal assistant: deterministic local command matching, explanation, error diagnosis, and interactive Linux lab"

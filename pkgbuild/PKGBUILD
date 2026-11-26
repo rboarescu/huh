@@ -1,7 +1,7 @@
 # Maintainer: Radu Boarescu <https://github.com/rboarescu/huh>
 
 pkgname=huh-bin
-pkgver=0.1.1
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="Offline deterministic terminal companion, command explainer, error doctor & lab"
 arch=('x86_64' 'aarch64')
@@ -16,8 +16,8 @@ optdepends=(
 )
 source_x86_64=("${pkgname}-${pkgver}-x86_64.tar.gz::${url}/releases/download/v${pkgver}/huh-v${pkgver}-x86_64-unknown-linux-musl.tar.gz")
 source_aarch64=("${pkgname}-${pkgver}-aarch64.tar.gz::${url}/releases/download/v${pkgver}/huh-v${pkgver}-aarch64-unknown-linux-musl.tar.gz")
-sha256sums_x86_64=('2f957d3663c7da9c0c56249baeb4a6e9a904dd3491cb3dc659f8eaec8ec76d76')
-sha256sums_aarch64=('39bac0a74613dffadc5c02d91ee0cde0c6bd0968c40f77a228682ff50140c137')
+sha256sums_x86_64=('SKIP')
+sha256sums_aarch64=('SKIP')
 
 package() {
   local _dist="${srcdir}/huh-v${pkgver}-${CARCH}-unknown-linux-musl"
